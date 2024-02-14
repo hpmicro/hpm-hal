@@ -1,0 +1,21 @@
+[build]
+# target = "riscv32imac-unknown-none-elf"
+# with fp
+target = "riscv32imafc-unknown-none-elf"
+
+[alias]
+r = "run --release --example"
+
+[target.riscv32imafc-unknown-none-elf]
+runner = 'riscv64-unknown-elf-gdb -x openocd.gdb'
+
+rustflags = [
+    # "-C", "link-arg=-Tmemory.x",
+    "-C",
+    "link-arg=-Tlink.x",
+    "-C",
+    "link-arg=-Tdevice.x",
+
+    # "--emit", "obj",
+    # "--emit", "asm",
+]
