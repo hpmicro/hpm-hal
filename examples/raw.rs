@@ -74,8 +74,4 @@ unsafe extern "C" fn main() -> ! {
         fgpio.do_(PA).clear().write(|w| w.bits(1 << 23));
         riscv::asm::delay(8_000_000);
     }
-
-    // gio_
-
-    loop {}
 }

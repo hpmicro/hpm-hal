@@ -458,7 +458,7 @@ macro_rules! cfg_global_asm {
 
 global_asm!(
     r#"
-    .attribute arch, "rv32im"
+    .attribute arch, "rv32imafc"
 "#
 );
 
@@ -477,7 +477,15 @@ _start:
     la tp, __thread_pointer$
     .option pop
 
-    csrrw x0, mstatus, x0"#,
+    // reset mstatus to 0
+    csrrw x0, mstatus, x0
+
+    // enable FPU
+    li t0, 0x6000
+    csrrs t0, mstatus, t0
+    // initialize FCSR
+    fscsr x0
+    "#,
 
     // TODO: fpu
     "
@@ -514,34 +522,12 @@ pub unsafe extern "C" fn start_rust(a0: usize, a1: usize, a2: usize) -> ! {
         // fn _mp_hook(hartid: usize) -> bool;
     }
 
-    extern "C" {
-        static __bss_start__: u32;
-        static __bss_end__: u32;
-
-        static __tdata_start__: u32;
-        static __tdata_end__: u32;
-
-        static __data_start__: u32;
-        static __data_end__: u32;
-
-        static __ramfunc_start__: u32;
-        static __ramfunc_end__: u32;
-
-        static __data_load_addr__: u32;
-        static __tdata_load_addr__: u32;
-        static __fast_load_addr__: u32;
-
-        static __vector_ram_start__: u32;
-        static __vector_ram_end__: u32;
-        static __vector_load_addr__: u32;
-    }
-
     __pre_init();
 
     // for FLASH_XIP and FLASH_UF2
-    let start = __vector_ram_start__;
-    let end = __vector_ram_end__;
-    let vector_ram_size: usize = (end - start) as usize;
+    //    let start = __vector_ram_start__;
+    //  let end = __vector_ram_end__;
+    // let vector_ram_size: usize = (end - start) as usize;
 
     /*
     core::ptr::copy(
