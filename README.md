@@ -1,4 +1,4 @@
-# hpm5300-hal
+# hpm5361-hal
 
 - RV32-IMAFDCPB
 
