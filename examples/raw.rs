@@ -4,21 +4,6 @@
 use hal::pac;
 use {hpm5361_hal as hal, panic_halt as _};
 
-fn cpu0_freq() -> u32 {
-    let sysctl = unsafe { &*pac::SYSCTL::PTR };
-
-    // cpu0 功能时钟设置寄存器
-    let mux = sysctl.clock_cpu(0).read().mux();
-    let div = sysctl.clock_cpu(0).read().div().bits() + 1;
-
-    if mux.bits() == 0 {
-        // osc0_clk0
-        24_000_000 / (div as u32)
-    } else {
-        todo!()
-    }
-}
-
 #[no_mangle]
 unsafe extern "C" fn main() -> ! {
     let sysctl = &*pac::SYSCTL::PTR;
