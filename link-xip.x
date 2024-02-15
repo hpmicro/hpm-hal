@@ -9,7 +9,7 @@ ENTRY(_start)
 _stack_size = 10K;
 _heap_size = 0;
 
-_flash_size = 512K;
+_flash_size = 1M;
 
 STACK_SIZE = _stack_size;
 HEAP_SIZE = _heap_size;

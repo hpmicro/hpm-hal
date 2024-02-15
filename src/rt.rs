@@ -134,6 +134,7 @@ pub struct boot_header_t {
  */
 #[no_mangle]
 #[link_section = ".nor_cfg_option"]
+#[used]
 pub static NOR_CFG_OPTION: [u32; 4] = [0xfcf90002, 0x00000006, 0x1000, 0x0]; // FLASH_XIP
 
 // TODO: FLASH_UF2
@@ -187,6 +188,7 @@ global_asm!(
 );
 
 #[link_section = ".boot_header"]
+#[used]
 pub static HEADER: boot_header_t = boot_header_t {
     tag: HPM_BOOTHEADER_TAG,
     version: 0x10,
@@ -282,6 +284,7 @@ extern "C" {
 
 #[no_mangle]
 #[link_section = ".vector_table"]
+#[used]
 pub static __INTERRUPTS: [Option<unsafe extern "C" fn()>; 73] = [
     Some(TrapHanlder),
     Some(GPIO0_A),
@@ -536,34 +539,69 @@ pub unsafe extern "C" fn start_rust(a0: usize, a1: usize, a2: usize) -> ! {
     __pre_init();
 
     // for FLASH_XIP and FLASH_UF2
-    let vector_ram_size: usize = (__vector_ram_end__ - __vector_ram_start__) as usize;
+    let start = __vector_ram_start__;
+    let end = __vector_ram_end__;
+    let vector_ram_size: usize = (end - start) as usize;
+
+    /*
     core::ptr::copy(
         __vector_load_addr__ as *mut u8,
         __vector_ram_start__ as *mut u8,
         vector_ram_size,
     );
+    */
+    core::arch::asm!(
+        "
+            // vector ram
+            la      {start},__vector_ram_start__
+            la      {end},__vector_ram_end__
+            la      {input},__vector_load_addr__
 
-    // bss section
-    let bss_size = (__bss_end__ - __bss_start__) as usize;
-    core::ptr::write_bytes(__bss_start__ as *mut u8, 0, bss_size);
+            bgeu    {start},{end},2f
+        1:
+            lw      {a},0({input})
+            addi    {input},{input},4
+            sw      {a},0({start})
+            addi    {start},{start},4
+            bltu    {start},{end},1b
+        2:
+            li      {a},0
+            li      {input},0
 
-    // noncachedable bss section
-    // __noncacheable_bss_start__
+            // .data
+            la      {start},__data_start__
+            la      {end},__data_end__
+            la      {input},__data_load_addr__
 
-    // data section
-    let size = (__data_end__ - __data_start__) as usize;
-    core::ptr::copy(
-        __data_load_addr__ as *mut u8,
-        __data_start__ as *mut u8,
-        size,
-    );
+            bgeu    {start},{end},3f
+        1:
+            lw      {a},0({input})
+            addi    {input},{input},4
+            sw      {a},0({start})
+            addi    {start},{start},4
+            bltu    {start},{end},1b
+        3:
+            li      {a},0
+            li      {input},0
 
-    // ramfunc section
-    let size = (__ramfunc_end__ - __ramfunc_start__) as usize;
-    core::ptr::copy(
-        __fast_load_addr__ as *mut u8,
-        __ramfunc_start__ as *mut u8,
-        size,
+            // zero out .bss
+            la      {start},__bss_start__
+            la      {end},__bss_end__
+
+            bgeu    {start},{end},3f
+        2:
+            sw      zero,0({start})
+            addi    {start},{start},4
+            bltu    {start},{end},2b
+
+        3:
+            li      {start},0
+            li      {end},0
+    ",
+        start = out(reg) _,
+        end = out(reg) _,
+        input = out(reg) _,
+        a = out(reg) _,
     );
 
     // __noncacheable_init_load_addr__

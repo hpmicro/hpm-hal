@@ -1,5 +1,5 @@
-use std::{env, fs};
 use std::path::PathBuf;
+use std::{env, fs};
 
 fn main() {
     // Put the memory definitions somewhere the linker can find it
@@ -11,6 +11,4 @@ fn main() {
 
     fs::copy("device.x", out_dir.join("device.x")).unwrap();
     println!("cargo:rerun-if-changed=device.x");
-
-
 }

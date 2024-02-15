@@ -1,4 +1,7 @@
-# hpm5361-hal
+# hpm5300-hal
+
+- RV32-IMAFDCPB
+
 
 
 ## OpenOCD
