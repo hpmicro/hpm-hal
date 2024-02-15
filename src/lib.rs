@@ -7,6 +7,7 @@ pub mod rt;
 pub mod signature;
 pub mod sysctl;
 pub mod uart;
+pub mod delay;
 
 pub fn init() {
     unsafe {

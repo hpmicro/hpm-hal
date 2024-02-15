@@ -12,20 +12,15 @@ pub mod otp_addr {
     pub const UUID: u8 = 88;
 }
 
-pub fn read_otp_word(word: u8) -> u32 {
+pub fn otp_read_from_shadow(addr: u8) -> u32 {
     let otp = unsafe { &*pac::OTP::PTR };
 
-    otp.addr().write(|w| unsafe { w.addr().bits(word) });
-    otp.cmd().write(|w| unsafe { w.cmd().bits(CMD_READ) });
-
-    while otp.int_flag().read().read().bit_is_clear() {} // wait for INT_FLAG[READ] to be set
-
-    otp.data().read().bits()
+    otp.shadow(addr as usize).read().bits()
 }
 
 // FIXME
 pub fn chip_id() -> u32 {
-    read_otp_word(otp_addr::CHIP_ID)
+    otp_read_from_shadow(otp_addr::CHIP_ID)
 }
 
 // FIXME
@@ -33,8 +28,20 @@ pub fn uuid() -> [u32; 4] {
     let mut uuid = [0; 4];
 
     for (i, word) in uuid.iter_mut().enumerate() {
-        *word = read_otp_word(otp_addr::UUID + i as u8);
+        *word = otp_read_from_shadow(otp_addr::UUID + i as u8);
     }
 
     uuid
+}
+
+pub fn enable_temp_sensor() {
+    let tsns = unsafe { &*pac::TSNS::PTR };
+    tsns.config().modify(|_, w| w.enable().set_bit().continuous().set_bit());
+}
+
+pub fn current_temp_celsius() -> f32 {
+    let tsns = unsafe { &*pac::TSNS::PTR };
+    while tsns.status().read().valid().bit_is_clear() {}
+    let raw = tsns.t().read().t().bits();
+    raw as f32 / 256.0
 }
