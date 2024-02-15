@@ -13,13 +13,9 @@ impl DevUart2 {
         // init_uart_pins
 
         // PB8, UART2_TXD = ALT2
-        ioc.padpb08()
-            .func_ctl()
-            .write(|w| w.alt_select().variant(2));
+        ioc.padpb08().func_ctl().write(|w| w.alt_select().variant(2));
         // PB9, UART2_RXD = ALT2
-        ioc.padpb09()
-            .func_ctl()
-            .write(|w| w.alt_select().variant(2));
+        ioc.padpb09().func_ctl().write(|w| w.alt_select().variant(2));
 
         // * Configure uart clock to 24MHz
         // clock_set_source_divider
@@ -94,9 +90,7 @@ impl DevUart2 {
             uart2.lcr().write(|w| w.wls().variant(3)); // 8 bits
 
             // reset TX and RX fifo
-            uart2
-                .fcrr()
-                .write(|w| w.tfiforst().set_bit().rfiforst().set_bit());
+            uart2.fcrr().write(|w| w.tfiforst().set_bit().rfiforst().set_bit());
             // enable fifo
             uart2.fcrr().write(|w| {
                 w.fifot4en()

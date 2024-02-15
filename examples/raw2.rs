@@ -43,9 +43,9 @@ unsafe extern "C" fn main() -> ! {
     // gpiom_set_pin_controller
     // gpiom_enable_pin_visibility
     // gpiom_lock_pin
-    const PA: usize = 0;
+    const PB: usize = 1;
     // use core0 fast
-    gpiom.assign(PA).pin(23).modify(|_, w| {
+    gpiom.assign(PB).pin(8).modify(|_, w| {
         w.select()
             .bits(2) // use 0: GPIO0
             .hide()
@@ -56,15 +56,15 @@ unsafe extern "C" fn main() -> ! {
     // 1 gpio1, 2 core0 fgpio, 3 core1 fgpio
 
     // gpio_set_pin_output
-    fgpio.oe(PA).set().write(|w| w.bits(1 << 23));
+    fgpio.oe(PB).set().write(|w| w.bits(1 << 8));
 
     // gpio_write_pin
 
     loop {
-        fgpio.do_(PA).set().write(|w| w.bits(1 << 23));
+        fgpio.do_(PB).set().write(|w| w.bits(1 << 8));
 
         riscv::asm::delay(8_000_000);
-        fgpio.do_(PA).clear().write(|w| w.bits(1 << 23));
+        fgpio.do_(PB).clear().write(|w| w.bits(1 << 8));
         riscv::asm::delay(8_000_000);
     }
 }

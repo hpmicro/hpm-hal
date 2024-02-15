@@ -1,5 +1,5 @@
 #![no_std]
-#![recursion_limit = "20480"]
+#![recursion_limit = "2048"]
 
 pub use hpm5361_pac as pac;
 

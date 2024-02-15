@@ -1,14 +1,12 @@
 #![allow(unused)]
 
-use core::{
-    arch::{asm, global_asm},
-    mem::size_of,
-    sync::atomic::{compiler_fence, Ordering},
-};
-use riscv::{
-    asm,
-    register::{mtvec, stvec::TrapMode},
-};
+use core::arch::{asm, global_asm};
+use core::mem::size_of;
+use core::sync::atomic::{compiler_fence, Ordering};
+
+use riscv::asm;
+use riscv::register::mtvec;
+use riscv::register::stvec::TrapMode;
 
 pub const HPM_BOOTHEADER_TAG: u8 = 0xBF;
 pub const HPM_BOOTHEADER_MAX_FW_COUNT: u8 = 2;

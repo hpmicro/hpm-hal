@@ -1,11 +1,11 @@
 [package]
-name = "hpm5300-hal"
-version = "0.0.0"
+name = "hpm5361-hal"
+version = "0.0.1"
 edition = "2021"
 authors = ["Andelf <andelf@gmail.com>"]
-repository = "https://github.com/andelf/hpm5300-hal"
+repository = "https://github.com/andelf/hpm-hal"
 documentation = "https://docs.rs/hpm5300-hal"
-homepage = "https://github.com/andelf/hpm5300-hal"
+homepage = "https://github.com/andelf/hpm5361-hal"
 categories = []
 description = "HAL crate for HPM5300 series RISC-V MCUs, HPM5361, HPM5331, HPM5321, HPM5301"
 keywords = []
@@ -15,7 +15,10 @@ license = "MIT/Apache-2.0"
 [dependencies]
 riscv = { version = "0.11", features = ["critical-section-single-hart"] }
 embedded-hal = { version = "1.0.0" }
-hpm5361-pac = { version = "0.0.2", features = ["critical-section"], path = "../hpm5361-pac" }
+hpm5361-pac = { version = "0.0.3", features = [
+    "critical-section",
+], path = "../hpm5361-pac" }
+# hpm5361-pac = { version = "0.0.3", features = ["critical-section"]}
 critical-section = "1.1.2"
 fugit = "0.3.7"
 
