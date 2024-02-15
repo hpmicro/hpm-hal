@@ -4,3 +4,4 @@
 pub use hpm5361_pac as pac;
 
 pub mod rt;
+pub mod uart;
