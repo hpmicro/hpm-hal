@@ -4,9 +4,11 @@ use core::arch::{asm, global_asm};
 use core::mem::size_of;
 use core::sync::atomic::{compiler_fence, Ordering};
 
+use hpm5361_pac::dac0::irq_en;
+use hpm5361_pac::mcan0::ir;
 use riscv::asm;
-use riscv::register::{mscratch, mstatus, mtvec};
 use riscv::register::stvec::TrapMode;
+use riscv::register::{mscratch, mstatus, mtvec};
 
 pub const HPM_BOOTHEADER_TAG: u8 = 0xBF;
 pub const HPM_BOOTHEADER_MAX_FW_COUNT: u8 = 2;
@@ -205,6 +207,33 @@ extern "C" fn DefaultInterruptHandler() {
 }
 
 extern "C" {
+    fn SupervisorSoft();
+    fn MachineSoft();
+    fn SupervisorTimer();
+    fn MachineTimer();
+    fn SupervisorExternal();
+    fn MachineExternal();
+}
+
+#[doc(hidden)]
+#[link_section = ".vector_table"]
+#[no_mangle]
+pub static __INTERRUPTS: [Option<unsafe extern "C" fn()>; 12] = [
+    None,
+    Some(SupervisorSoft),
+    None,
+    Some(MachineSoft),
+    None,
+    Some(SupervisorTimer),
+    None,
+    Some(MachineTimer),
+    None,
+    Some(SupervisorExternal),
+    None,
+    Some(MachineExternal),
+];
+
+extern "C" {
     fn TrapHanlder();
     fn GPIO0_A();
     fn GPIO0_B();
@@ -283,7 +312,7 @@ extern "C" {
 #[no_mangle]
 #[link_section = ".vector_table"]
 #[used]
-pub static __INTERRUPTS: [Option<unsafe extern "C" fn()>; 73] = [
+pub static __EXTERNAL_INTERRUPTS: [Option<unsafe extern "C" fn()>; 73] = [
     Some(TrapHanlder),
     Some(GPIO0_A),
     Some(GPIO0_B),
@@ -624,26 +653,36 @@ pub unsafe extern "C" fn start_rust(a0: usize, a1: usize, a2: usize) -> ! {
 #[rustfmt::skip]
 pub extern "Rust" fn default_pre_init() {}
 
-
-
 #[no_mangle]
 pub unsafe extern "riscv-interrupt-m" fn default_start_trap() {
     // riscv-interrupt-m is a custom ABI for the `m` mode trap handler
 
-    crate::println!("in default_start_trap");
-
     let mtval = riscv::register::mtvec::read().bits();
-    let mcause = riscv::register::mcause::read().bits();
+    let mcause = riscv::register::mcause::read();
     let mscratch = riscv::register::mscratch::read();
 
-    crate::println!("mtval: {:#x}", mtval);
-    crate::println!("mcause: {:#x}", mcause);
-    crate::println!("mscratch: {:#x}", mscratch);
+    if mcause.is_interrupt() {
+        let irq = mcause.code();
+        let h = &__INTERRUPTS[irq];
+        if let Some(handler) = h {
+            handler();
+        } else {
+            crate::println!("unhandled interrupt: {:?}", irq);
+        }
+    } else if mcause.is_exception() {
+        crate::println!("mtval: {:#x}", mtval);
+        crate::println!("mcause: {:?}", mcause);
+        crate::println!("mscratch: {:#x}", mscratch);
 
-    loop {}
-
+        crate::println!("Exception");
+        loop {}
+    } else {
+        crate::println!("mtval: {:#x}", mtval);
+        crate::println!("mcause: {:?}", mcause);
+        crate::println!("mscratch: {:#x}", mscratch);
+        loop {}
+    }
 }
-
 
 /// Default implementation of `_setup_interrupts` sets `mtvec`/`stvec` to the address of `_start_trap`.
 #[doc(hidden)]
