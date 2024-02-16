@@ -5,7 +5,7 @@ use core::mem::size_of;
 use core::sync::atomic::{compiler_fence, Ordering};
 
 use riscv::asm;
-use riscv::register::mtvec;
+use riscv::register::{mscratch, mstatus, mtvec};
 use riscv::register::stvec::TrapMode;
 
 pub const HPM_BOOTHEADER_TAG: u8 = 0xBF;
@@ -624,6 +624,27 @@ pub unsafe extern "C" fn start_rust(a0: usize, a1: usize, a2: usize) -> ! {
 #[rustfmt::skip]
 pub extern "Rust" fn default_pre_init() {}
 
+
+
+#[no_mangle]
+pub unsafe extern "riscv-interrupt-m" fn default_start_trap() {
+    // riscv-interrupt-m is a custom ABI for the `m` mode trap handler
+
+    crate::println!("in default_start_trap");
+
+    let mtval = riscv::register::mtvec::read().bits();
+    let mcause = riscv::register::mcause::read().bits();
+    let mscratch = riscv::register::mscratch::read();
+
+    crate::println!("mtval: {:#x}", mtval);
+    crate::println!("mcause: {:#x}", mcause);
+    crate::println!("mscratch: {:#x}", mscratch);
+
+    loop {}
+
+}
+
+
 /// Default implementation of `_setup_interrupts` sets `mtvec`/`stvec` to the address of `_start_trap`.
 #[doc(hidden)]
 #[no_mangle]
@@ -635,4 +656,11 @@ pub unsafe extern "Rust" fn default_setup_interrupts() {
         csrw mtvec, t0
         "
     )*/
+    extern "C" {
+        fn _start_trap();
+    }
+    use riscv::register::{mtvec, mtvec::TrapMode};
+    mtvec::write(_start_trap as usize, TrapMode::Direct);
+
+    mstatus::set_mie(); // Enable interrupts
 }
