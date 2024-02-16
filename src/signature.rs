@@ -33,15 +33,3 @@ pub fn uuid() -> [u32; 4] {
 
     uuid
 }
-
-pub fn enable_temp_sensor() {
-    let tsns = unsafe { &*pac::TSNS::PTR };
-    tsns.config().modify(|_, w| w.enable().set_bit().continuous().set_bit());
-}
-
-pub fn current_temp_celsius() -> f32 {
-    let tsns = unsafe { &*pac::TSNS::PTR };
-    while tsns.status().read().valid().bit_is_clear() {}
-    let raw = tsns.t().read().t().bits();
-    raw as f32 / 256.0
-}

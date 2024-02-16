@@ -656,6 +656,10 @@ pub extern "Rust" fn default_pre_init() {}
 #[no_mangle]
 pub unsafe extern "riscv-interrupt-m" fn default_start_trap() {
     // riscv-interrupt-m is a custom ABI for the `m` mode trap handler
+    extern "C" {
+        // fn ExceptionHandler(trap_frame: &TrapFrame);
+        fn DefaultHandler();
+    }
 
     let mtval = riscv::register::mtvec::read().bits();
     let mcause = riscv::register::mcause::read();
@@ -667,7 +671,7 @@ pub unsafe extern "riscv-interrupt-m" fn default_start_trap() {
         if let Some(handler) = h {
             handler();
         } else {
-            crate::println!("unhandled interrupt: {:?}", irq);
+            DefaultHandler();
         }
     } else if mcause.is_exception() {
         crate::println!("mtval: {:#x}", mtval);

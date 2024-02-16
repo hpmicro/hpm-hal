@@ -1,8 +1,8 @@
 //! Builtin temperature sensor driver.
 
 use fixed::types::I24F8;
-use crate::pac;
 
+use crate::pac;
 
 pub fn enable_sensor() {
     let tsns = unsafe { &*pac::TSNS::PTR };

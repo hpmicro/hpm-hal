@@ -11,11 +11,16 @@ pub mod sysctl;
 pub mod temp;
 pub mod uart;
 
+pub use riscv_rt_macros::entry;
+
 #[cfg(feature = "embassy")]
 pub mod embassy;
 
 pub fn init() {
     unsafe {
         sysctl::init();
+
+        #[cfg(feature = "embassy")]
+        embassy::init();
     }
 }

@@ -6,6 +6,15 @@ PROVIDE(_start_trap = default_start_trap);
 
 PROVIDE(TrapHanlder = DefaultInterruptHandler);
 
+PROVIDE(SupervisorSoft = DefaultHandler);
+PROVIDE(MachineSoft = DefaultHandler);
+PROVIDE(SupervisorTimer = DefaultHandler);
+PROVIDE(MachineTimer = DefaultHandler);
+PROVIDE(SupervisorExternal = DefaultHandler);
+PROVIDE(MachineExternal = DefaultHandler);
+
+PROVIDE(DefaultHandler = DefaultInterruptHandler);
+PROVIDE(ExceptionHandler = DefaultExceptionHandler);
 
 PROVIDE(GPIO0_A = DefaultInterruptHandler);
 PROVIDE(GPIO0_B = DefaultInterruptHandler);

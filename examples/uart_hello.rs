@@ -33,7 +33,7 @@ unsafe extern "C" fn main() -> ! {
 
     let _uart = hal::uart::DevUart2::new();
     println!("{}", BANNER);
-    println!("Rust SDK: hpm5300-hal v0.0.1");
+    println!("Rust SDK: hpm5361-hal v0.0.1");
     println!("Author: @andelf");
     println!("==============================");
     println!(" {} clock summary", BOARD_NAME);
