@@ -6,6 +6,7 @@ pub use hpm5361_pac as pac;
 pub use peripheral::*;
 
 pub mod delay;
+pub mod gpio;
 pub mod rt;
 pub mod signature;
 pub mod sysctl;
@@ -22,6 +23,21 @@ pub use riscv_rt_macros::entry;
 pub mod embassy;
 
 pub fn init() -> Peripherals {
+    // TODO: enable by peripherals
+    // enable all resources
+    unsafe {
+        let sysctl = &*pac::SYSCTL::PTR;
+
+        // enable group0[0], group0[1]
+        // clock_add_to_group
+        sysctl.group0(0).value().modify(|_, w| w.link().bits(0xFFFFFFFF));
+        sysctl.group0(1).value().modify(|_, w| w.link().bits(0xFFFFFFFF));
+
+        // connect group0 to cpu0
+        // 将分组加入 CPU0
+        // sysctl.affiliate(0).set().write(|w| w.link().bits(1));
+    }
+
     unsafe {
         sysctl::init();
 
