@@ -119,6 +119,17 @@ impl<'d> Flex<'d> {
             .modify(|_, w| w.pe().variant(pull != Pull::None).ps().variant(pull == Pull::Up));
     }
 
+    /// Select pull up internal resistance strength:
+    /// For pull down, only have 100 Kohm resistance
+    #[inline]
+    pub fn set_pull_up_strength(&mut self, strength: PullUpStrength) {
+        self.pin
+            .ioc()
+            .pad(self.pin.pin_bank() as usize)
+            .pad_ctl()
+            .modify(|_, w| w.prs().variant(strength as u8));
+    }
+
     /// Set the pin's drive strength.
     #[inline]
     pub fn set_drive_strength(&mut self, strength: u8) {

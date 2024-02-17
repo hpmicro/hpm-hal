@@ -8,7 +8,6 @@
 use embedded_hal::delay::DelayNs;
 use hal::delay::MchtmrDelay;
 use hal::gpio::Flex;
-use hal::println;
 use {hpm5361_hal as hal, panic_halt as _};
 
 #[hal::entry]
