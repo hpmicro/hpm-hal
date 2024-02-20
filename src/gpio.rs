@@ -546,3 +546,37 @@ impl_pin!(PY04, 452);
 impl_pin!(PY05, 453);
 impl_pin!(PY06, 454);
 impl_pin!(PY07, 455);
+
+/// Use power domain PY as GPIO
+pub(crate) fn init_py_pins_as_gpio() {
+    // Set PY00-PY05 default function to GPIO0
+    const IOC_PYxx_FUNC_CTL_SOC_GPIO_Y_xx: u8 = 3;
+
+    let pioc = unsafe { &*pac::PIOC::PTR };
+    unsafe {
+        pioc.pad(peripherals::PY00::steal().pin_bank() as usize)
+            .func_ctl()
+            .modify(|_, w| w.alt_select().variant(IOC_PYxx_FUNC_CTL_SOC_GPIO_Y_xx));
+        pioc.pad(peripherals::PY01::steal().pin_bank() as usize)
+            .func_ctl()
+            .modify(|_, w| w.alt_select().variant(IOC_PYxx_FUNC_CTL_SOC_GPIO_Y_xx));
+        pioc.pad(peripherals::PY02::steal().pin_bank() as usize)
+            .func_ctl()
+            .modify(|_, w| w.alt_select().variant(IOC_PYxx_FUNC_CTL_SOC_GPIO_Y_xx));
+        pioc.pad(peripherals::PY03::steal().pin_bank() as usize)
+            .func_ctl()
+            .modify(|_, w| w.alt_select().variant(IOC_PYxx_FUNC_CTL_SOC_GPIO_Y_xx));
+        pioc.pad(peripherals::PY04::steal().pin_bank() as usize)
+            .func_ctl()
+            .modify(|_, w| w.alt_select().variant(IOC_PYxx_FUNC_CTL_SOC_GPIO_Y_xx));
+        pioc.pad(peripherals::PY05::steal().pin_bank() as usize)
+            .func_ctl()
+            .modify(|_, w| w.alt_select().variant(IOC_PYxx_FUNC_CTL_SOC_GPIO_Y_xx));
+        pioc.pad(peripherals::PY06::steal().pin_bank() as usize)
+            .func_ctl()
+            .modify(|_, w| w.alt_select().variant(IOC_PYxx_FUNC_CTL_SOC_GPIO_Y_xx));
+        pioc.pad(peripherals::PY07::steal().pin_bank() as usize)
+            .func_ctl()
+            .modify(|_, w| w.alt_select().variant(IOC_PYxx_FUNC_CTL_SOC_GPIO_Y_xx));
+    }
+}

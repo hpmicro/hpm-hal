@@ -38,6 +38,8 @@ pub fn init() -> Peripherals {
         // sysctl.affiliate(0).set().write(|w| w.link().bits(1));
     }
 
+    gpio::init_py_pins_as_gpio();
+
     unsafe {
         sysctl::init();
 
