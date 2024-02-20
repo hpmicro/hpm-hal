@@ -67,8 +67,8 @@ async fn main(spawner: Spawner) -> ! {
 
     println!("CHIP_ID:\t\t {:#08x}", hal::signature::chip_id());
 
-    hal::temp::enable_sensor();
-    println!("Core Temp:\t\t {}C", hal::temp::read());
+    hal::tsns::enable_sensor();
+    println!("Core Temp:\t\t {}C", hal::tsns::read());
 
     println!("Hello, world!");
 

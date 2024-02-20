@@ -10,7 +10,7 @@ pub mod gpio;
 pub mod rt;
 pub mod signature;
 pub mod sysctl;
-pub mod temp;
+pub mod tsns;
 pub mod uart;
 
 mod peripheral;
