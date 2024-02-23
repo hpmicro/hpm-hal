@@ -4,6 +4,7 @@
 
 use embassy_executor::Spawner;
 use embassy_time::{Instant, Timer};
+use hal::gpio::{AnyPin, Flex, Pin};
 use hal::{pac, println};
 use hpm5361_hal as hal;
 
@@ -22,18 +23,18 @@ $$ |  $$ |$$ |      $$ | \\_/ $$ |$$ |\\$$$$$$$\\ $$ |      \\$$$$$$  |
 const BOARD_NAME: &str = "HPM5300EVK";
 
 #[embassy_executor::task]
-async fn blink() {
-    let fgpio = unsafe { &*pac::FGPIO::PTR };
-    const PA: usize = 0;
-    const PIN: u8 = 23;
+async fn blink(pin: AnyPin) {
+    //    let fgpio = unsafe { &*pac::FGPIO::PTR };
+    //  const PA: usize = 0;
+    //const PIN: u8 = 23;
+    let mut led = Flex::new(pin);
+    led.set_as_output();
+    led.set_high();
 
     loop {
-        fgpio.do_(PA).set().write(|w| unsafe { w.bits(1 << PIN) });
+        led.toggle();
 
-        Timer::after_millis(100).await;
-
-        fgpio.do_(PA).clear().write(|w| unsafe { w.bits(1 << PIN) });
-        Timer::after_millis(100).await;
+        Timer::after_millis(1000).await;
     }
 }
 
@@ -41,16 +42,12 @@ async fn blink() {
 async fn main(spawner: Spawner) -> ! {
     let _uart = hal::uart::DevUart2::new();
 
-    let _ = hal::init();
+    let p = hal::init();
 
     let sysctl = unsafe { &*pac::SYSCTL::PTR };
 
     // enable group0[0], group0[1]
     // clock_add_to_group
-    unsafe {
-        sysctl.group0(0).value().modify(|_, w| w.link().bits(0xFFFFFFFF));
-        sysctl.group0(1).value().modify(|_, w| w.link().bits(0xFFFFFFFF));
-    }
 
     println!("{}", BANNER);
     println!("Rust SDK: hpm5361-hal v0.0.1");
@@ -75,30 +72,7 @@ async fn main(spawner: Spawner) -> ! {
     let mie = riscv::register::mie::read();
     println!("mie: {:?}", mie);
 
-    // mchtmr_get_count
-
-    let gpiom = unsafe { &*pac::GPIOM::PTR };
-    let fgpio = unsafe { &*pac::FGPIO::PTR };
-
-    // gpiom_set_pin_controller
-    // gpiom_enable_pin_visibility
-    // gpiom_lock_pin
-    const PA: usize = 0;
-    // use core0 fast
-    gpiom.assign(PA).pin(23).modify(|_, w| unsafe {
-        w.select()
-            .bits(2) // use 0: GPIO0
-            .hide()
-            .bits(0b01) // visible to GPIO0, invisible to CPU0 FGPIO
-            .lock()
-            .set_bit()
-    });
-    // 1 gpio1, 2 core0 fgpio, 3 core1 fgpio
-
-    // gpio_set_pin_output
-    fgpio.oe(PA).set().write(|w| unsafe { w.bits(1 << 23) });
-
-    spawner.spawn(blink()).unwrap();
+    spawner.spawn(blink(p.PA23.degrade())).unwrap();
 
     loop {
         Timer::after_millis(1000).await;

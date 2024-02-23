@@ -4,8 +4,8 @@ use crate::pac;
 
 crate::peripherals! {
     GPIO0 <= GPIO0,
-    // Fast GPIO controller
-    FGPIO0 <= FGPIO,
+    // Fast GPIO controller, private for each CPU
+    FGPIO <= FGPIO,
     // Power domain GPIO controller
     PGPIO <= PGPIO,
 
