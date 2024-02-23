@@ -5,9 +5,9 @@ use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
 
 use critical_section::{CriticalSection, Mutex};
-use embassy_time_driver::{AlarmHandle, Driver};
+use embassy_time_driver::AlarmHandle;
 
-use crate::{pac, println};
+use crate::pac;
 
 pub const ALARM_COUNT: usize = 1;
 

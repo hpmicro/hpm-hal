@@ -5,7 +5,7 @@
 use embassy_executor::Spawner;
 use embassy_time::{Instant, Timer};
 use hal::gpio::{AnyPin, Flex, Pin};
-use hal::{pac, println};
+use hal::println;
 use hpm5361_hal as hal;
 
 const BANNER: &str = "
@@ -43,11 +43,6 @@ async fn main(spawner: Spawner) -> ! {
     let _uart = hal::uart::DevUart2::new();
 
     let p = hal::init();
-
-    let sysctl = unsafe { &*pac::SYSCTL::PTR };
-
-    // enable group0[0], group0[1]
-    // clock_add_to_group
 
     println!("{}", BANNER);
     println!("Rust SDK: hpm5361-hal v0.0.1");
