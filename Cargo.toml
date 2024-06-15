@@ -1,45 +1,82 @@
 [package]
-name = "hpm5361-hal"
+name = "hpm-hal"
 version = "0.0.1"
 edition = "2021"
 authors = ["Andelf <andelf@gmail.com>"]
-repository = "https://github.com/andelf/hpm-hal"
-documentation = "https://docs.rs/hpm5361-hal"
-homepage = "https://github.com/andelf/hpm-hal"
-categories = []
-description = "HAL crate for HPM5300 series RISC-V MCUs, HPM5361, HPM5331, HPM5321, HPM5301"
-keywords = []
+repository = "https://github.com/hpmicro-rs/hpm-hal"
+documentation = "https://docs.rs/hpm-hal"
+homepage = "https://github.com/hpmicro/hpm-hal"
+categories = ["embedded", "hardware-support", "no-std"]
+description = "HAL crate for HPMicro's RISC-V MCUs, HPM5300, HPM6700/HPM6400, HPM6200, HPM6300, HPM6800"
+keywords = ["hpmicro", "riscv", "hal"]
 readme = "README.md"
 license = "MIT/Apache-2.0"
 
 [dependencies]
+# path = "../hpm-data/build/hpm-metapac",
+hpm-metapac = { version = "0.0.2", git = "https://github.com/hpmicro-rs/hpm-metapac.git", features = [
+    "rt",
+    # temp feature for demo
+    # "memory-x",
+
+] }
+
 riscv = { version = "0.11", features = ["critical-section-single-hart"] }
 embedded-hal = { version = "1.0.0" }
-hpm5361-pac = { version = "0.0.3", features = [
-    "critical-section",
-], path = "../hpm5361-pac" }
-critical-section = "1.1.2"
-fugit = "0.3.7"
+# critical-section = "1.1.2"
 
 
 embassy-time-driver = { version = "0.1.0", features = [
     "tick-hz-1_000_000",
 ], optional = true }
-embassy-sync = { version = "0.5.0", optional = true }
+embassy-sync = { version = "0.6.0", optional = true }
 embassy-futures = { version = "0.1.1", optional = true }
-fixed = "1.25.1"
-riscv-rt-macros = "0.2.1"
+embassy-hal-internal = { version = "0.1.0", default-features = false }
 
+[build-dependencies]
+hpm-metapac = { version = "0.0.2", git = "https://github.com/hpmicro-rs/hpm-metapac.git", default-features = false, features = [
+    "metadata",
+] }
 
 [features]
-default = ["embassy"]
+default = ["hpm5361"]
 
-hpm5300evk = []
-hpm5301evklite = []
 embassy = ["dep:embassy-sync", "dep:embassy-futures", "dep:embassy-time-driver"]
+
+hpm5301 = ["hpm-metapac/hpm5301"]
+hpm5321 = ["hpm-metapac/hpm5321"]
+hpm5331 = ["hpm-metapac/hpm5331"]
+hpm5361 = ["hpm-metapac/hpm5361"]
+hpm6220 = ["hpm-metapac/hpm6220"]
+hpm6240 = ["hpm-metapac/hpm6240"]
+hpm6260 = ["hpm-metapac/hpm6260"]
+hpm6264 = ["hpm-metapac/hpm6264"]
+hpm6280 = ["hpm-metapac/hpm6280"]
+hpm6284 = ["hpm-metapac/hpm6284"]
+hpm6320 = ["hpm-metapac/hpm6320"]
+hpm6330 = ["hpm-metapac/hpm6330"]
+hpm6340 = ["hpm-metapac/hpm6340"]
+hpm6350 = ["hpm-metapac/hpm6350"]
+hpm6360 = ["hpm-metapac/hpm6360"]
+hpm6364 = ["hpm-metapac/hpm6364"]
+hpm6420 = ["hpm-metapac/hpm6420"]
+hpm6430 = ["hpm-metapac/hpm6430"]
+hpm6450 = ["hpm-metapac/hpm6450"]
+hpm6454 = ["hpm-metapac/hpm6454"]
+hpm64a0 = ["hpm-metapac/hpm64a0"]
+hpm64g0 = ["hpm-metapac/hpm64g0"]
+hpm6730 = ["hpm-metapac/hpm6730"]
+hpm6750 = ["hpm-metapac/hpm6750"]
+hpm6754 = ["hpm-metapac/hpm6754"]
+hpm6830 = ["hpm-metapac/hpm6830"]
+hpm6850 = ["hpm-metapac/hpm6850"]
+hpm6880 = ["hpm-metapac/hpm6880"]
+
 
 [dev-dependencies]
 panic-halt = "0.2.0"
+riscv-rt = "0.12.2"
+
 embassy-time = { version = "0.3.0", features = ["tick-hz-1_000_000"] }
 embassy-executor = { version = "0.5.0", features = [
     "nightly",
@@ -47,8 +84,12 @@ embassy-executor = { version = "0.5.0", features = [
     "arch-riscv32",
     "executor-thread",
 ] }
+defmt = "0.3.8"
+defmt-rtt = "0.4.1"
+
 
 [profile.release]
 strip = false   # symbols are not flashed to the microcontroller, so don't strip them.
 lto = true
 opt-level = "z" # Optimize for size.
+debug = 2
