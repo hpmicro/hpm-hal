@@ -1,5 +1,6 @@
 use std::ffi::OsString;
-use std::io::Write;
+use std::fmt::Write as _;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::{env, fs};
@@ -78,10 +79,27 @@ fn main() {
 
     // TODO: interrupt mod
 
+    // ========
+    // Write foreach_foo! macrotables
+
+    //let mut flash_regions_table: Vec<Vec<String>> = Vec::new();
+    //let mut interrupts_table: Vec<Vec<String>> = Vec::new();
+    //let mut peripherals_table: Vec<Vec<String>> = Vec::new();
+    let mut pins_table: Vec<Vec<String>> = Vec::new();
+
+    // pin name => io pad index
+    for p in METADATA.pins {
+        pins_table.push(vec![p.name.to_string(), p.index.to_string()]);
+    }
+
+    let mut m = String::new();
+
+    make_table(&mut m, "foreach_pin", &pins_table);
+
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    //let out_file = out_dir.join("_macros.rs").to_string_lossy().to_string();
-    //fs::write(&out_file, m).unwrap();
-    //rustfmt(&out_file);
+    let out_file = out_dir.join("_macros.rs").to_string_lossy().to_string();
+    fs::write(&out_file, m).unwrap();
+    rustfmt(&out_file);
 
     // ========
     // Write generated.rs
@@ -89,6 +107,33 @@ fn main() {
     let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
     fs::write(&out_file, g.to_string()).unwrap();
     rustfmt(&out_file);
+}
+
+fn make_table(out: &mut String, name: &str, data: &Vec<Vec<String>>) {
+    write!(
+        out,
+        "#[allow(unused)]
+macro_rules! {} {{
+    ($($pat:tt => $code:tt;)*) => {{
+        macro_rules! __{}_inner {{
+            $(($pat) => $code;)*
+            ($_:tt) => {{}}
+        }}
+",
+        name, name
+    )
+    .unwrap();
+
+    for row in data {
+        writeln!(out, "        __{}_inner!(({}));", name, row.join(",")).unwrap();
+    }
+
+    write!(
+        out,
+        "    }};
+}}"
+    )
+    .unwrap();
 }
 
 enum GetOneError {

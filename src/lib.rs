@@ -1,5 +1,8 @@
 #![no_std]
 
+// macro must come first
+include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
+
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 pub use hpm_metapac as pac;
 
@@ -10,18 +13,10 @@ pub mod time;
 // required peripherals
 pub mod sysctl;
 
-// pub mod delay;
-// pub mod gpio;
+pub mod gpio;
 // pub mod rt;
-// pub mod signature;
-// pub mod tsns;
 // pub mod uart;
 
-// mod peripheral;
-// pub mod peripherals;
-
-// use peripherals::Peripherals;
-// pub use riscv_rt_macros::entry;
 //#[cfg(feature = "embassy")]
 //pub mod embassy;
 

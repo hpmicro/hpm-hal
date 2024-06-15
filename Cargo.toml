@@ -43,6 +43,7 @@ quote = "1.0.15"
 
 [features]
 default = ["hpm5361"]
+defmt = []
 
 embassy = ["dep:embassy-sync", "dep:embassy-futures", "dep:embassy-time-driver"]
 
