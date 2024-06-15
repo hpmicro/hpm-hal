@@ -8,7 +8,7 @@ use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
 
 #[riscv_rt::entry]
 fn main() -> ! {
-    hal::init(Default::default());
+    let p = hal::init(Default::default());
 
     let mut delay = McycleDelay::new(hal::sysctl::clocks().hclk.0);
 
