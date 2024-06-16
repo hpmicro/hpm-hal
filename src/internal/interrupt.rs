@@ -10,9 +10,6 @@ use crate::pac::{InterruptNumber, PLIC};
 #[macro_export]
 macro_rules! interrupt_mod {
     ($($irqs:ident),* $(,)?) => {
-        //#[cfg(feature = "rt")]
-        //pub use cortex_m_rt::interrupt;
-
         /// Interrupt definitions.
         pub mod interrupt {
             pub use $crate::internal::interrupt::{InterruptExt, Priority, PlicExt};
@@ -165,20 +162,10 @@ pub unsafe trait InterruptExt: InterruptNumber + Copy {
             .modify(|w| w.0 = w.0 & !(1 << (self.number() % 32)));
     }
 
-    #[inline]
-    fn claim(self) -> u16 {
-        PLIC.targetconfig(0).claim().read().interrupt_id()
-    }
-
-    #[inline]
-    fn complete(self, id: u16) {
-        PLIC.targetconfig(0).claim().modify(|w| w.set_interrupt_id(id));
-    }
-
     /// Check if interrupt is enabled.
     #[inline]
     fn is_enabled(self) -> bool {
-        PLIC.priority(self.number() as _).read().priority() != 0
+        PLIC.targetint(0).inten((self.number() / 32) as usize).read().0 & (1 << (self.number() % 32)) != 0
     }
 
     /// Check if interrupt is pending.
@@ -240,24 +227,34 @@ pub unsafe trait InterruptExt: InterruptNumber + Copy {
 
 pub trait PlicExt {
     #[inline]
-    unsafe fn enable_vectored_mode() {
+    unsafe fn enable_vectored_mode(&self) {
         PLIC.feature().modify(|w| w.set_vectored(true));
     }
 
     #[inline]
-    unsafe fn enable_preemptive_mode() {
+    unsafe fn enable_preemptive_mode(&self) {
         PLIC.feature()
             .modify(|w: &mut hpm_metapac::plic::regs::Feature| w.set_preempt(true));
     }
 
     #[inline]
-    fn threshold() -> u32 {
+    fn threshold(&self) -> u32 {
         PLIC.targetconfig(0).threshold().read().threshold()
     }
 
     #[inline]
-    fn set_threshold(threshold: u32) {
+    fn set_threshold(&self, threshold: u32) {
         PLIC.targetconfig(0).threshold().write(|w| w.set_threshold(threshold));
+    }
+
+    #[inline]
+    fn claim(&self) -> u16 {
+        PLIC.targetconfig(0).claim().read().interrupt_id()
+    }
+
+    #[inline]
+    fn complete(&self, id: u16) {
+        PLIC.targetconfig(0).claim().modify(|w| w.set_interrupt_id(id));
     }
 }
 
