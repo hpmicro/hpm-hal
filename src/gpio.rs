@@ -1,5 +1,7 @@
 //! General Purpose Input/Output
 #![macro_use]
+use core::convert::Infallible;
+
 use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 
 use crate::{pac, peripherals};
@@ -68,6 +70,14 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn set_schmitt_trigger(&mut self, enable: bool) {
         self.pin.ioc_pad().pad_ctl().modify(|w| w.set_hys(enable));
+    }
+
+    #[inline]
+    pub fn set_pull(&mut self, pull: Pull) {
+        self.pin.ioc_pad().pad_ctl().modify(|w| {
+            w.set_pe(pull != Pull::None); // pull enable
+            w.set_ps(pull == Pull::Up); // pull select
+        });
     }
 
     #[inline]
@@ -349,6 +359,8 @@ impl<'d> OutputOpenDrain<'d> {
             Level::Low => pin.set_low(),
         }
 
+        pin.set_as_output(speed);
+        pin.set_pull(pull);
         pin.set_open_drain(true);
         Self { pin }
     }
@@ -522,3 +534,133 @@ foreach_pin!(
         }
     };
 );
+
+// ====================
+// Implement embedded-hal traits
+
+impl<'d> embedded_hal::digital::ErrorType for Input<'d> {
+    type Error = Infallible;
+}
+
+impl<'d> embedded_hal::digital::InputPin for Input<'d> {
+    #[inline]
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_high())
+    }
+
+    #[inline]
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_low())
+    }
+}
+
+impl<'d> embedded_hal::digital::ErrorType for Output<'d> {
+    type Error = Infallible;
+}
+
+impl<'d> embedded_hal::digital::OutputPin for Output<'d> {
+    #[inline]
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_high())
+    }
+
+    #[inline]
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_low())
+    }
+}
+
+impl<'d> embedded_hal::digital::StatefulOutputPin for Output<'d> {
+    #[inline]
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_high())
+    }
+
+    /// Is the output pin set as low?
+    #[inline]
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_low())
+    }
+}
+
+impl<'d> embedded_hal::digital::ErrorType for OutputOpenDrain<'d> {
+    type Error = Infallible;
+}
+
+impl<'d> embedded_hal::digital::InputPin for OutputOpenDrain<'d> {
+    #[inline]
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_high())
+    }
+
+    #[inline]
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_low())
+    }
+}
+
+impl<'d> embedded_hal::digital::OutputPin for OutputOpenDrain<'d> {
+    #[inline]
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_high())
+    }
+
+    #[inline]
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_low())
+    }
+}
+
+impl<'d> embedded_hal::digital::StatefulOutputPin for OutputOpenDrain<'d> {
+    #[inline]
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_high())
+    }
+
+    /// Is the output pin set as low?
+    #[inline]
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_low())
+    }
+}
+
+impl<'d> embedded_hal::digital::InputPin for Flex<'d> {
+    #[inline]
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_high())
+    }
+
+    #[inline]
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_low())
+    }
+}
+
+impl<'d> embedded_hal::digital::OutputPin for Flex<'d> {
+    #[inline]
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_high())
+    }
+
+    #[inline]
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_low())
+    }
+}
+
+impl<'d> embedded_hal::digital::ErrorType for Flex<'d> {
+    type Error = Infallible;
+}
+
+impl<'d> embedded_hal::digital::StatefulOutputPin for Flex<'d> {
+    #[inline]
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_high())
+    }
+
+    /// Is the output pin set as low?
+    #[inline]
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_low())
+    }
+}
