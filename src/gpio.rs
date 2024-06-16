@@ -148,6 +148,17 @@ impl<'d> Flex<'d> {
     }
 }
 
+impl<'d> Drop for Flex<'d> {
+    #[inline]
+    fn drop(&mut self) {
+        // reset to default io state
+        critical_section::with(|_| {
+            self.pin.ioc_pad().func_ctl().write(|w| w.0 = 0x00000000);
+            self.pin.ioc_pad().pad_ctl().write(|w| w.0 = 0x01010056);
+        });
+    }
+}
+
 /// Digital input or output level.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -213,6 +224,194 @@ pub enum PullStrength {
     _100kOhm = 0b00,
     _47kOhm = 0b01,
     _22kOhm = 0b10,
+}
+
+/// GPIO input driver.
+pub struct Input<'d> {
+    pub(crate) pin: Flex<'d>,
+}
+
+impl<'d> Input<'d> {
+    /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
+    #[inline]
+    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, pull: Pull) -> Self {
+        let mut pin = Flex::new(pin);
+        pin.set_as_input(pull);
+        Self { pin }
+    }
+
+    /// Get whether the pin input level is high.
+    #[inline]
+    pub fn is_high(&self) -> bool {
+        self.pin.is_high()
+    }
+
+    /// Get whether the pin input level is low.
+    #[inline]
+    pub fn is_low(&self) -> bool {
+        self.pin.is_low()
+    }
+
+    /// Get the current pin input level.
+    #[inline]
+    pub fn get_level(&self) -> Level {
+        self.pin.get_level()
+    }
+
+    // Only available to PullUp, for PullDown, the only option is 100kOhm
+    #[inline]
+    pub fn set_pull_strength(&mut self, strength: PullStrength) {
+        self.pin.set_pull_up_strength(strength);
+    }
+}
+
+/// GPIO output driver.
+///
+/// Note that pins will **return to their floating state** when `Output` is dropped.
+/// If pins should retain their state indefinitely, either keep ownership of the
+/// `Output`, or pass it to [`core::mem::forget`].
+pub struct Output<'d> {
+    pub(crate) pin: Flex<'d>,
+}
+impl<'d> Output<'d> {
+    /// Create GPIO output driver for a [Pin] with the provided [Level] and [Speed] configuration.
+    #[inline]
+    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level, speed: Speed) -> Self {
+        let mut pin = Flex::new(pin);
+        match initial_output {
+            Level::High => pin.set_high(),
+            Level::Low => pin.set_low(),
+        }
+        pin.set_as_output(speed);
+        Self { pin }
+    }
+
+    /// Set the output as high.
+    #[inline]
+    pub fn set_high(&mut self) {
+        self.pin.set_high();
+    }
+
+    /// Set the output as low.
+    #[inline]
+    pub fn set_low(&mut self) {
+        self.pin.set_low();
+    }
+
+    /// Set the output level.
+    #[inline]
+    pub fn set_level(&mut self, level: Level) {
+        self.pin.set_level(level)
+    }
+
+    /// Is the output pin set as high?
+    #[inline]
+    pub fn is_set_high(&self) -> bool {
+        self.pin.is_set_high()
+    }
+
+    /// Is the output pin set as low?
+    #[inline]
+    pub fn is_set_low(&self) -> bool {
+        self.pin.is_set_low()
+    }
+
+    /// What level output is set to
+    #[inline]
+    pub fn get_output_level(&self) -> Level {
+        self.pin.get_output_level()
+    }
+
+    /// Toggle pin output
+    #[inline]
+    pub fn toggle(&mut self) {
+        self.pin.toggle();
+    }
+}
+
+/// GPIO output open-drain driver.
+///
+/// Note that pins will **return to their floating state** when `OutputOpenDrain` is dropped.
+/// If pins should retain their state indefinitely, either keep ownership of the
+/// `OutputOpenDrain`, or pass it to [`core::mem::forget`].
+pub struct OutputOpenDrain<'d> {
+    pub(crate) pin: Flex<'d>,
+}
+
+impl<'d> OutputOpenDrain<'d> {
+    /// Create a new GPIO open drain output driver for a [Pin] with the provided [Level] and [Speed], [Pull] configuration.
+    #[inline]
+    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level, speed: Speed, pull: Pull) -> Self {
+        let mut pin = Flex::new(pin);
+
+        match initial_output {
+            Level::High => pin.set_high(),
+            Level::Low => pin.set_low(),
+        }
+
+        pin.set_open_drain(true);
+        Self { pin }
+    }
+
+    /// Get whether the pin input level is high.
+    #[inline]
+    pub fn is_high(&self) -> bool {
+        !self.pin.is_low()
+    }
+
+    /// Get whether the pin input level is low.
+    #[inline]
+    pub fn is_low(&self) -> bool {
+        self.pin.is_low()
+    }
+
+    /// Get the current pin input level.
+    #[inline]
+    pub fn get_level(&self) -> Level {
+        self.pin.get_level()
+    }
+
+    /// Set the output as high.
+    #[inline]
+    pub fn set_high(&mut self) {
+        self.pin.set_high();
+    }
+
+    /// Set the output as low.
+    #[inline]
+    pub fn set_low(&mut self) {
+        self.pin.set_low();
+    }
+
+    /// Set the output level.
+    #[inline]
+    pub fn set_level(&mut self, level: Level) {
+        self.pin.set_level(level);
+    }
+
+    /// Get whether the output level is set to high.
+    #[inline]
+    pub fn is_set_high(&self) -> bool {
+        self.pin.is_set_high()
+    }
+
+    /// Get whether the output level is set to low.
+    #[inline]
+    pub fn is_set_low(&self) -> bool {
+        self.pin.is_set_low()
+    }
+
+    /// Get the current output level.
+    #[inline]
+    pub fn get_output_level(&self) -> Level {
+        self.pin.get_output_level()
+    }
+
+    /// Toggle pin output
+    #[inline]
+    pub fn toggle(&mut self) {
+        self.pin.toggle()
+    }
 }
 
 pub(crate) trait SealedPin: Sized {

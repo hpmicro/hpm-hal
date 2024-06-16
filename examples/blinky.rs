@@ -2,7 +2,7 @@
 #![no_std]
 
 use embedded_hal::delay::DelayNs;
-use hpm_hal::gpio::Flex;
+use hpm_hal::gpio::{Level, Output, Speed};
 use riscv::delay::McycleDelay;
 use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
 
@@ -14,8 +14,7 @@ fn main() -> ! {
 
     defmt::info!("Board init!");
 
-    let mut led = Flex::new(p.PA23);
-    led.set_as_output(Default::default());
+    let mut led = Output::new(p.PA23, Level::Low, Speed::default());
 
     loop {
         defmt::info!("tick");
@@ -24,7 +23,6 @@ fn main() -> ! {
         delay.delay_ms(1000);
 
         led.set_low();
-
         delay.delay_ms(1000);
     }
 }
