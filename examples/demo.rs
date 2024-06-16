@@ -21,10 +21,10 @@ fn main() -> ! {
         defmt::info!("tick");
 
         led.set_high();
-        delay.delay_ms(500);
+        delay.delay_ms(1000);
 
         led.set_low();
 
-        delay.delay_ms(200);
+        delay.delay_ms(1000);
     }
 }

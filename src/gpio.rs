@@ -1,7 +1,5 @@
 //! General Purpose Input/Output
 #![macro_use]
-use core::default;
-
 use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 
 use crate::{pac, peripherals};
@@ -30,7 +28,7 @@ impl<'d> Flex<'d> {
                 .clear()
                 .modify(|w| w.set_direction(1 << self.pin.pin()));
 
-            self.pin.ioc().pad(self.pin.pin_pad() as _).pad_ctl().modify(|w| {
+            self.pin.ioc_pad().pad_ctl().modify(|w| {
                 w.set_pe(pull != Pull::None); // pull enable
                 w.set_ps(pull == Pull::Up); // pull select
             });
@@ -48,26 +46,12 @@ impl<'d> Flex<'d> {
                 .gpio()
                 .oe(self.pin._port() as _)
                 .set()
-                .modify(|r| r.set_direction(1 << self.pin.pin()));
+                .write(|r| r.set_direction(1 << self.pin.pin()));
 
-            self.pin.ioc().pad(self.pin.pin_pad() as _).pad_ctl().modify(|w| {
+            self.pin.ioc_pad().pad_ctl().modify(|w| {
                 w.set_spd(speed as u8); // speed
             });
         });
-    }
-
-    /// Put the pin into input + output mode.
-    ///
-    /// This is commonly used for "open drain" mode.
-    /// the hardware will drive the line low if you set it to low, and will leave it floating if you set
-    /// it to high, in which case you can read the input to figure out whether another device
-    /// is driving the line low.
-    ///
-    /// The pin level will be whatever was set before (or low by default). If you want it to begin
-    /// at a specific level, call `set_high`/`set_low` on the pin first.
-    #[inline]
-    pub fn set_as_input_output(&mut self, speed: Speed, pull: Pull) {
-        critical_section::with(|_| todo!());
     }
 
     /// Put the pin into analog mode
@@ -77,6 +61,23 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn set_as_analog(&mut self) {
         self.pin.set_as_analog();
+    }
+
+    // ====================
+    // PAD_CTL related functions
+    #[inline]
+    pub fn set_schmitt_trigger(&mut self, enable: bool) {
+        self.pin.ioc_pad().pad_ctl().modify(|w| w.set_hys(enable));
+    }
+
+    #[inline]
+    pub fn set_pull_up_strength(&mut self, strength: PullStrength) {
+        self.pin.ioc_pad().pad_ctl().modify(|w| w.set_prs(strength as u8));
+    }
+
+    #[inline]
+    pub fn set_open_drain(&mut self, enable: bool) {
+        self.pin.ioc_pad().pad_ctl().modify(|w| w.set_od(enable));
     }
 
     /// Get whether the pin input level is high.
@@ -139,11 +140,11 @@ impl<'d> Flex<'d> {
     /// Toggle the output level.
     #[inline]
     pub fn toggle(&mut self) {
-        if self.is_set_low() {
-            self.set_high()
-        } else {
-            self.set_low()
-        }
+        self.pin
+            .gpio()
+            .do_(self.pin._port() as _)
+            .toggle()
+            .write(|w| w.set_output(1 << self.pin.pin()));
     }
 }
 
@@ -204,6 +205,16 @@ pub enum Speed {
     Max = 0b11,
 }
 
+/// 00: 100 KOhm
+/// 01: 47 KOhm 10: 22 KOhm 11: 22 KOhm
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PullStrength {
+    #[default]
+    _100kOhm = 0b00,
+    _47kOhm = 0b01,
+    _22kOhm = 0b10,
+}
+
 pub(crate) trait SealedPin: Sized {
     /// The pad offset in IOC. The lower 5 bits are the pin number, and the higher bits are the port number.
     fn pin_pad(&self) -> u16;
@@ -228,8 +239,8 @@ pub(crate) trait SealedPin: Sized {
 
     /// IOC peripheral
     #[inline]
-    fn ioc(&self) -> pac::ioc::Ioc {
-        pac::IOC // TODO: support PIOC, BIOC (power domain, battery domain)
+    fn ioc_pad(&self) -> pac::ioc::Pad {
+        pac::IOC.pad(self._port() as usize)
     }
 
     // helper method used across the HAL, not intended to be used by user code
@@ -252,18 +263,12 @@ pub(crate) trait SealedPin: Sized {
 
     #[inline]
     fn set_as_analog(&self) {
-        self.ioc()
-            .pad(self.pin_pad() as _)
-            .func_ctl()
-            .modify(|w| w.set_analog(true));
+        self.ioc_pad().func_ctl().modify(|w| w.set_analog(true));
     }
 
     #[inline]
     fn set_as_alt(&self, alt_num: u8) {
-        self.ioc()
-            .pad(self.pin_pad() as _)
-            .func_ctl()
-            .modify(|w| w.set_alt_select(alt_num));
+        self.ioc_pad().func_ctl().modify(|w| w.set_alt_select(alt_num));
     }
 }
 

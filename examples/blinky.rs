@@ -1,33 +1,30 @@
-//! LED blink example
-//!
-//! Using GPIO0
-
 #![no_main]
 #![no_std]
 
 use embedded_hal::delay::DelayNs;
-use hal::delay::MchtmrDelay;
-use hal::gpio::Flex;
-use {hpm5361_hal as hal, panic_halt as _};
+use hpm_hal::gpio::Flex;
+use riscv::delay::McycleDelay;
+use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
 
-#[hal::entry]
-unsafe fn main() -> ! {
-    // let _uart = hal::uart::DevUart2::new();
-    let p = hal::init();
+#[riscv_rt::entry]
+fn main() -> ! {
+    let p = hal::init(Default::default());
 
-    let mut delay = MchtmrDelay;
+    let mut delay = McycleDelay::new(hal::sysctl::clocks().hclk.0);
 
-    // LED: PA23
+    defmt::info!("Board init!");
+
     let mut led = Flex::new(p.PA23);
-
-    led.set_high();
-    led.set_as_output();
+    led.set_as_output(Default::default());
 
     loop {
-        led.toggle();
+        defmt::info!("tick");
 
+        led.set_high();
         delay.delay_ms(1000);
-        led.toggle();
+
+        led.set_low();
+
         delay.delay_ms(1000);
     }
 }
