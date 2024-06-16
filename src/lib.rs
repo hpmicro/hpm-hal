@@ -1,5 +1,8 @@
 #![no_std]
 
+#[doc(hidden)]
+pub(crate) mod internal;
+
 // macro must come first
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
@@ -11,9 +14,8 @@ pub use self::_generated::{peripherals, Peripherals};
 pub mod time;
 
 // required peripherals
-pub mod sysctl;
-
 pub mod gpio;
+pub mod sysctl;
 // pub mod rt;
 // pub mod uart;
 
@@ -28,6 +30,8 @@ pub(crate) mod _generated {
 
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
+
+pub use crate::_generated::interrupt;
 
 #[derive(Default)]
 pub struct Config {

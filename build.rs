@@ -77,7 +77,21 @@ fn main() {
         embassy_hal_internal::peripherals_struct!(#(#singleton_tokens),*);
     });
 
-    // TODO: interrupt mod
+    // ========
+    // Generate interrupt declarations
+
+    let mut irqs = Vec::new();
+    for irq in METADATA.interrupts {
+        irqs.push(format_ident!("{}", irq.name));
+    }
+
+    g.extend(quote! {
+        crate::interrupt_mod!(
+            #(
+                #irqs,
+            )*
+        );
+    });
 
     // ========
     // Write foreach_foo! macrotables
