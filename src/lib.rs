@@ -21,6 +21,8 @@ pub mod sysctl;
 
 #[cfg(feature = "rt")]
 pub mod rt;
+#[cfg(feature = "rt")]
+pub use riscv_rt::entry;
 
 //#[cfg(feature = "embassy")]
 //pub mod embassy;
