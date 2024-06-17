@@ -19,8 +19,8 @@ pub const PLL1CLK3: Hertz = Hertz(266_000_000);
 
 /// The default system clock configuration
 pub static CLOCKS: Clocks = Clocks {
-    // Default to 360MHz
-    hclk: Hertz(720_000_000 / 2),
+    hart0: Hertz(720_000_000 / 2),
+    ahb: Hertz(720_000_000 / 2 / 2), // hart0 div 2 by default
     clk_24m: CLK_24M,
     pll0clk0: PLL0CLK0,
     pll0clk1: PLL0CLK1,
@@ -33,8 +33,10 @@ pub static CLOCKS: Clocks = Clocks {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Clocks {
+    /// CPU0
+    pub hart0: Hertz,
     /// AHB clock
-    pub hclk: Hertz,
+    pub ahb: Hertz,
 
     // System clock source
     pub clk_24m: Hertz,
