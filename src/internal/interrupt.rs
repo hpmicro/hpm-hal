@@ -223,6 +223,13 @@ pub unsafe trait InterruptExt: InterruptNumber + Copy {
     fn set_priority_with_cs(self, _cs: CriticalSection, prio: Priority) {
         PLIC.priority(self.number() as _).write(|w| w.set_priority(prio as u32))
     }
+
+    #[inline]
+    fn complete(self) {
+        PLIC.targetconfig(0)
+            .claim()
+            .modify(|w| w.set_interrupt_id(self.number()));
+    }
 }
 
 pub trait PlicExt {
@@ -233,8 +240,7 @@ pub trait PlicExt {
 
     #[inline]
     unsafe fn enable_preemptive_mode(&self) {
-        PLIC.feature()
-            .modify(|w: &mut hpm_metapac::plic::regs::Feature| w.set_preempt(true));
+        PLIC.feature().modify(|w| w.set_preempt(true));
     }
 
     #[inline]
