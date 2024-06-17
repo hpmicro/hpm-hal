@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(abi_riscv_interrupt)]
 
 #[doc(hidden)]
 pub(crate) mod internal;
@@ -16,8 +17,10 @@ pub mod time;
 // required peripherals
 pub mod gpio;
 pub mod sysctl;
-// pub mod rt;
 // pub mod uart;
+
+#[cfg(feature = "rt")]
+pub mod rt;
 
 //#[cfg(feature = "embassy")]
 //pub mod embassy;
