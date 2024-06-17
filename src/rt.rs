@@ -21,6 +21,8 @@ pub unsafe extern "Rust" fn _setup_interrupts() {
     unsafe {
         asm!("csrsi 0x7D0, 2");
         pac::PLIC.feature().modify(|w| w.set_vectored(true));
+        riscv::register::mstatus::set_mie(); // must enable global interrupt
+        riscv::register::mie::set_mext(); // and PLIC external interrupt
     }
 }
 
