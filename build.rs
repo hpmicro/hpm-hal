@@ -27,6 +27,10 @@ fn main() {
 
     eprintln!("chip: {chip_name}");
 
+    // hpm53, hpm67, etc
+    let family_name = chip_name[0..5].to_ascii_lowercase();
+    cfgs.enable(family_name);
+
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
             cfgs.enable(r.kind);
