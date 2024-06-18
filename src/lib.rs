@@ -1,5 +1,6 @@
 #![no_std]
 #![feature(abi_riscv_interrupt)]
+#![allow(unexpected_cfgs)]
 
 #[doc(hidden)]
 pub(crate) mod internal;
@@ -47,6 +48,9 @@ pub fn init(config: Config) -> Peripherals {
     unsafe {
         sysctl::init(config.sysctl);
     }
+
+    #[cfg(hpm53)]
+    gpio::init_py_pins_as_gpio();
 
     Peripherals::take()
 }

@@ -664,3 +664,25 @@ impl<'d> embedded_hal::digital::StatefulOutputPin for Flex<'d> {
         Ok((*self).is_set_low())
     }
 }
+
+/// Use power domain PY as GPIO
+pub(crate) fn init_py_pins_as_gpio() {
+    // Set PY00-PY07 default function from PGPIO to GPIO0
+    const IOC_PYXX_FUNC_CTL_SOC_GPIO_Y_XX: u8 = 3;
+
+    for pin_pad in [
+        pac::pins::PY00,
+        pac::pins::PY01,
+        pac::pins::PY02,
+        pac::pins::PY03,
+        pac::pins::PY04,
+        pac::pins::PY05,
+        pac::pins::PY06,
+        pac::pins::PY07,
+    ] {
+        pac::PIOC
+            .pad(pin_pad)
+            .func_ctl()
+            .modify(|w| w.set_alt_select(IOC_PYXX_FUNC_CTL_SOC_GPIO_Y_XX));
+    }
+}
