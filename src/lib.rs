@@ -15,6 +15,30 @@ pub use self::_generated::{peripherals, Peripherals};
 
 pub mod time;
 
+/// Operating modes for peripherals.
+pub mod mode {
+    trait SealedMode {}
+
+    /// Operating mode for a peripheral.
+    #[allow(private_bounds)]
+    pub trait Mode: SealedMode {}
+
+    macro_rules! impl_mode {
+        ($name:ident) => {
+            impl SealedMode for $name {}
+            impl Mode for $name {}
+        };
+    }
+
+    /// Blocking mode.
+    pub struct Blocking;
+    /// Async mode.
+    pub struct Async;
+
+    impl_mode!(Blocking);
+    impl_mode!(Async);
+}
+
 // required peripherals
 pub mod gpio;
 pub mod sysctl;
@@ -25,8 +49,8 @@ pub mod rt;
 #[cfg(feature = "rt")]
 pub use riscv_rt::entry;
 
-//#[cfg(feature = "embassy")]
-//pub mod embassy;
+#[cfg(feature = "embassy")]
+pub mod embassy;
 
 pub(crate) mod _generated {
     #![allow(dead_code)]
@@ -51,6 +75,9 @@ pub fn init(config: Config) -> Peripherals {
 
     #[cfg(hpm53)]
     gpio::init_py_pins_as_gpio();
+
+    #[cfg(feature = "embassy")]
+    embassy::init();
 
     Peripherals::take()
 }

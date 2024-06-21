@@ -37,6 +37,10 @@ critical-section = "1.1.2"
 
 riscv-rt = { version = "0.12.2", optional = true }
 
+static_assertions = "1"
+
+defmt = { version = "0.3.8", optional = true }
+
 [build-dependencies]
 # git = "https://github.com/hpmicro-rs/hpm-metapac.git",
 hpm-metapac = { version = "0.0.2", path = "../hpm-data/build/hpm-metapac", default-features = false, features = [
@@ -46,9 +50,9 @@ proc-macro2 = "1.0.85"
 quote = "1.0.15"
 
 [features]
-default = ["hpm5361", "rt"]
+default = ["hpm5361", "rt", "embassy", "defmt"]
 rt = ["dep:riscv-rt"]
-defmt = []
+defmt = ["dep:defmt"]
 
 embassy = ["dep:embassy-sync", "dep:embassy-futures", "dep:embassy-time-driver"]
 

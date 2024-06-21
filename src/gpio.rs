@@ -666,6 +666,7 @@ impl<'d> embedded_hal::digital::StatefulOutputPin for Flex<'d> {
 }
 
 /// Use power domain PY as GPIO
+#[cfg(hpm53)]
 pub(crate) fn init_py_pins_as_gpio() {
     // Set PY00-PY07 default function from PGPIO to GPIO0
     const IOC_PYXX_FUNC_CTL_SOC_GPIO_Y_XX: u8 = 3;

@@ -39,6 +39,26 @@ pub struct Clocks {
     pub pll1clk3: Hertz,
 }
 
+impl Clocks {
+    pub fn of(&self, src: ClockMux) -> Hertz {
+        match src {
+            vals::ClockMux::CLK_24M => self.clk_24m,
+            vals::ClockMux::PLL0CLK0 => self.pll0clk0,
+            vals::ClockMux::PLL0CLK1 => self.pll0clk1,
+            vals::ClockMux::PLL0CLK2 => self.pll0clk2,
+            vals::ClockMux::PLL1CLK0 => self.pll1clk0,
+            vals::ClockMux::PLL1CLK1 => self.pll1clk1,
+            vals::ClockMux::PLL1CLK2 => self.pll1clk2,
+            vals::ClockMux::PLL1CLK3 => self.pll1clk3,
+        }
+    }
+
+    pub fn get_freq(&self, cfg: &ClockCfg) -> Hertz {
+        let clock_in = self.of(cfg.src);
+        clock_in / (cfg.raw_div as u32 + 1)
+    }
+}
+
 pub struct Config {
     pub hart0: ClockCfg,
     /// SUB0_DIV, 4bit, 1 to 16
