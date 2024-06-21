@@ -51,13 +51,13 @@ embassy_time_driver::time_driver_impl!(static DRIVER: MachineTimerDriver = Machi
 impl MachineTimerDriver {
     fn init(&'static self) {
         let regs = SYSCTL.clock(pac::clocks::MCT0).read();
-        let mchtmr0_cfg = ClockCfg {
+
+        let mchtmr_cfg = ClockCfg {
             src: regs.mux(),
             raw_div: regs.div(),
         };
 
-        let cnt_per_second = crate::sysctl::clocks().get_freq(&mchtmr0_cfg).0 as u64;
-        defmt::info!("mchtmr0: {}Hz", cnt_per_second);
+        let cnt_per_second = crate::sysctl::clocks().get_freq(&mchtmr_cfg).0 as u64;
         let cnt_per_tick = cnt_per_second / embassy_time_driver::TICK_HZ;
 
         self.period.store(cnt_per_tick as u32, Ordering::Relaxed);
