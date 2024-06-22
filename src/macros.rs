@@ -44,17 +44,17 @@ macro_rules! pin_trait {
     ($signal:ident, $instance:path $(, $mode:path)?) => {
         #[doc = concat!(stringify!($signal), " pin trait")]
         pub trait $signal<T: $instance $(, M: $mode)?>: crate::gpio::Pin {
-            #[doc = concat!("Get the AF number needed to use this pin as ", stringify!($signal))]
+            #[doc = concat!("Get the ALT number needed to use this pin as ", stringify!($signal))]
             fn alt_num(&self) -> u8;
         }
     };
 }
 
 macro_rules! pin_trait_impl {
-    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $af:expr) => {
+    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $alt:expr) => {
         impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$pin {
             fn alt_num(&self) -> u8 {
-                $af
+                $alt
             }
         }
     };

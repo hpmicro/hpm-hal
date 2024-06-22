@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -118,6 +119,43 @@ fn main() {
                     }
                     impl crate::sysctl::ClockPeripheral for peripherals::#pname {}
                 });
+            }
+        }
+    }
+
+    // ========
+    // Generate pin_trait_impl!
+    //    #[rustfmt::skip]
+    let signals: HashMap<_, _> = [
+        // (kind, signal) => trait
+        (("uart", "TXD"), quote!(crate::uart::TxPin)),
+        (("uart", "RXD"), quote!(crate::uart::RxPin)),
+        (("uart", "CTS"), quote!(crate::uart::CtsPin)),
+        (("uart", "RTS"), quote!(crate::uart::RtsPin)),
+        (("uart", "DE"), quote!(crate::uart::DePin)),
+    ]
+    .into();
+
+    for p in METADATA.peripherals {
+        if let Some(regs) = &p.registers {
+            for pin in p.pins {
+                let key = (regs.kind, pin.signal);
+                if let Some(tr) = signals.get(&key) {
+                    let peri = format_ident!("{}", p.name);
+
+                    let pin_name = format_ident!("{}", pin.pin);
+
+                    let alt = pin.alt.unwrap_or(0);
+
+                    g.extend(quote! {
+                        pin_trait_impl!(#tr, #peri, #pin_name, #alt);
+                    })
+                }
+                // ADC is special
+                if regs.kind == "adc" {
+                    // TODO
+                }
+                // if regs.kind == "dac"
             }
         }
     }
