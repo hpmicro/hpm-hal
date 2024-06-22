@@ -27,6 +27,7 @@ pub unsafe extern "Rust" fn _setup_interrupts() {
 }
 
 #[no_mangle]
+#[link_section = ".fast"]
 unsafe extern "riscv-interrupt-m" fn CORE_LOCAL() {
     use riscv_rt::__INTERRUPTS;
     extern "C" {

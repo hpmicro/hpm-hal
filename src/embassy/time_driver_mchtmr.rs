@@ -85,6 +85,7 @@ impl MachineTimerDriver {
         })
     }
 
+    #[inline(always)]
     fn trigger_alarm(&self, cs: CriticalSection) {
         let alarm = &self.alarms.borrow(cs)[0];
         alarm.timestamp.set(u64::MAX);
@@ -168,6 +169,7 @@ impl embassy_time_driver::Driver for MachineTimerDriver {
 
 // Core local interrupts are handled in CORE_LOCAL, using "C" ABI
 #[no_mangle]
+#[link_section = ".fast"]
 extern "C" fn MachineTimer() {
     DRIVER.on_interrupt();
 }
