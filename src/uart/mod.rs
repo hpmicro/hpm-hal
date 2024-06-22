@@ -463,6 +463,28 @@ fn calculate_baudrate(freq: u32, baudrate: u32) -> Option<(u16, u8)> {
 }
 
 // ==========
+// traits
+
+impl embedded_io::Error for Error {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        embedded_io::ErrorKind::Other
+    }
+}
+impl<M: Mode> embedded_io::ErrorType for UartTx<'_, M> {
+    type Error = Error;
+}
+impl<M: Mode> embedded_io::Write for UartTx<'_, M> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.blocking_write(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
+// ==========
 // help types and functions
 
 struct State {

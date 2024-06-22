@@ -40,6 +40,7 @@ riscv-rt = { version = "0.12.2", optional = true }
 static_assertions = "1"
 
 defmt = { version = "0.3.8", optional = true }
+embedded-io = "0.6.1"
 
 [build-dependencies]
 # git = "https://github.com/hpmicro-rs/hpm-metapac.git",
