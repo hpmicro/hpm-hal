@@ -49,3 +49,33 @@ unsafe extern "riscv-interrupt-m" fn CORE_LOCAL() {
         DefaultHandler();
     }
 }
+
+#[riscv_rt::pre_init]
+unsafe fn __pre_init() {
+    core::arch::asm!(
+        "
+            // Copy over .fast
+            la      {start},_sfast
+            la      {end},_efast
+            la      {input},_sifast
+
+            bgeu    {start},{end},2f
+        1:
+            lw      {a},0({input})
+            addi    {input},{input},4
+            sw      {a},0({start})
+            addi    {start},{start},4
+            bltu    {start},{end},1b
+
+        2:
+            li      {a},0
+            li      {input},0
+            li      {start},0
+            li      {end},0
+        ",
+        start = out(reg) _,
+        end = out(reg) _,
+        input = out(reg) _,
+        a = out(reg) _,
+    );
+}
