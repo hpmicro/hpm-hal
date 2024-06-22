@@ -13,6 +13,7 @@ pub use hpm_metapac as pac;
 
 pub use self::_generated::{peripherals, Peripherals};
 
+mod macros;
 pub mod time;
 
 /// Operating modes for peripherals.
@@ -42,6 +43,8 @@ pub mod mode {
 // required peripherals
 pub mod gpio;
 pub mod sysctl;
+
+// other peripherals
 // pub mod uart;
 
 #[cfg(feature = "rt")]
@@ -60,8 +63,9 @@ pub(crate) mod _generated {
 
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
-
 pub use crate::_generated::interrupt;
+
+mod patches;
 
 #[derive(Default)]
 pub struct Config {

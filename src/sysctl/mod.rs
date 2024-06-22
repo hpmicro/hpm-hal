@@ -7,16 +7,18 @@ pub use crate::pac::sysctl::vals::ClockMux;
 use crate::pac::SYSCTL;
 use crate::time::Hertz;
 
+pub const CLK_32K: Hertz = Hertz(32_768);
 pub const CLK_24M: Hertz = Hertz(24_000_000);
 
-pub const PLL0CLK0: Hertz = Hertz(720_000_000);
-pub const PLL0CLK1: Hertz = Hertz(600_000_000);
-pub const PLL0CLK2: Hertz = Hertz(400_000_000);
+// default clock sources
+const PLL0CLK0: Hertz = Hertz(720_000_000);
+const PLL0CLK1: Hertz = Hertz(600_000_000);
+const PLL0CLK2: Hertz = Hertz(400_000_000);
 
-pub const PLL1CLK0: Hertz = Hertz(800_000_000);
-pub const PLL1CLK1: Hertz = Hertz(666_000_000);
-pub const PLL1CLK2: Hertz = Hertz(500_000_000);
-pub const PLL1CLK3: Hertz = Hertz(266_000_000);
+const PLL1CLK0: Hertz = Hertz(800_000_000);
+const PLL1CLK1: Hertz = Hertz(666_000_000);
+const PLL1CLK2: Hertz = Hertz(500_000_000);
+const PLL1CLK3: Hertz = Hertz(266_000_000);
 
 /// The default system clock configuration
 static mut CLOCKS: MaybeUninit<Clocks> = MaybeUninit::uninit();
@@ -29,7 +31,6 @@ pub struct Clocks {
     pub ahb: Hertz,
 
     // System clock source
-    pub clk_24m: Hertz,
     pub pll0clk0: Hertz,
     pub pll0clk1: Hertz,
     pub pll0clk2: Hertz,
@@ -42,7 +43,7 @@ pub struct Clocks {
 impl Clocks {
     pub fn of(&self, src: ClockMux) -> Hertz {
         match src {
-            vals::ClockMux::CLK_24M => self.clk_24m,
+            vals::ClockMux::CLK_24M => CLK_24M,
             vals::ClockMux::PLL0CLK0 => self.pll0clk0,
             vals::ClockMux::PLL0CLK1 => self.pll0clk1,
             vals::ClockMux::PLL0CLK2 => self.pll0clk2,
@@ -122,7 +123,6 @@ pub(crate) unsafe fn init(config: Config) {
         hart0: hart0_clk,
         ahb: ahb_clk,
 
-        clk_24m: CLK_24M,
         pll0clk0: PLL0CLK0,
         pll0clk1: PLL0CLK1,
         pll0clk2: PLL0CLK2,
@@ -139,3 +139,25 @@ pub(crate) unsafe fn init(config: Config) {
 pub fn clocks() -> &'static Clocks {
     unsafe { CLOCKS.assume_init_ref() }
 }
+
+pub(crate) trait SealedClockPeripheral {
+    const SYSCTL_CLOCK: usize = usize::MAX;
+
+    fn frequency() -> Hertz {
+        let cfg = SYSCTL.clock(Self::SYSCTL_CLOCK).read();
+        clocks().get_freq(&ClockCfg {
+            src: cfg.mux().into(),
+            raw_div: cfg.div().into(),
+        })
+    }
+
+    fn set_clock(cfg: ClockCfg) {
+        SYSCTL.clock(Self::SYSCTL_CLOCK).modify(|w| {
+            w.set_mux(cfg.src);
+            w.set_div(cfg.raw_div);
+        });
+    }
+}
+
+#[allow(private_bounds)]
+pub trait ClockPeripheral: SealedClockPeripheral + 'static {}

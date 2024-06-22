@@ -98,11 +98,35 @@ fn main() {
     });
 
     // ========
+    // No need to handle FLASH regions
+    // No need to handle clock settings
+
+    // ========
+    // Generate ClockPeripheral impls
+
+    for p in METADATA.peripherals {
+        if !singletons.contains(&p.name.to_string()) {
+            continue;
+        }
+        let pname = format_ident!("{}", p.name);
+
+        if let Some(sysctl) = &p.sysctl {
+            if let Some(clock_idx) = sysctl.clock_node {
+                g.extend(quote! {
+                    impl crate::sysctl::SealedClockPeripheral for peripherals::#pname {
+                        const SYSCTL_CLOCK: usize = #clock_idx;
+                    }
+                    impl crate::sysctl::ClockPeripheral for peripherals::#pname {}
+                });
+            }
+        }
+    }
+
+    // ========
     // Write foreach_foo! macrotables
 
-    //let mut flash_regions_table: Vec<Vec<String>> = Vec::new();
-    //let mut interrupts_table: Vec<Vec<String>> = Vec::new();
-    //let mut peripherals_table: Vec<Vec<String>> = Vec::new();
+    let mut interrupts_table: Vec<Vec<String>> = Vec::new();
+    let mut peripherals_table: Vec<Vec<String>> = Vec::new();
     let mut pins_table: Vec<Vec<String>> = Vec::new();
 
     // pin name => io pad index
@@ -110,8 +134,37 @@ fn main() {
         pins_table.push(vec![p.name.to_string(), p.index.to_string()]);
     }
 
+    for p in METADATA.peripherals {
+        let Some(regs) = &p.registers else {
+            continue;
+        };
+
+        for irq in p.interrupts {
+            let row = vec![
+                p.name.to_string(),
+                regs.kind.to_string(),
+                regs.block.to_string(),
+                irq.signal.to_string(),
+                irq.interrupt.to_ascii_uppercase(),
+            ];
+            interrupts_table.push(row)
+        }
+
+        let row = vec![regs.kind.to_string(), p.name.to_string()];
+        peripherals_table.push(row);
+    }
+
+    /*
+    for irq in METADATA.interrupts {
+        let name = irq.name.to_ascii_uppercase();
+        interrupts_table.push(vec![name.clone()]);
+    }
+    */
+
     let mut m = String::new();
 
+    make_table(&mut m, "foreach_interrupt", &interrupts_table);
+    make_table(&mut m, "foreach_peripheral", &peripherals_table);
     make_table(&mut m, "foreach_pin", &pins_table);
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
