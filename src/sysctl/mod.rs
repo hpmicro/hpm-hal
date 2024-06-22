@@ -16,9 +16,9 @@ const PLL0CLK1: Hertz = Hertz(600_000_000);
 const PLL0CLK2: Hertz = Hertz(400_000_000);
 
 const PLL1CLK0: Hertz = Hertz(800_000_000);
-const PLL1CLK1: Hertz = Hertz(666_000_000);
+const PLL1CLK1: Hertz = Hertz(666_666_667);
 const PLL1CLK2: Hertz = Hertz(500_000_000);
-const PLL1CLK3: Hertz = Hertz(266_000_000);
+const PLL1CLK3: Hertz = Hertz(266_666_667);
 
 /// The default system clock configuration
 static mut CLOCKS: MaybeUninit<Clocks> = MaybeUninit::uninit();
