@@ -14,6 +14,7 @@ mod hpm53 {
         }
 
         fn set_clock(cfg: ClockConfig) {
+            let _ = cfg;
             unreachable!()
         }
     }
@@ -24,6 +25,7 @@ mod hpm53 {
             crate::sysctl::CLK_24M
         }
         fn set_clock(cfg: ClockConfig) {
+            let _ = cfg;
             unreachable!()
         }
     }

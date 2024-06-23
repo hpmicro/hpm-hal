@@ -316,7 +316,6 @@ fn blocking_flush(info: &Info) -> Result<(), Error> {
 
 fn reconfigure(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), ConfigError> {
     info.interrupt.disable();
-    let r = info.regs;
 
     configure(info, kernel_clock, config, true, true)?;
 

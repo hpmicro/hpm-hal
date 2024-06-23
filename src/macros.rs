@@ -1,4 +1,5 @@
 #![macro_use]
+#![allow(unused)]
 
 macro_rules! peri_trait {
     (
