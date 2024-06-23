@@ -1,9 +1,10 @@
 //! System control, clocks, group links.
 
 use core::mem::MaybeUninit;
+use core::ops;
 
 use crate::pac::sysctl::vals;
-pub use crate::pac::sysctl::vals::ClockMux;
+pub use crate::pac::sysctl::vals::{ClockMux, SubDiv as AHBDiv};
 use crate::pac::SYSCTL;
 use crate::time::Hertz;
 
@@ -63,7 +64,7 @@ impl Clocks {
 pub struct Config {
     pub hart0: ClockCfg,
     /// SUB0_DIV, 4bit, 1 to 16
-    pub raw_ahb_div: u8,
+    pub ahb_div: AHBDiv,
 }
 
 impl Default for Config {
@@ -73,7 +74,7 @@ impl Default for Config {
                 src: vals::ClockMux::PLL0CLK0,
                 raw_div: 1, // div 2
             },
-            raw_ahb_div: 1, // div 2
+            ahb_div: AHBDiv::DIV2, // div 2
         }
     }
 }
@@ -86,6 +87,14 @@ pub struct ClockCfg {
 }
 
 impl ClockCfg {
+    pub const fn new(src: vals::ClockMux, div: u16) -> Self {
+        assert!(div <= 256 || div > 0, "div must be in range 1 to 256");
+        ClockCfg {
+            src,
+            raw_div: div as u8 - 1,
+        }
+    }
+
     pub(crate) fn to_frequency(&self) -> Hertz {
         let src = match self.src {
             vals::ClockMux::CLK_24M => CLK_24M.0,
@@ -110,14 +119,14 @@ pub(crate) unsafe fn init(config: Config) {
     SYSCTL.clock_cpu(0).modify(|w| {
         w.set_mux(config.hart0.src);
         w.set_div(config.hart0.raw_div);
-        w.set_sub0_div(config.raw_ahb_div);
+        w.set_sub0_div(config.ahb_div);
     });
 
     while SYSCTL.clock_cpu(0).read().glb_busy() {}
 
     let hart0_clk = config.hart0.to_frequency();
 
-    let ahb_clk = hart0_clk / (config.raw_ahb_div as u32 + 1);
+    let ahb_clk = hart0_clk / config.ahb_div;
 
     let freqs = Clocks {
         hart0: hart0_clk,
@@ -132,8 +141,6 @@ pub(crate) unsafe fn init(config: Config) {
         pll1clk3: PLL1CLK3,
     };
     CLOCKS = MaybeUninit::new(freqs);
-
-    let _ = config;
 }
 
 pub fn clocks() -> &'static Clocks {
@@ -161,3 +168,12 @@ pub(crate) trait SealedClockPeripheral {
 
 #[allow(private_bounds)]
 pub trait ClockPeripheral: SealedClockPeripheral + 'static {}
+
+impl ops::Div<AHBDiv> for Hertz {
+    type Output = Hertz;
+
+    /// raw bits 0 to 15 mapping to div 1 to div 16
+    fn div(self, rhs: AHBDiv) -> Hertz {
+        Hertz(self.0 / (rhs as u32 + 1))
+    }
+}
