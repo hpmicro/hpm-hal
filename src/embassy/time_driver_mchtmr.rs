@@ -10,7 +10,7 @@ use hpm_metapac::sysctl::vals;
 use hpm_metapac::{MCHTMR, SYSCTL};
 
 use crate::pac;
-use crate::sysctl::ClockCfg;
+use crate::sysctl::ClockConfig;
 
 pub const ALARM_COUNT: usize = 1;
 
@@ -52,7 +52,7 @@ impl MachineTimerDriver {
     fn init(&'static self) {
         let regs = SYSCTL.clock(pac::clocks::MCT0).read();
 
-        let mchtmr_cfg = ClockCfg {
+        let mchtmr_cfg = ClockConfig {
             src: regs.mux(),
             raw_div: regs.div(),
         };

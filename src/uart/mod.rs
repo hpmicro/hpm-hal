@@ -178,10 +178,14 @@ unsafe fn on_interrupt(r: pac::uart::Uart, s: &'static State) {
     todo!()
 }
 
+// ==========
+// drivers
+
 /// Tx-only UART Driver.
 ///
 /// Can be obtained from [`Uart::split`], or can be constructed independently,
 /// if you do not need the receiving half of the driver.
+#[allow(unused)]
 pub struct UartTx<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
@@ -485,7 +489,7 @@ impl<M: Mode> embedded_io::Write for UartTx<'_, M> {
 }
 
 // ==========
-// help types and functions
+// helper types and functions
 
 struct State {
     rx_waker: AtomicWaker,

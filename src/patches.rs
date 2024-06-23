@@ -3,7 +3,7 @@
 #[cfg(hpm53)]
 mod hpm53 {
     use crate::peripherals;
-    use crate::sysctl::ClockCfg;
+    use crate::sysctl::ClockConfig;
     use crate::time::Hertz;
 
     // Modules that use clock sources directly
@@ -13,7 +13,7 @@ mod hpm53 {
             crate::sysctl::CLK_24M
         }
 
-        fn set_clock(cfg: ClockCfg) {
+        fn set_clock(cfg: ClockConfig) {
             unreachable!()
         }
     }
@@ -23,7 +23,7 @@ mod hpm53 {
         fn frequency() -> Hertz {
             crate::sysctl::CLK_24M
         }
-        fn set_clock(cfg: ClockCfg) {
+        fn set_clock(cfg: ClockConfig) {
             unreachable!()
         }
     }
