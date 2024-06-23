@@ -1,0 +1,34 @@
+name: CI build
+
+on:
+  push:
+    branches: ["master"]
+    paths-ignore:
+      - "*.md"
+  pull_request:
+    branches: ["master"]
+    paths-ignore:
+      - "*.md"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use nightly Rust
+        run: |
+          rustup default nightly-2024-06-12
+          rustup component add rust-src
+          rustup target add riscv32imafc-unknown-none-elf
+      - name: Fetch Deps
+        # if this is a pull request
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p ../hpm-data/build/
+          cd ../hpm-data/build/
+          git clone https://github.com/hpmicro-rs/hpm-metapac.git
+      - name: Build Only
+        run: cargo build --release --examples
