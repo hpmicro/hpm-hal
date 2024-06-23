@@ -148,8 +148,6 @@ impl Default for Config {
 pub enum Error {
     /// Framing error
     Framing,
-    /// Noise error
-    Noise,
     /// RX buffer overrun
     Overrun,
     /// Parity check error
@@ -160,6 +158,8 @@ pub enum Error {
     FIFO,
     /// Timeout
     Timeout,
+    /// Line break
+    LineBreak,
 }
 
 /// Interrupt handler.
@@ -297,6 +297,295 @@ impl<'d, M: Mode> UartTx<'d, M> {
     }
 }
 
+/// Rx-only UART Driver.
+#[allow(unused)]
+pub struct UartRx<'d, M: Mode> {
+    info: &'static Info,
+    state: &'static State,
+    kernel_clock: Hertz,
+    rx: Option<PeripheralRef<'d, AnyPin>>,
+    rts: Option<PeripheralRef<'d, AnyPin>>,
+    // rx_dma: Option<ChannelAndRequest<'d>>,
+    _phantom: PhantomData<M>,
+}
+
+impl<'d> UartRx<'d, Blocking> {
+    /// Create a new rx-only UART with no hardware flow control.
+    ///
+    /// Useful if you only want Uart Rx. It saves 1 pin and consumes a little less power.
+    pub fn new_blocking<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        into_ref!(rx);
+
+        rx.set_as_alt(rx.alt_num());
+
+        Self::new_inner(peri, Some(rx.map_into()), None, config)
+    }
+
+    /// Create a new rx-only UART with a request-to-send pin
+    pub fn new_blocking_with_rts<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        into_ref!(rx, rts);
+
+        rx.set_as_alt(rx.alt_num());
+        rts.set_as_alt(rts.alt_num());
+
+        Self::new_inner(peri, Some(rx.map_into()), Some(rts.map_into()), config)
+    }
+}
+
+impl<'d, M: Mode> UartRx<'d, M> {
+    fn new_inner<T: Instance>(
+        _peri: impl Peripheral<P = T> + 'd,
+        rx: Option<PeripheralRef<'d, AnyPin>>,
+        rts: Option<PeripheralRef<'d, AnyPin>>,
+        // rx_dma: Option<ChannelAndRequest<'d>>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        let mut this = Self {
+            _phantom: PhantomData,
+            info: T::info(),
+            state: T::state(),
+            kernel_clock: T::frequency(),
+            rx,
+            rts,
+            // rx_dma,
+        };
+        this.enable_and_configure(&config)?;
+        Ok(this)
+    }
+
+    fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
+        let info = self.info;
+        let state = self.state;
+        state.tx_rx_refcount.store(1, Ordering::Relaxed);
+
+        configure(info, self.kernel_clock, &config, true, false)?;
+
+        info.interrupt.unpend();
+        unsafe { info.interrupt.enable() };
+
+        Ok(())
+    }
+
+    /// Reconfigure the driver
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        reconfigure(self.info, self.kernel_clock, config)
+    }
+
+    fn check_rx_flags(&mut self) -> Result<bool, Error> {
+        let r = self.info.regs;
+        let lsr = r.lsr().read(); // reading clears error flag
+
+        if lsr.pe() {
+            return Err(Error::Parity);
+        } else if lsr.fe() {
+            return Err(Error::Framing);
+        } else if lsr.oe() {
+            return Err(Error::Overrun);
+        } else if lsr.errf() {
+            return Err(Error::FIFO);
+        } else if lsr.lbreak() {
+            return Err(Error::LineBreak);
+        }
+        Ok(lsr.dr()) // data ready
+    }
+
+    /// Read a single u8 if there is one available, otherwise return WouldBlock
+    pub(crate) fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
+        let r = self.info.regs;
+        if self.check_rx_flags()? {
+            Ok(r.rbr().read().rbr())
+        } else {
+            Err(nb::Error::WouldBlock)
+        }
+    }
+
+    /// Perform a blocking read into `buffer`
+    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        let r = self.info.regs;
+
+        for b in buffer {
+            while !self.check_rx_flags()? {}
+            *b = r.rbr().read().rbr()
+        }
+        Ok(())
+    }
+}
+
+/// Bidirectional UART Driver, which acts as a combination of [`UartTx`] and [`UartRx`].
+pub struct Uart<'d, M: Mode> {
+    tx: UartTx<'d, M>,
+    rx: UartRx<'d, M>,
+}
+
+impl<'d> Uart<'d, Blocking> {
+    /// Create a new blocking bidirectional UART.
+    pub fn new_blocking<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        into_ref!(rx, tx);
+
+        rx.set_as_alt(rx.alt_num());
+        tx.set_as_alt(tx.alt_num());
+
+        Self::new_inner(peri, Some(rx.map_into()), Some(tx.map_into()), None, None, None, config)
+    }
+
+    /// Create a new bidirectional UART with request-to-send and clear-to-send pins
+    pub fn new_blocking_with_rtscts<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        into_ref!(rx, tx, rts, cts);
+
+        rx.set_as_alt(rx.alt_num());
+        tx.set_as_alt(tx.alt_num());
+        rts.set_as_alt(rts.alt_num());
+        cts.set_as_alt(cts.alt_num());
+
+        Self::new_inner(
+            peri,
+            Some(rx.map_into()),
+            Some(tx.map_into()),
+            Some(rts.map_into()),
+            Some(cts.map_into()),
+            None,
+            //            None,
+            //          None,
+            config,
+        )
+    }
+
+    /// Create a new bidirectional UART with a driver-enable pin
+    pub fn new_blocking_with_de<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        de: impl Peripheral<P = impl DePin<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        into_ref!(rx, tx, de);
+
+        rx.set_as_alt(rx.alt_num());
+        tx.set_as_alt(tx.alt_num());
+        de.set_as_alt(de.alt_num());
+
+        Self::new_inner(
+            peri,
+            Some(rx.map_into()),
+            Some(tx.map_into()),
+            None,
+            None,
+            Some(de.map_into()),
+            config,
+        )
+    }
+}
+
+impl<'d, M: Mode> Uart<'d, M> {
+    fn new_inner<T: Instance>(
+        _peri: impl Peripheral<P = T> + 'd,
+        rx: Option<PeripheralRef<'d, AnyPin>>,
+        tx: Option<PeripheralRef<'d, AnyPin>>,
+        rts: Option<PeripheralRef<'d, AnyPin>>,
+        cts: Option<PeripheralRef<'d, AnyPin>>,
+        de: Option<PeripheralRef<'d, AnyPin>>,
+        //tx_dma: Option<ChannelAndRequest<'d>>,
+        //rx_dma: Option<ChannelAndRequest<'d>>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        let info = T::info();
+        let state = T::state();
+        {
+            use crate::sysctl::*;
+            T::set_clock(ClockConfig::new(ClockMux::CLK_24M, 1));
+        }
+        let kernel_clock = T::frequency();
+
+        let mut this = Self {
+            tx: UartTx {
+                _phantom: PhantomData,
+                info,
+                state,
+                kernel_clock,
+                tx,
+                cts,
+                de,
+                // tx_dma,
+            },
+            rx: UartRx {
+                _phantom: PhantomData,
+                info,
+                state,
+                kernel_clock,
+                rx,
+                rts,
+                //rx_dma,
+                //detect_previous_overrun: config.detect_previous_overrun,
+            },
+        };
+        this.enable_and_configure(&config)?;
+        Ok(this)
+    }
+
+    fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
+        let info = self.rx.info;
+        let state = self.rx.state;
+        state.tx_rx_refcount.store(2, Ordering::Relaxed);
+
+        configure(info, self.rx.kernel_clock, config, true, true)?;
+
+        info.interrupt.unpend();
+        unsafe { info.interrupt.enable() };
+
+        Ok(())
+    }
+
+    /// Perform a blocking write
+    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.tx.blocking_write(buffer)
+    }
+
+    /// Block until transmission complete
+    pub fn blocking_flush(&mut self) -> Result<(), Error> {
+        self.tx.blocking_flush()
+    }
+
+    /// Read a single `u8` or return `WouldBlock`
+    pub(crate) fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
+        self.rx.nb_read()
+    }
+
+    /// Perform a blocking read into `buffer`
+    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.rx.blocking_read(buffer)
+    }
+
+    /// Split the Uart into a transmitter and receiver, which is
+    /// particularly useful when having two tasks correlating to
+    /// transmitting and receiving.
+    pub fn split(self) -> (UartTx<'d, M>, UartRx<'d, M>) {
+        (self.tx, self.rx)
+    }
+}
+
+// ==========
+// internal functions
 fn blocking_flush(info: &Info) -> Result<(), Error> {
     let r = info.regs;
     let mut retry = 0_u32;
@@ -418,6 +707,18 @@ fn configure(
         }
     }
 
+    if enable_rx {
+        r.idle_cfg().modify(|w| {
+            w.set_rxen(true);
+        });
+    }
+
+    /*
+    r.mcr().modify(|w| {
+        w.set_loop_(false);
+    });
+    */
+
     Ok(())
 }
 
@@ -473,10 +774,25 @@ impl embedded_io::Error for Error {
         embedded_io::ErrorKind::Other
     }
 }
+
 impl<M: Mode> embedded_io::ErrorType for UartTx<'_, M> {
     type Error = Error;
 }
 impl<M: Mode> embedded_io::Write for UartTx<'_, M> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.blocking_write(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
+impl<M: Mode> embedded_io::ErrorType for Uart<'_, M> {
+    type Error = Error;
+}
+impl<M: Mode> embedded_io::Write for Uart<'_, M> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.blocking_write(buf)?;
         Ok(buf.len())
