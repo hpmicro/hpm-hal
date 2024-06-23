@@ -41,6 +41,7 @@ static_assertions = "1"
 
 defmt = { version = "0.3.8", optional = true }
 embedded-io = "0.6.1"
+nb = "1.1.0"
 
 [build-dependencies]
 # git = "https://github.com/hpmicro-rs/hpm-metapac.git",
