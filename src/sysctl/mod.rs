@@ -2,6 +2,7 @@
 
 use core::mem::MaybeUninit;
 use core::ops;
+use core::ptr::addr_of;
 
 use crate::pac::sysctl::vals;
 pub use crate::pac::sysctl::vals::{ClockMux, SubDiv as AHBDiv};
@@ -21,8 +22,21 @@ const PLL1CLK1: Hertz = Hertz(666_666_667);
 const PLL1CLK2: Hertz = Hertz(500_000_000);
 const PLL1CLK3: Hertz = Hertz(266_666_667);
 
+const CLK_HART0: Hertz = Hertz(720_000_000 / 2); // PLL0CLK0 / 2
+const CLK_AHB: Hertz = Hertz(720_000_000 / 2 / 2); // CLK_HART0 / 2
+
 /// The default system clock configuration
-static mut CLOCKS: MaybeUninit<Clocks> = MaybeUninit::uninit();
+static mut CLOCKS: Clocks = Clocks {
+    hart0: CLK_HART0,
+    ahb: CLK_AHB,
+    pll0clk0: PLL0CLK0,
+    pll0clk1: PLL0CLK1,
+    pll0clk2: PLL0CLK2,
+    pll1clk0: PLL1CLK0,
+    pll1clk1: PLL1CLK1,
+    pll1clk2: PLL1CLK2,
+    pll1clk3: PLL1CLK3,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Clocks {
@@ -58,6 +72,12 @@ impl Clocks {
     pub fn get_freq(&self, cfg: &ClockCfg) -> Hertz {
         let clock_in = self.of(cfg.src);
         clock_in / (cfg.raw_div as u32 + 1)
+    }
+
+    pub fn get_clock_freq(&self, clock: usize) -> Hertz {
+        let r = SYSCTL.clock(clock).read();
+        let clock_in = self.of(r.mux());
+        clock_in / (r.div() + 1)
     }
 }
 
@@ -98,13 +118,13 @@ impl ClockCfg {
     pub(crate) fn to_frequency(&self) -> Hertz {
         let src = match self.src {
             vals::ClockMux::CLK_24M => CLK_24M.0,
-            vals::ClockMux::PLL0CLK0 => PLL0CLK0.0,
-            vals::ClockMux::PLL0CLK1 => PLL0CLK1.0,
-            vals::ClockMux::PLL0CLK2 => PLL0CLK2.0,
-            vals::ClockMux::PLL1CLK0 => PLL1CLK0.0,
-            vals::ClockMux::PLL1CLK1 => PLL1CLK1.0,
-            vals::ClockMux::PLL1CLK2 => PLL1CLK2.0,
-            vals::ClockMux::PLL1CLK3 => PLL1CLK3.0,
+            vals::ClockMux::PLL0CLK0 => clocks().pll0clk0.0,
+            vals::ClockMux::PLL0CLK1 => clocks().pll0clk1.0,
+            vals::ClockMux::PLL0CLK2 => clocks().pll0clk2.0,
+            vals::ClockMux::PLL1CLK0 => clocks().pll1clk0.0,
+            vals::ClockMux::PLL1CLK1 => clocks().pll1clk1.0,
+            vals::ClockMux::PLL1CLK2 => clocks().pll1clk2.0,
+            vals::ClockMux::PLL1CLK3 => clocks().pll1clk3.0,
         };
         Hertz(src / (self.raw_div as u32 + 1))
     }
@@ -124,38 +144,24 @@ pub(crate) unsafe fn init(config: Config) {
 
     while SYSCTL.clock_cpu(0).read().glb_busy() {}
 
-    let hart0_clk = config.hart0.to_frequency();
-
+    let hart0_clk = clocks().get_freq(&config.hart0);
     let ahb_clk = hart0_clk / config.ahb_div;
 
-    let freqs = Clocks {
-        hart0: hart0_clk,
-        ahb: ahb_clk,
-
-        pll0clk0: PLL0CLK0,
-        pll0clk1: PLL0CLK1,
-        pll0clk2: PLL0CLK2,
-        pll1clk0: PLL1CLK0,
-        pll1clk1: PLL1CLK1,
-        pll1clk2: PLL1CLK2,
-        pll1clk3: PLL1CLK3,
-    };
-    CLOCKS = MaybeUninit::new(freqs);
+    unsafe {
+        CLOCKS.hart0 = hart0_clk;
+        CLOCKS.ahb = ahb_clk;
+    }
 }
 
 pub fn clocks() -> &'static Clocks {
-    unsafe { CLOCKS.assume_init_ref() }
+    unsafe { &*addr_of!(CLOCKS) }
 }
 
 pub(crate) trait SealedClockPeripheral {
     const SYSCTL_CLOCK: usize = usize::MAX;
 
     fn frequency() -> Hertz {
-        let cfg = SYSCTL.clock(Self::SYSCTL_CLOCK).read();
-        clocks().get_freq(&ClockCfg {
-            src: cfg.mux().into(),
-            raw_div: cfg.div().into(),
-        })
+        clocks().get_clock_freq(Self::SYSCTL_CLOCK)
     }
 
     fn set_clock(cfg: ClockCfg) {
