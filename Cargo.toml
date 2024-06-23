@@ -15,7 +15,7 @@ license = "MIT/Apache-2.0"
 [dependencies]
 # path = "../hpm-data/build/hpm-metapac",
 # git = "https://github.com/hpmicro-rs/hpm-metapac.git",
-hpm-metapac = { version = "0.0.2", path = "../hpm-data/build/hpm-metapac", features = [
+hpm-metapac = { version = "0.0.3", path = "../hpm-data/build/hpm-metapac", features = [
     "rt",
     # temp feature for demo
     # "memory-x",
@@ -44,7 +44,7 @@ embedded-io = "0.6.1"
 
 [build-dependencies]
 # git = "https://github.com/hpmicro-rs/hpm-metapac.git",
-hpm-metapac = { version = "0.0.2", path = "../hpm-data/build/hpm-metapac", default-features = false, features = [
+hpm-metapac = { version = "0.0.3", path = "../hpm-data/build/hpm-metapac", default-features = false, features = [
     "metadata",
 ] }
 proc-macro2 = "1.0.85"
