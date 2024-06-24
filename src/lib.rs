@@ -50,6 +50,7 @@ pub mod dma;
 // other peripherals
 pub mod i2c;
 pub mod uart;
+pub mod spi;
 
 #[cfg(femc)]
 pub mod femc;
