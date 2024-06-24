@@ -98,6 +98,7 @@ impl Default for Config {
 }
 
 /// I2C driver.
+#[allow(unused)]
 pub struct I2c<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
@@ -119,6 +120,11 @@ impl<'d> I2c<'d, Blocking> {
         sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
         config: Config,
     ) -> Self {
+        {
+            use crate::sysctl::*;
+
+            // T::set_clock(ClockConfig::new(ClockMux::CLK_24M, 1));
+        }
         into_ref!(scl, sda);
 
         // scl.set_as_alt(scl.alt_num());
@@ -204,15 +210,104 @@ impl<'d, M: Mode> I2c<'d, M> {
 
         r.tpm().write(|w| w.set_tpm(HPM_I2C_DRV_DEFAULT_TPM as _));
 
-        r.setup().modify(|w| {
+        r.setup().write(|w| {
             w.set_t_sp(timing.t_sp as _);
             w.set_t_sudat(timing.t_sudat as _);
             w.set_t_hddat(timing.t_hddat as _);
+            w.set_t_sclradio(timing.t_sclratio - 1 != 0);
             w.set_t_sclhi(timing.t_sclhi as _);
             w.set_addressing(false); // 7-bit address mode
             w.set_iicen(true);
             w.set_master(true);
         });
+    }
+
+    /// Blocking write, restart, read.
+    pub fn blocking_write_read(&mut self, addr: u8, reg: &[u8], read: &mut [u8]) -> Result<(), Error> {
+        if reg.is_empty()
+            || reg.len() > I2C_SOC_TRANSFER_COUNT_MAX
+            || read.is_empty()
+            || read.len() > I2C_SOC_TRANSFER_COUNT_MAX
+        {
+            return Err(Error::InvalidArgument);
+        }
+
+        let r = self.info.regs;
+        let timeout = self.timeout();
+
+        while r.status().read().busbusy() {
+            self.timeout().check()?;
+        }
+
+        // W1C, clear CMPL bit to avoid blocking the transmission
+        r.status().write(|w| w.set_cmpl(true));
+
+        r.cmd().write(|w| w.set_cmd(vals::Cmd::CLEAR_FIFO));
+        r.ctrl().write(|w| {
+            w.set_phase_start(true);
+            w.set_phase_addr(true);
+            w.set_phase_data(true);
+            w.set_dir(vals::Dir::MASTER_WRITE_SLAVE_READ);
+            w.set_datacnt_high((reg.len() >> 8) as _);
+            w.set_datacnt(reg.len() as _);
+        });
+
+        r.addr().modify(|w| w.set_addr(addr as u16));
+
+        for b in reg {
+            r.data().write(|w| w.set_data(*b));
+        }
+        r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
+
+        // Before starting to transmit data, judge addrhit to ensure that the slave address exists on the bus.
+        while !r.status().read().addrhit() {
+            if timeout.check().is_err() {
+                // the address misses, a stop needs to be added to prevent the bus from being busy.
+                r.status().write(|w| w.set_cmpl(true));
+                r.ctrl().write(|w| w.set_phase_stop(true));
+                r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
+
+                return Err(Error::NoAddrHit);
+            }
+        }
+
+        r.status().write(|w| w.set_addrhit(true));
+
+        while !r.status().read().cmpl() {
+            timeout.check()?;
+        }
+
+        // W1C, clear CMPL bit to avoid blocking the transmission
+        r.status().write(|w| w.set_cmpl(true));
+
+        r.cmd().write(|w| w.set_cmd(vals::Cmd::CLEAR_FIFO));
+        r.ctrl().write(|w| {
+            w.set_phase_start(true);
+            w.set_phase_stop(true);
+            w.set_phase_addr(true);
+            w.set_phase_data(true);
+            w.set_dir(vals::Dir::MASTER_READ_SLAVE_WRITE);
+            w.set_datacnt_high((read.len() >> 8) as _);
+            w.set_datacnt(read.len() as _);
+        });
+        r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
+
+        for b in read {
+            loop {
+                if !r.status().read().fifoempty() {
+                    *b = r.data().read().data();
+                    break;
+                } else {
+                    timeout.check()?;
+                }
+            }
+        }
+
+        while !r.status().read().cmpl() {
+            timeout.check()?;
+        }
+
+        Ok(())
     }
 
     fn blocking_operation_timeout(
@@ -270,19 +365,25 @@ impl<'d, M: Mode> I2c<'d, M> {
         match op {
             Operation::Read(read) => {
                 for b in read.iter_mut() {
-                    if !r.status().read().fifoempty() {
-                        *b = r.data().read().data() as u8;
-                    } else {
-                        timeout.check()?;
+                    loop {
+                        if !r.status().read().fifoempty() {
+                            *b = r.data().read().data();
+                            break;
+                        } else {
+                            timeout.check()?;
+                        }
                     }
                 }
             }
             Operation::Write(write) => {
                 for b in write.iter() {
-                    if !r.status().read().fifofull() {
-                        r.data().write(|w| w.set_data(*b));
-                    } else {
-                        timeout.check()?;
+                    loop {
+                        if !r.status().read().fifofull() {
+                            r.data().write(|w| w.set_data(*b));
+                            break;
+                        } else {
+                            timeout.check()?;
+                        }
                     }
                 }
             }
@@ -293,7 +394,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             timeout.check()?;
         }
 
-        if get_data_count(r) as usize != size {
+        if get_data_count(r) > 0 && size > 0 {
             return Err(Error::TrasnmitNotCompleted);
         }
 
@@ -345,10 +446,13 @@ impl<'d, M: Mode> I2c<'d, M> {
         }
 
         for b in read {
-            if !r.status().read().fifoempty() {
-                *b = r.data().read().data() as u8;
-            } else {
-                timeout.check()?;
+            loop {
+                if !r.status().read().fifoempty() {
+                    *b = r.data().read().data() as u8;
+                    break;
+                } else {
+                    timeout.check()?;
+                }
             }
         }
 
@@ -357,7 +461,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             timeout.check()?;
         }
 
-        if get_data_count(r) as usize != size {
+        if get_data_count(r) > 0 && size > 0 {
             return Err(Error::TrasnmitNotCompleted);
         }
 
@@ -403,7 +507,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
 
         // Before starting to transmit data, judge addrhit to ensure that the slave address exists on the bus.
-        while r.status().read().addrhit() == false {
+        while !r.status().read().addrhit() {
             timeout.check()?;
         }
 
@@ -415,10 +519,13 @@ impl<'d, M: Mode> I2c<'d, M> {
         }
 
         for b in write {
-            if !r.status().read().fifofull() {
-                r.data().write(|w| w.set_data(*b));
-            } else {
-                timeout.check()?;
+            loop {
+                if !r.status().read().fifofull() {
+                    r.data().write(|w| w.set_data(*b));
+                    break;
+                } else {
+                    timeout.check()?;
+                }
             }
         }
 
@@ -427,7 +534,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             timeout.check()?;
         }
 
-        if get_data_count(r) as usize != size {
+        if get_data_count(r) > 0 && size > 0 {
             return Err(Error::TrasnmitNotCompleted);
         }
 
@@ -446,22 +553,6 @@ impl<'d, M: Mode> I2c<'d, M> {
         let timeout = self.timeout();
 
         self.blocking_write_timeout(addr, write, timeout, true)
-    }
-
-    /// Blocking write, restart, read.
-    pub fn blocking_write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
-        // Check empty read buffer before starting transaction. Otherwise, we would not generate the
-        // stop condition below.
-        if read.is_empty() {
-            return Err(Error::Overrun);
-        }
-
-        let timeout = self.timeout();
-
-        self.blocking_write_timeout(addr, write, timeout, false)?;
-        self.blocking_read_timeout(addr, read, timeout)?;
-
-        Ok(())
     }
 
     /// Blocking transaction with operations.
@@ -681,7 +772,7 @@ fn operation_frames<'a, 'b: 'a>(
 #[inline]
 fn get_data_count(r: crate::pac::i2c::I2c) -> u16 {
     let ctrl = r.ctrl().read();
-    ((ctrl.datacnt_high() as u16) << 8) | ctrl.datacnt() as u16
+    ((ctrl.datacnt_high() as u16) << 8) + (ctrl.datacnt() as u16)
 }
 
 #[inline]
