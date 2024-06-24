@@ -120,14 +120,9 @@ impl<'d> I2c<'d, Blocking> {
         sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        {
-            use crate::sysctl::*;
-
-            // T::set_clock(ClockConfig::new(ClockMux::CLK_24M, 1));
-        }
         into_ref!(scl, sda);
 
-        // scl.set_as_alt(scl.alt_num());
+        // ALT, Open Drain, Pull-up
         scl.ioc_pad().func_ctl().write(|w| {
             w.set_alt_select(scl.alt_num());
             w.set_loop_back(true);
