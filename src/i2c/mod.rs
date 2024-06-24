@@ -22,7 +22,7 @@ const I2C_SOC_TRANSFER_COUNT_MAX: usize = 4096;
 #[cfg(any(hpm67, hpm62, hpm63, hpm64))]
 const I2C_SOC_TRANSFER_COUNT_MAX: usize = 256;
 
-const HPM_I2C_DRV_DEFAULT_RETRY_COUNT: u32 = 5000;
+// const HPM_I2C_DRV_DEFAULT_RETRY_COUNT: u32 = 5000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Timings {
@@ -564,6 +564,50 @@ foreach_peripheral!(
         }
     };
 );
+
+// ==========
+// eh traits
+
+impl embedded_hal::i2c::Error for Error {
+    fn kind(&self) -> embedded_hal::i2c::ErrorKind {
+        match *self {
+            Self::Bus | Error::BusyBusy | Error::NoAddrHit => embedded_hal::i2c::ErrorKind::Bus,
+            Self::Arbitration => embedded_hal::i2c::ErrorKind::ArbitrationLoss,
+            Self::Nack => embedded_hal::i2c::ErrorKind::NoAcknowledge(embedded_hal::i2c::NoAcknowledgeSource::Unknown),
+            Self::Timeout => embedded_hal::i2c::ErrorKind::Other,
+            Self::Overrun => embedded_hal::i2c::ErrorKind::Overrun,
+            Self::ZeroLengthTransfer => embedded_hal::i2c::ErrorKind::Other,
+            Self::TrasnmitNotCompleted => embedded_hal::i2c::ErrorKind::Other,
+            Self::InvalidArgument => embedded_hal::i2c::ErrorKind::Other,
+        }
+    }
+}
+
+impl<'d, M: Mode> embedded_hal::i2c::ErrorType for I2c<'d, M> {
+    type Error = Error;
+}
+
+impl<'d, M: Mode> embedded_hal::i2c::I2c for I2c<'d, M> {
+    fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(address, read)
+    }
+
+    fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(address, write)
+    }
+
+    fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_write_read(address, write, read)
+    }
+
+    fn transaction(
+        &mut self,
+        address: u8,
+        operations: &mut [embedded_hal::i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        self.blocking_transaction(address, operations)
+    }
+}
 
 // ==========
 // frame options
