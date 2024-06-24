@@ -1,5 +1,5 @@
 [toolchain]
-channel = "nightly"
+channel = "nightly-2024-06-12"
 targets = [
-    "riscv32imac-unknown-none-elf"
+    "riscv32imafc-unknown-none-elf"
 ]
