@@ -14,9 +14,9 @@ This crate is a working-in-progress and not ready for use.
   - [x] GPIO, Flex, Input, Output
   - [x] RTT support (defmt, defmt-rtt)
   - [x] UART support
-    - [x] blocking TX
-    - [x] blocking RX
-
+    - [x] blocking TX, RX
+  - [x] I2C support
+    - [x] blocking, eh traits
 - MCUs
   - HPM5300 - currently it's the only supported series
 

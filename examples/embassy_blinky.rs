@@ -29,8 +29,8 @@ async fn main(spawner: Spawner) -> ! {
     let p = hal::init(Default::default());
 
     // println!("{}", BANNER);
-    println!("Rust SDK: hpm5361-hal v0.0.1");
-    println!("Embassy driver: hpm5361-hal v0.0.1");
+    println!("Rust SDK: hpm-hal v0.0.1");
+    println!("Embassy driver: hpm-hal v0.0.1");
     println!("Author: @andelf");
     println!("==============================");
     println!(" {} clock summary", BOARD_NAME);
