@@ -45,6 +45,7 @@ pub mod gpio;
 pub mod sysctl;
 
 // other peripherals
+pub mod i2c;
 pub mod uart;
 
 #[cfg(feature = "rt")]
