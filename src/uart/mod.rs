@@ -710,14 +710,9 @@ fn configure(
     if enable_rx {
         r.idle_cfg().modify(|w| {
             w.set_rxen(true);
+            w.set_rx_idle_thr(10); // 10bit
         });
     }
-
-    /*
-    r.mcr().modify(|w| {
-        w.set_loop_(false);
-    });
-    */
 
     Ok(())
 }

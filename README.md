@@ -13,8 +13,9 @@ This crate is a working-in-progress and not ready for use.
   - [x] PLL setting (only PLL0 is supported, since others might be unsafe)
   - [x] GPIO, Flex, Input, Output
   - [x] RTT support (defmt, defmt-rtt)
-  - [ ] UART support
+  - [x] UART support
     - [x] blocking TX
+    - [x] blocking RX
 
 - MCUs
   - HPM5300 - currently it's the only supported series
