@@ -139,10 +139,15 @@ fn main() {
         (("uart", "DE"), quote!(crate::uart::DePin)),
         (("i2c", "SDA"), quote!(crate::i2c::SdaPin)),
         (("i2c", "SCL"), quote!(crate::i2c::SclPin)),
-        //(("spi", "MISO"), quote!(crate::spi::MisoPin)),
-        //(("spi", "MOSI"), quote!(crate::spi::MosiPin)),
-        //(("spi", "SCK"), quote!(crate::spi::SckPin)),
-        //(("spi", "CS0"), quote!(crate::spi::Cs0Pin)),
+        (("spi", "SCLK"), quote!(crate::spi::SclkPin)),
+        (("spi", "CS0"), quote!(crate::spi::CsPin)),
+        (("spi", "CS1"), quote!(crate::spi::CsPin)),
+        (("spi", "CS2"), quote!(crate::spi::CsPin)),
+        (("spi", "CS3"), quote!(crate::spi::CsPin)),
+        (("spi", "MOSI"), quote!(crate::spi::MosiPin)),
+        (("spi", "MISO"), quote!(crate::spi::MisoPin)),
+        (("spi", "DAT2"), quote!(crate::spi::D2Pin)),
+        (("spi", "DAT3"), quote!(crate::spi::D3Pin)),
     ]
     .into();
 

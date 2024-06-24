@@ -39,13 +39,24 @@ impl Into<u8> for TransferMode {
     }
 }
 
-/// Time between CS active and first SCLK edge.
+/// Time between CS active and SCLK edge.
 #[derive(Copy, Clone)]
 pub enum ChipSelect2SCLK {
     _1HalfSclk,
     _2HalfSclk,
     _3HalfSclk,
     _4HalfSclk,
+}
+
+impl Into<u8> for ChipSelect2SCLK {
+    fn into(self) -> u8 {
+        match self {
+            ChipSelect2SCLK::_1HalfSclk => 0x00,
+            ChipSelect2SCLK::_2HalfSclk => 0x01,
+            ChipSelect2SCLK::_3HalfSclk => 0x02,
+            ChipSelect2SCLK::_4HalfSclk => 0x03,
+        }
+    }
 }
 
 /// Time the Chip Select line stays high.
@@ -94,7 +105,7 @@ impl Into<u8> for ChipSelectHighTime {
 
 /// SPI lane width
 #[allow(dead_code)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum SpiWidth {
     /// None
     NONE,
@@ -109,75 +120,75 @@ pub enum SpiWidth {
 /// SPI data length
 #[derive(Copy, Clone)]
 pub enum DataLength {
-    _1bit,
-    _2bit,
-    _3bit,
-    _4bit,
-    _5bit,
-    _6bit,
-    _7bit,
-    _8bit,
-    _9bit,
-    _10bit,
-    _11bit,
-    _12bit,
-    _13bit,
-    _14bit,
-    _15bit,
-    _16bit,
-    _17bit,
-    _18bit,
-    _19bit,
-    _20bit,
-    _21bit,
-    _22bit,
-    _23bit,
-    _24bit,
-    _25bit,
-    _26bit,
-    _27bit,
-    _28bit,
-    _29bit,
-    _30bit,
-    _31bit,
-    _32bit,
+    _1Bit,
+    _2Bit,
+    _3Bit,
+    _4Bit,
+    _5Bit,
+    _6Bit,
+    _7Bit,
+    _8Bit,
+    _9Bit,
+    _10Bit,
+    _11Bit,
+    _12Bit,
+    _13Bit,
+    _14Bit,
+    _15Bit,
+    _16Bit,
+    _17Bit,
+    _18Bit,
+    _19Bit,
+    _20Bit,
+    _21Bit,
+    _22Bit,
+    _23Bit,
+    _24Bit,
+    _25Bit,
+    _26Bit,
+    _27Bit,
+    _28Bit,
+    _29Bit,
+    _30Bit,
+    _31Bit,
+    _32Bit,
 }
 
 impl Into<u8> for DataLength {
     fn into(self) -> u8 {
         match self {
-            DataLength::_1bit => 0x00,
-            DataLength::_2bit => 0x01,
-            DataLength::_3bit => 0x02,
-            DataLength::_4bit => 0x03,
-            DataLength::_5bit => 0x04,
-            DataLength::_6bit => 0x05,
-            DataLength::_7bit => 0x06,
-            DataLength::_8bit => 0x07,
-            DataLength::_9bit => 0x08,
-            DataLength::_10bit => 0x09,
-            DataLength::_11bit => 0x0a,
-            DataLength::_12bit => 0x0b,
-            DataLength::_13bit => 0x0c,
-            DataLength::_14bit => 0x0d,
-            DataLength::_15bit => 0x0e,
-            DataLength::_16bit => 0x0f,
-            DataLength::_17bit => 0x10,
-            DataLength::_18bit => 0x11,
-            DataLength::_19bit => 0x12,
-            DataLength::_20bit => 0x13,
-            DataLength::_21bit => 0x14,
-            DataLength::_22bit => 0x15,
-            DataLength::_23bit => 0x16,
-            DataLength::_24bit => 0x17,
-            DataLength::_25bit => 0x18,
-            DataLength::_26bit => 0x19,
-            DataLength::_27bit => 0x1a,
-            DataLength::_28bit => 0x1b,
-            DataLength::_29bit => 0x1c,
-            DataLength::_30bit => 0x1d,
-            DataLength::_31bit => 0x1e,
-            DataLength::_32bit => 0x1f,
+            DataLength::_1Bit => 0x00,
+            DataLength::_2Bit => 0x01,
+            DataLength::_3Bit => 0x02,
+            DataLength::_4Bit => 0x03,
+            DataLength::_5Bit => 0x04,
+            DataLength::_6Bit => 0x05,
+            DataLength::_7Bit => 0x06,
+            DataLength::_8Bit => 0x07,
+            DataLength::_9Bit => 0x08,
+            DataLength::_10Bit => 0x09,
+            DataLength::_11Bit => 0x0a,
+            DataLength::_12Bit => 0x0b,
+            DataLength::_13Bit => 0x0c,
+            DataLength::_14Bit => 0x0d,
+            DataLength::_15Bit => 0x0e,
+            DataLength::_16Bit => 0x0f,
+            DataLength::_17Bit => 0x10,
+            DataLength::_18Bit => 0x11,
+            DataLength::_19Bit => 0x12,
+            DataLength::_20Bit => 0x13,
+            DataLength::_21Bit => 0x14,
+            DataLength::_22Bit => 0x15,
+            DataLength::_23Bit => 0x16,
+            DataLength::_24Bit => 0x17,
+            DataLength::_25Bit => 0x18,
+            DataLength::_26Bit => 0x19,
+            DataLength::_27Bit => 0x1a,
+            DataLength::_28Bit => 0x1b,
+            DataLength::_29Bit => 0x1c,
+            DataLength::_30Bit => 0x1d,
+            DataLength::_31Bit => 0x1e,
+            DataLength::_32Bit => 0x1f,
         }
     }
 }
@@ -186,42 +197,53 @@ impl Into<u8> for DataLength {
 #[derive(Copy, Clone)]
 pub enum AddressSize {
     /// 8-bit address
-    _8bit,
+    _8Bit,
     /// 16-bit address
-    _16bit,
+    _16Bit,
     /// 24-bit address
-    _24bit,
+    _24Bit,
     /// 32-bit address
-    _32bit,
+    _32Bit,
 }
 
-pub enum FiFoSize {
-    /// 2 bytes
-    _2bytes,
-    /// 4 bytes
-    _4bytes,
-    /// 8 bytes
-    _8bytes,
-    /// 16 bytes
-    _16bytes,
-    /// 32 bytes
-    _32bytes,
-    /// 64 bytes
-    _64bytes,
-    /// 128 bytes
-    _128bytes,
-}
-
-impl Into<u8> for FiFoSize {
+impl Into<u8> for AddressSize {
     fn into(self) -> u8 {
         match self {
-            FiFoSize::_2bytes => 0x0,
-            FiFoSize::_4bytes => 0x01,
-            FiFoSize::_8bytes => 0x02,
-            FiFoSize::_16bytes => 0x03,
-            FiFoSize::_32bytes => 0x04,
-            FiFoSize::_64bytes => 0x05,
-            FiFoSize::_128bytes => 0x06,
+            AddressSize::_8Bit => 0x00,
+            AddressSize::_16Bit => 0x01,
+            AddressSize::_24Bit => 0x02,
+            AddressSize::_32Bit => 0x03,
+        }
+    }
+}
+
+pub enum FifoSize {
+    /// 2 bytes
+    _2Bytes,
+    /// 4 bytes
+    _4Bytes,
+    /// 8 bytes
+    _8Bytes,
+    /// 16 bytes
+    _16Bytes,
+    /// 32 bytes
+    _32Bytes,
+    /// 64 bytes
+    _64Bytes,
+    /// 128 bytes
+    _128Bytes,
+}
+
+impl Into<u8> for FifoSize {
+    fn into(self) -> u8 {
+        match self {
+            FifoSize::_2Bytes => 0x0,
+            FifoSize::_4Bytes => 0x01,
+            FifoSize::_8Bytes => 0x02,
+            FifoSize::_16Bytes => 0x03,
+            FifoSize::_32Bytes => 0x04,
+            FifoSize::_64Bytes => 0x05,
+            FifoSize::_128Bytes => 0x06,
         }
     }
 }
