@@ -33,6 +33,7 @@ embassy-time-driver = { version = "0.1.0", features = [
 embassy-sync = { version = "0.6.0", optional = true }
 embassy-futures = { version = "0.1.1", optional = true }
 embassy-hal-internal = { version = "0.1.0", default-features = false }
+embassy-time = { version = "0.3.0", optional = true }
 critical-section = "1.1.2"
 
 riscv-rt = { version = "0.12.2", optional = true }
@@ -42,6 +43,8 @@ static_assertions = "1"
 defmt = { version = "0.3.8", optional = true }
 embedded-io = "0.6.1"
 nb = "1.1.0"
+futures-util = { version = "0.3.30", optional = true, default-features = false }
+
 
 [build-dependencies]
 # git = "https://github.com/hpmicro-rs/hpm-metapac.git",
@@ -52,11 +55,12 @@ proc-macro2 = "1.0.85"
 quote = "1.0.15"
 
 [features]
-default = ["hpm5361", "rt", "embassy", "defmt"]
+default = ["hpm5361", "rt", "embassy", "defmt", "time"]
 rt = ["dep:riscv-rt"]
 defmt = ["dep:defmt"]
+time = ["dep:embassy-time"]
 
-embassy = ["dep:embassy-sync", "dep:embassy-futures", "dep:embassy-time-driver"]
+embassy = ["dep:embassy-sync", "dep:embassy-futures", "dep:embassy-time-driver", "dep:futures-util"]
 
 hpm5301 = ["hpm-metapac/hpm5301"]
 hpm5321 = ["hpm-metapac/hpm5321"]
@@ -86,6 +90,7 @@ hpm6754 = ["hpm-metapac/hpm6754"]
 hpm6830 = ["hpm-metapac/hpm6830"]
 hpm6850 = ["hpm-metapac/hpm6850"]
 hpm6880 = ["hpm-metapac/hpm6880"]
+futures-util = ["dep:futures-util"]
 
 
 [dev-dependencies]
