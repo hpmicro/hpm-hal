@@ -6,6 +6,8 @@ use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef}
 
 use crate::{pac, peripherals};
 
+pub(crate) mod input_future;
+
 /// GPIO flexible pin.
 pub struct Flex<'d> {
     pub(crate) pin: PeripheralRef<'d, AnyPin>,
@@ -26,7 +28,7 @@ impl<'d> Flex<'d> {
         critical_section::with(|_| {
             self.pin
                 .gpio()
-                .oe(self.pin._port() as _)
+                .oe(self.pin._port())
                 .clear()
                 .modify(|w| w.set_direction(1 << self.pin.pin()));
 
@@ -46,7 +48,7 @@ impl<'d> Flex<'d> {
         critical_section::with(|_| {
             self.pin
                 .gpio()
-                .oe(self.pin._port() as _)
+                .oe(self.pin._port())
                 .set()
                 .write(|r| r.set_direction(1 << self.pin.pin()));
 
@@ -99,7 +101,7 @@ impl<'d> Flex<'d> {
     /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&self) -> bool {
-        self.pin.gpio().di(self.pin._port() as _).value().read().0 & (1 << self.pin.pin()) == 0
+        self.pin.gpio().di(self.pin._port()).value().read().0 & (1 << self.pin.pin()) == 0
     }
 
     /// Get the current pin input level.
@@ -117,7 +119,7 @@ impl<'d> Flex<'d> {
     /// Get whether the output level is set to low.
     #[inline]
     pub fn is_set_low(&self) -> bool {
-        self.pin.gpio().do_(self.pin._port() as _).value().read().0 & (1 << self.pin.pin()) == 0
+        self.pin.gpio().do_(self.pin._port()).value().read().0 & (1 << self.pin.pin()) == 0
     }
 
     /// Get the current output level.
@@ -152,7 +154,7 @@ impl<'d> Flex<'d> {
     pub fn toggle(&mut self) {
         self.pin
             .gpio()
-            .do_(self.pin._port() as _)
+            .do_(self.pin._port())
             .toggle()
             .write(|w| w.set_output(1 << self.pin.pin()));
     }
@@ -432,14 +434,14 @@ pub(crate) trait SealedPin: Sized {
 
     /// pin number, 0-31
     #[inline]
-    fn _pin(&self) -> u8 {
-        (self.pin_pad() & 0x1f) as u8
+    fn _pin(&self) -> usize {
+        (self.pin_pad() & 0x1f) as usize
     }
 
     /// port number, 0, 1, or higher
     #[inline]
-    fn _port(&self) -> u8 {
-        (self.pin_pad() >> 5) as u8
+    fn _port(&self) -> usize {
+        (self.pin_pad() >> 5) as usize
     }
 
     /// GPIO peripheral
@@ -451,7 +453,7 @@ pub(crate) trait SealedPin: Sized {
     /// IOC peripheral
     #[inline]
     fn ioc_pad(&self) -> pac::ioc::Pad {
-        pac::IOC.pad(self._port() as usize)
+        pac::IOC.pad(self._port())
     }
 
     // helper method used across the HAL, not intended to be used by user code
@@ -459,7 +461,7 @@ pub(crate) trait SealedPin: Sized {
     #[inline]
     fn set_high(&self) {
         self.gpio()
-            .do_(self._port() as _)
+            .do_(self._port())
             .set()
             .write(|w| w.set_output(1 << self._pin()));
     }
@@ -467,7 +469,7 @@ pub(crate) trait SealedPin: Sized {
     #[inline]
     fn set_low(&self) {
         self.gpio()
-            .do_(self._port() as _)
+            .do_(self._port())
             .clear()
             .write(|w| w.set_output(1 << self._pin()));
     }
@@ -487,12 +489,12 @@ pub(crate) trait SealedPin: Sized {
 pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
     #[inline]
     fn pin(&self) -> u8 {
-        self._pin()
+        self._pin() as u8
     }
 
     #[inline]
     fn port(&self) -> u8 {
-        self._port()
+        self._port() as u8
     }
 
     #[inline]
