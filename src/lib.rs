@@ -81,6 +81,10 @@ pub fn init(config: Config) -> Peripherals {
     #[cfg(hpm53)]
     gpio::init_py_pins_as_gpio();
 
+    unsafe {
+        gpio::input_future::init_gpio0_irq();
+    }
+
     #[cfg(feature = "embassy")]
     embassy::init();
 
