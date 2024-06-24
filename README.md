@@ -9,14 +9,14 @@ This crate is a working-in-progress and not ready for use.
 
 - Peripherals:
   - [x] basic start up code: linker, startup
+  - [x] Embassy time driver using MCHTMR
   - [x] SYSCTL init
   - [x] PLL setting (only PLL0 is supported, since others might be unsafe)
   - [x] GPIO, Flex, Input, Output
+    - [x] Async GPIO
   - [x] RTT support (defmt, defmt-rtt)
-  - [x] UART support
-    - [x] blocking TX, RX
-  - [x] I2C support
-    - [x] blocking, eh traits
+  - [x] UART blocking TX, RX
+  - [x] I2C blocking
 - MCUs
   - HPM5300 - currently it's the only supported series
 
