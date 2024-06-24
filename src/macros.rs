@@ -15,7 +15,7 @@ macro_rules! peri_trait {
 
         /// Peripheral instance trait.
         #[allow(private_bounds)]
-        pub trait Instance: crate::Peripheral<P = Self> + SealedInstance + crate::rcc::RccPeripheral {
+        pub trait Instance: crate::Peripheral<P = Self> + SealedInstance + crate::sysctl::ClockPeripheral {
             $($(
                 /// Interrupt for this peripheral.
                 type $irq: crate::interrupt::typelevel::Interrupt;
