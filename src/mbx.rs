@@ -1,14 +1,15 @@
 //! Mailbox
 //!
-//!
+//! - message word(u32): send/recv interface
+//! - message queue(fifo): send_fifo/recv_fifo/Stream interface
 
 use core::future;
 use core::marker::PhantomData;
-use core::sync::atomic::AtomicBool;
 use core::task::Poll;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
+use futures_util::stream;
 
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::{interrupt, pac, peripherals};
@@ -111,7 +112,7 @@ impl<'d, T: Instance> Mailbox<'d, T> {
         .await;
     }
 
-    pub async fn receive(&mut self) -> u32 {
+    pub async fn recv(&mut self) -> u32 {
         let r = T::regs();
 
         // rx available
@@ -120,6 +121,48 @@ impl<'d, T: Instance> Mailbox<'d, T> {
         future::poll_fn(|cx| {
             if r.sr().read().rwmv() {
                 Poll::Ready(r.rxreg().read().0)
+            } else {
+                T::state().recv_waker.register(cx.waker());
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    pub async fn send_fifo(&mut self, data: u32) {
+        let r = T::regs();
+
+        if r.sr().read().tfma() {
+            r.txwrd(0).write(|w| w.0 = data);
+            return;
+        }
+
+        r.cr().modify(|w| w.set_tfmaie(true));
+
+        future::poll_fn(|cx| {
+            if r.sr().read().tfma() {
+                r.txwrd(0).write(|w| w.0 = data);
+                Poll::Ready(())
+            } else {
+                T::state().send_waker.register(cx.waker());
+                Poll::Pending
+            }
+        })
+        .await;
+    }
+
+    pub async fn recv_fifo(&mut self) -> u32 {
+        let r = T::regs();
+
+        if r.sr().read().rfma() {
+            return r.rxwrd(0).read().rxfifo();
+        }
+
+        r.cr().modify(|w| w.set_rfmaie(true));
+
+        future::poll_fn(|cx| {
+            if r.sr().read().rfma() {
+                Poll::Ready(r.rxwrd(0).read().rxfifo())
             } else {
                 T::state().recv_waker.register(cx.waker());
                 Poll::Pending
@@ -139,13 +182,31 @@ impl<'d, T: Instance> Mailbox<'d, T> {
         }
     }
 
-    pub fn nb_receive(&mut self) -> nb::Result<u32, Error> {
+    pub fn nb_recv(&mut self) -> nb::Result<u32, Error> {
         let r = T::regs();
 
         if r.sr().read().rwmv() {
             Ok(r.rxreg().read().0)
         } else {
             Err(nb::Error::WouldBlock)
+        }
+    }
+}
+
+// TODO: migrate impl to AsyncIterator
+impl<'d, T: Instance> stream::Stream for Mailbox<'d, T> {
+    type Item = u32;
+
+    fn poll_next(self: core::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> Poll<Option<Self::Item>> {
+        let r = T::regs();
+
+        if r.sr().read().rfma() {
+            Poll::Ready(Some(r.rxwrd(0).read().rxfifo()))
+        } else {
+            r.cr().modify(|w| w.set_rfmaie(true));
+            T::state().recv_waker.register(cx.waker());
+
+            Poll::Pending
         }
     }
 }
@@ -157,6 +218,8 @@ impl<'d, T: Instance> Drop for Mailbox<'d, T> {
         r.cr().modify(|w| {
             w.0 = 0;
         }); // disable all interrupts
+
+        T::Interrupt::disable();
     }
 }
 
