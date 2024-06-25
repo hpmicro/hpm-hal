@@ -297,8 +297,8 @@ fn main() -> ! {
 
         // 24MHz * 40 = 960MHz
         // PLL0CLK0 = 960 M
-        // PLL0CLK1 = 960 / 1.2 = 800 M
-        // PLL0CLK2 = 960 / 1.6 = 600 M
+        // PLL0CLK1 = 960 / 1.6 = 600 M
+        // PLL0CLK2 = 960 / 2.4 = 400 M
         config.sysctl.pll0 = Some(Pll {
             mfi: 40,
             mfn: 0,
