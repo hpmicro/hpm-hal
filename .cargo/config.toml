@@ -7,6 +7,12 @@ target = "riscv32imafc-unknown-none-elf"
 runner = "probe-rs run --chip HPM5361 --protocol jtag"
 
 rustflags = [
+    # Target features:
+    # The default for imacf is is "+m,+a,+c,+f"
+    # HPM6xxx does not have B extension
+    "-C",
+    "target-feature=+d,+zba,+zbb,+zbc,+zbs",
+    # Linker scripts:
     "-C",
     "link-arg=-Tmemory.x",
     "-C",
