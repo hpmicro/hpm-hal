@@ -2,11 +2,15 @@
 //!
 //!
 
+use core::future;
 use core::marker::PhantomData;
+use core::sync::atomic::AtomicBool;
+use core::task::Poll;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::interrupt::typelevel::Interrupt as _;
 use crate::{interrupt, pac, peripherals};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -26,7 +30,27 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        todo!()
+        let r = T::regs();
+
+        let sr = r.sr().read();
+        let cr = r.cr().read();
+
+        if sr.twme() && cr.twmeie() {
+            r.cr().modify(|w| w.set_twmeie(false));
+            T::state().send_waker.wake();
+        }
+        if sr.tfma() && cr.tfmaie() {
+            r.cr().modify(|w| w.set_tfmaie(false));
+            T::state().send_waker.wake();
+        }
+        if sr.rwmv() && cr.rwmvie() {
+            r.cr().modify(|w| w.set_rwmvie(false));
+            T::state().recv_waker.wake();
+        }
+        if sr.rfma() && cr.rfmaie() {
+            r.cr().modify(|w| w.set_rfmaie(false));
+            T::state().recv_waker.wake();
+        }
     }
 }
 
@@ -46,6 +70,10 @@ impl<'d, T: Instance> Mailbox<'d, T> {
         r.cr().modify(|w| w.set_txreset(true));
         r.cr().modify(|w| w.set_txreset(false));
 
+        unsafe {
+            T::Interrupt::enable();
+        }
+
         Self { _inner: inner }
     }
 
@@ -63,6 +91,41 @@ impl<'d, T: Instance> Mailbox<'d, T> {
         // rx word message valid
         while !r.sr().read().rwmv() {}
         r.rxreg().read().0
+    }
+
+    pub async fn send(&mut self, data: u32) {
+        let r = T::regs();
+
+        // tx available
+        r.cr().modify(|w| w.set_twmeie(true));
+
+        future::poll_fn(|cx| {
+            if r.sr().read().twme() {
+                r.txreg().write(|w| w.0 = data);
+                Poll::Ready(())
+            } else {
+                T::state().send_waker.register(cx.waker());
+                Poll::Pending
+            }
+        })
+        .await;
+    }
+
+    pub async fn receive(&mut self) -> u32 {
+        let r = T::regs();
+
+        // rx available
+        r.cr().modify(|w| w.set_rwmvie(true));
+
+        future::poll_fn(|cx| {
+            if r.sr().read().rwmv() {
+                Poll::Ready(r.rxreg().read().0)
+            } else {
+                T::state().recv_waker.register(cx.waker());
+                Poll::Pending
+            }
+        })
+        .await
     }
 
     pub fn nb_send(&mut self, data: u32) -> nb::Result<(), Error> {
@@ -97,8 +160,24 @@ impl<'d, T: Instance> Drop for Mailbox<'d, T> {
     }
 }
 
+/// Peripheral static state
+pub(crate) struct State {
+    send_waker: AtomicWaker,
+    recv_waker: AtomicWaker,
+}
+
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            send_waker: AtomicWaker::new(),
+            recv_waker: AtomicWaker::new(),
+        }
+    }
+}
+
 trait SealedInstance {
     fn regs() -> pac::mbx::Mbx;
+    fn state() -> &'static State;
 }
 
 #[allow(private_bounds)]
@@ -113,6 +192,10 @@ foreach_peripheral!(
         impl SealedInstance for peripherals::$inst {
             fn regs() -> pac::mbx::Mbx {
                 pac::$inst
+            }
+            fn state() -> &'static crate::mbx::State {
+                static STATE: crate::mbx::State = crate::mbx::State::new();
+                &STATE
             }
         }
 
