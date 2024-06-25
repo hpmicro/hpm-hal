@@ -42,6 +42,7 @@ pub mod mode {
 
 // required peripherals
 pub mod gpio;
+pub mod mbx;
 pub mod sysctl;
 
 // other peripherals
@@ -68,6 +69,65 @@ pub use crate::_generated::interrupt;
 
 mod patches;
 
+/// Macro to bind interrupts to handlers.
+///
+/// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
+/// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+/// prove at compile-time that the right interrupts have been bound.
+///
+/// Example of how to bind one interrupt:
+///
+/// ```rust,ignore
+/// use hal::{bind_interrupts, usb, peripherals};
+///
+/// bind_interrupts!(struct Irqs {
+///     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
+/// });
+/// ```
+///
+/// Example of how to bind multiple interrupts, and multiple handlers to each interrupt, in a single macro invocation:
+///
+/// ```rust,ignore
+/// use hal::{bind_interrupts, i2c, peripherals};
+///
+/// bind_interrupts!(struct Irqs {
+///     I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
+///     I2C2_3 => i2c::EventInterruptHandler<peripherals::I2C2>, i2c::ErrorInterruptHandler<peripherals::I2C2>,
+///         i2c::EventInterruptHandler<peripherals::I2C3>, i2c::ErrorInterruptHandler<peripherals::I2C3>;
+/// });
+/// ```
+///
+
+// developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
+#[macro_export]
+macro_rules! bind_interrupts {
+    ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
+        #[derive(Copy, Clone)]
+        $vis struct $name;
+
+        $(
+            #[allow(non_snake_case)]
+            #[no_mangle]
+            unsafe extern "riscv-interrupt-m" fn $irq() {
+                use $crate::interrupt::InterruptExt;
+
+                $(
+                    <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+                )*
+
+                // notify PLIC that the interrupt has been handled
+                $crate::interrupt::$irq.complete();
+            }
+
+            $(
+                unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
+            )*
+        )*
+    };
+}
+
+// ==========
+// HAL config
 #[derive(Default)]
 pub struct Config {
     pub sysctl: sysctl::Config,
