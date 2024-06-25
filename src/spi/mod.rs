@@ -8,6 +8,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use enums::{AddressSize, ChipSelect2SCLK, ChipSelectHighTime, DataLength, SpiWidth, TransferMode};
 
 use crate::gpio::AnyPin;
+use crate::interrupt::typelevel::Interrupt as _;
 use crate::mode::Mode;
 use crate::pac::Interrupt;
 use crate::time::Hertz;
@@ -17,13 +18,11 @@ pub mod enums;
 
 /// Config struct of SPI
 pub struct Config {
-    // /// Address size in bits
-    // addr_len: AddressSize,
-    /// Data length in bits
-    // data_len: DataLength,
-    /// Enable data merge mode, only valid when data_len = 0x07.
+    /// Data length per transfer, max 32 bits(FIFO width).
+    data_len: DataLength,
+    /// Enable data merge mode, only valid when data_len is 8bit(0x07) .
     data_merge: bool,
-    /// Bi-directional MOSI.
+    /// Bi-directional MOSI, must be enabled in dual/quad mode.
     mosi_bidir: bool,
     /// Whether to use LSB.
     lsb: bool,
@@ -45,7 +44,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            // data_len: DataLength::_8Bit,
+            data_len: DataLength::_8Bit,
             data_merge: false,
             mosi_bidir: false,
             lsb: false,
@@ -60,11 +59,10 @@ impl Default for Config {
 }
 
 pub struct TransactionConfig {
-    // TODO
-    addr_width: SpiWidth,
+    cmd: Option<u8>,
     addr_size: AddressSize,
     addr: Option<u32>,
-    cmd: Option<u8>,
+    addr_width: SpiWidth,
     data_width: SpiWidth,
     transfer_mode: TransferMode,
 }
@@ -175,6 +173,7 @@ impl<'d, M: Mode> Spi<'d, M> {
         this.enable_and_configure(&config).unwrap();
         this
     }
+
     fn enable_and_configure(&mut self, config: &Config) -> Result<(), ()> {
         let regs = self.info.regs;
 
@@ -190,8 +189,7 @@ impl<'d, M: Mode> Spi<'d, M> {
 
         // Transfer format configuration
         regs.trans_fmt().write(|w| {
-            // datalen is fixed to 8bits for now
-            w.set_datalen(DataLength::_8Bit.into());
+            w.set_datalen(config.data_len.into());
             w.set_datamerge(config.data_merge);
             w.set_mosibidir(config.mosi_bidir);
             w.set_lsb(config.lsb);
@@ -203,58 +201,59 @@ impl<'d, M: Mode> Spi<'d, M> {
     }
 
     pub fn transfer(&mut self, data: &[u8], config: TransactionConfig) {
+        // For spi_v67, the size of data must <= 512
+        #[cfg(spi_v67)]
+        assert!(data.len() <= 512);
+
         // SPI controller supports 1-1-1, 1-1-4, 1-1-2, 1-2-2 and 1-4-4 modes only
         if config.addr_width != config.data_width && config.addr_width != SpiWidth::SING {
-            panic!("Unsupported SPI mode, HPM's SPI controller supports 1-1-1, 1-1-4 and 1-4-4 modes only")
+            panic!("Unsupported SPI mode, HPM's SPI controller supports 1-1-1, 1-1-4, 1-1-2, 1-2-2 and 1-4-4 modes")
         }
+
         let regs = self.info.regs;
 
         // Ensure the last SPI transfer is completed
         while regs.status().read().spiactive() {}
 
         // Set TRANSFMT register
+        if config.data_width == SpiWidth::DUAL || config.data_width == SpiWidth::QUAD {
+            regs.trans_fmt().modify(|w| {
+                w.set_mosibidir(true);
+            });
+        }
         regs.trans_fmt().modify(|w| {
             w.set_addrlen(config.addr_size.into());
-            w.set_mosibidir(true);
         });
 
-        // Calculate WrTranCnt
-        let data_len = regs.trans_fmt().read().datalen();
-        let mut wr_tran_cnt = data.len() / (data_len as usize);
-        if wr_tran_cnt > 512 {
-            // TODO: packing
-            wr_tran_cnt = 512;
-        }
+        #[cfg(spi_v53)]
+        regs.wr_trans_cnt().write(|w| w.set_wrtrancnt(data.len() as u32 - 1));
 
         // Set TRANSCTRL register
         regs.trans_ctrl().write(|w| {
-            w.set_cmden(true);
-            w.set_addren(true);
-
-            match config.addr_width {
-                SpiWidth::NONE => w.set_addren(false),
-                SpiWidth::SING => w.set_addrfmt(false),
-                SpiWidth::DUAL | SpiWidth::QUAD => w.set_addrfmt(true),
-            }
-
-            // Transfer mode
+            w.set_cmden(config.cmd.is_some());
+            w.set_addren(config.addr.is_some());
+            w.set_addrfmt(match config.addr_width {
+                SpiWidth::NONE | SpiWidth::SING => false,
+                SpiWidth::DUAL | SpiWidth::QUAD => true,
+            });
             w.set_transmode(config.transfer_mode.into());
-
-            // Data format
             w.set_dualquad(match config.data_width {
                 SpiWidth::NONE | SpiWidth::SING => 0x0,
                 SpiWidth::DUAL => 0x1,
                 SpiWidth::QUAD => 0x2,
             });
-
-            w.set_wrtrancnt(wr_tran_cnt as u16)
+            w.set_wrtrancnt((data.len() - 1) as u16);
         });
 
-        // Write data
-        // TODO: Support different data_len
-        for &b in data {
-            regs.data().write(|w| w.set_data(b as u32));
-        }
+        // FIXME: According to HPM's sdk, `set_cs_en`'s value is cs_index? How to get it?
+        // Enable CS, Reset FIFO and control
+        // #[cfg(spi_v53)]
+        // regs.ctrl().modify(|w| w.set_cs_en(0x01));
+        regs.ctrl().modify(|w| {
+            w.set_txfiforst(true);
+            w.set_txfiforst(true);
+            w.set_spirst(true);
+        });
 
         // Set addr
         match config.addr {
@@ -264,6 +263,32 @@ impl<'d, M: Mode> Spi<'d, M> {
 
         // Set cmd, start transfer
         regs.cmd().write(|w| w.set_cmd(config.cmd.unwrap_or(0xff)));
+
+        // Write data
+        let data_len = regs.trans_fmt().read().datalen() + 8 / 8;
+        assert!(data_len <= 4 && data_len > 0);
+        let mut retry: u16 = 0;
+        let mut pos = 0;
+        loop {
+            if !regs.status().read().txfull() {
+                // Write data
+                let mut data_u32: u32 = 0;
+                for i in 0..data_len {
+                    if pos >= data.len() {
+                        break;
+                    }
+                    data_u32 |= (data[pos] as u32) << (8 * i);
+                    pos += 1;
+                }
+                regs.data().write(|w| w.set_data(data_u32));
+            } else {
+                // FIFO is full, retry 5000 times
+                retry += 1;
+                if retry > 5000 {
+                    break;
+                }
+            }
+        }
 
         // Wait for transfer to complete
         while regs.status().read().spiactive() {}
@@ -296,3 +321,28 @@ struct Info {
     regs: crate::pac::spi::Spi,
     interrupt: Interrupt,
 }
+
+macro_rules! impl_spi {
+    ($inst:ident) => {
+        #[allow(private_interfaces)]
+        impl SealedInstance for crate::peripherals::$inst {
+            fn info() -> &'static Info {
+                static INFO: Info = Info {
+                    regs: crate::pac::$inst,
+                    interrupt: crate::interrupt::typelevel::$inst::IRQ,
+                };
+                &INFO
+            }
+        }
+
+        impl Instance for crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$inst;
+        }
+    };
+}
+
+foreach_peripheral!(
+    (spi, $inst:ident) => {
+        impl_spi!($inst);
+    };
+);
