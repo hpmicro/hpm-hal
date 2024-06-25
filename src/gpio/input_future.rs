@@ -9,16 +9,21 @@ use super::{AnyPin, Flex, Input, Pin as GpioPin, SealedPin};
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
 
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-static PORT_WAKERS: [AtomicWaker; 32] = [NEW_AW; 32];
+// PA00 to PA31
+const GPIO_LINES: usize = 32;
 
-// PA, PB, PX, PY
-const PORTS: &[usize] = &[0, 1, 0xD, 0xE];
+const NEW_AW: AtomicWaker = AtomicWaker::new();
+static PORT_WAKERS: [AtomicWaker; GPIO_LINES] = [NEW_AW; GPIO_LINES];
+
+const PA: usize = 0;
+const PB: usize = 1;
+const PX: usize = 0xD;
+const PY: usize = 0xE;
 
 #[no_mangle]
 #[link_section = ".fast"]
 unsafe extern "riscv-interrupt-m" fn GPIO0_A() {
-    on_interrupt();
+    on_interrupt(PA);
 
     compiler_fence(Ordering::SeqCst);
     interrupt::GPIO0_A.complete();
@@ -26,7 +31,7 @@ unsafe extern "riscv-interrupt-m" fn GPIO0_A() {
 #[no_mangle]
 #[link_section = ".fast"]
 unsafe extern "riscv-interrupt-m" fn GPIO0_B() {
-    on_interrupt();
+    on_interrupt(PB);
 
     compiler_fence(Ordering::SeqCst);
     interrupt::GPIO0_B.complete();
@@ -34,7 +39,7 @@ unsafe extern "riscv-interrupt-m" fn GPIO0_B() {
 #[no_mangle]
 #[link_section = ".fast"]
 unsafe extern "riscv-interrupt-m" fn GPIO0_X() {
-    on_interrupt();
+    on_interrupt(PX);
 
     compiler_fence(Ordering::SeqCst);
     interrupt::GPIO0_X.complete();
@@ -42,19 +47,18 @@ unsafe extern "riscv-interrupt-m" fn GPIO0_X() {
 #[no_mangle]
 #[link_section = ".fast"]
 unsafe extern "riscv-interrupt-m" fn GPIO0_Y() {
-    on_interrupt();
+    on_interrupt(PY);
 
     compiler_fence(Ordering::SeqCst);
     interrupt::GPIO0_Y.complete();
 }
 
-unsafe fn on_interrupt() {
-    for &port in PORTS {
-        for pin in BitIter(pac::GPIO0.if_(port).value().read().irq_flag()) {
-            pac::GPIO0.if_(port).value().write(|w| w.set_irq_flag(1 << pin)); // W1C
-            pac::GPIO0.ie(port).clear().write(|w| w.set_irq_en(1 << pin));
-            PORT_WAKERS[pin as usize].wake();
-        }
+#[inline]
+unsafe fn on_interrupt(port: usize) {
+    for pin in BitIter(pac::GPIO0.if_(port).value().read().irq_flag()) {
+        pac::GPIO0.if_(port).value().write(|w| w.set_irq_flag(1 << pin)); // W1C
+        pac::GPIO0.ie(port).clear().write(|w| w.set_irq_en(1 << pin));
+        PORT_WAKERS[pin as usize].wake();
     }
 }
 
