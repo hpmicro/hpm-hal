@@ -2,11 +2,11 @@
 #![no_std]
 
 use embedded_hal::delay::DelayNs;
-use hpm_hal::gpio::{Level, Output, Speed};
+use hal::gpio::{Level, Output, Speed};
 use riscv::delay::McycleDelay;
 use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
 
-#[riscv_rt::entry]
+#[hal::entry]
 fn main() -> ! {
     let p = hal::init(Default::default());
 
@@ -14,7 +14,8 @@ fn main() -> ! {
 
     defmt::info!("Board init!");
 
-    let mut led = Output::new(p.PA23, Level::Low, Speed::default());
+    let mut led = Output::new(p.PA10, Level::Low, Speed::default());
+    // let mut led = Output::new(p.PA23, Level::Low, Speed::default());
 
     loop {
         defmt::info!("tick");

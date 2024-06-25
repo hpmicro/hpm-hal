@@ -291,12 +291,33 @@ static mut UART: Option<hal::uart::Uart<'static, Blocking>> = None;
 
 #[hal::entry]
 fn main() -> ! {
-    let p = hal::init(Default::default());
+    let mut config = hal::Config::default();
+    {
+        use hal::sysctl::*;
+
+        // 24MHz * 40 = 960MHz
+        // PLL0CLK0 = 960 M
+        // PLL0CLK1 = 960 / 1.2 = 800 M
+        // PLL0CLK2 = 960 / 1.6 = 600 M
+        config.sysctl.pll0 = Some(Pll {
+            mfi: 40,
+            mfn: 0,
+            mfd: 240000000,
+            div: (0, 3, 7), // 960, 600, 400
+        });
+        // CPU0 = PLL0CLK0 / 2 = 480 M
+        // AHB = CPU0 / 3 = 160 M
+        config.sysctl.cpu0 = ClockConfig::new(ClockMux::PLL0CLK0, 2);
+        config.sysctl.ahb_div = AHBDiv::DIV3;
+    }
+
+    defmt::info!("Board preinit!");
+    let p = hal::init(config);
 
     let mut delay = McycleDelay::new(hal::sysctl::clocks().hart0.0);
 
     let uart_config = hal::uart::Config::default();
-    let mut uart = hal::uart::Uart::new_blocking(p.UART0, p.PA01, p.PA00, uart_config).unwrap();
+    let uart = hal::uart::Uart::new_blocking(p.UART0, p.PA01, p.PA00, uart_config).unwrap();
 
     unsafe {
         UART = Some(uart);
@@ -312,6 +333,12 @@ fn main() -> ! {
     writeln!(uart, "Clock summary:").unwrap();
     writeln!(uart, "  CPU0:\t{}Hz", hal::sysctl::clocks().hart0.0).unwrap();
     writeln!(uart, "  AHB:\t{}Hz", hal::sysctl::clocks().ahb.0).unwrap();
+    writeln!(
+        uart,
+        "  XPI0:\t{}Hz",
+        hal::sysctl::clocks().get_clock_freq(hal::pac::clocks::XPI0).0
+    )
+    .unwrap();
     writeln!(
         uart,
         "  I2C2:\t{}Hz",
