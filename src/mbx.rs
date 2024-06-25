@@ -1,4 +1,4 @@
-//! Mailbox
+//! MBX, mailbox, for inter core communication and inter task communication.
 //!
 //! - message word(u32): send/recv interface
 //! - message queue(fifo): send_fifo/recv_fifo/Stream interface
@@ -55,11 +55,11 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-pub struct Mailbox<'d, T: Instance> {
+pub struct Mbx<'d, T: Instance> {
     _inner: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: Instance> Mailbox<'d, T> {
+impl<'d, T: Instance> Mbx<'d, T> {
     pub fn new(
         inner: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -194,7 +194,7 @@ impl<'d, T: Instance> Mailbox<'d, T> {
 }
 
 // TODO: migrate impl to AsyncIterator
-impl<'d, T: Instance> stream::Stream for Mailbox<'d, T> {
+impl<'d, T: Instance> stream::Stream for Mbx<'d, T> {
     type Item = u32;
 
     fn poll_next(self: core::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> Poll<Option<Self::Item>> {
@@ -211,7 +211,7 @@ impl<'d, T: Instance> stream::Stream for Mailbox<'d, T> {
     }
 }
 
-impl<'d, T: Instance> Drop for Mailbox<'d, T> {
+impl<'d, T: Instance> Drop for Mbx<'d, T> {
     fn drop(&mut self) {
         let r = T::regs();
 
