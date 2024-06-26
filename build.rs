@@ -166,6 +166,24 @@ fn main() {
                         pin_trait_impl!(#tr, #peri, #pin_name, #alt);
                     })
                 }
+
+                // Spi is special
+                if regs.kind == "spi" && pin.signal.starts_with("CS") {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    let alt = pin.alt.unwrap_or(0);
+                    let cs_index: u8 = match pin.signal {
+                        "CS0" => 1,
+                        "CS1" => 2,
+                        "CS2" => 4,
+                        "CS3" => 8,
+                        _ => unreachable!(),
+                    };
+                    g.extend(quote! {
+                        spi_cs_pin_trait_impl!(crate::spi::CsIndexPin, #peri, #pin_name, #alt, #cs_index);
+                    });
+                }
+
                 // ADC is special
                 if regs.kind == "adc" {
                     // TODO

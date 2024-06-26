@@ -84,6 +84,27 @@ macro_rules! pin_trait_impl {
     };
 }
 
+macro_rules! spi_cs_pin_trait {
+    ($signal:ident, $instance:path $(, $mode:path)?) => {
+        #[doc = concat!(stringify!($signal), " pin trait")]
+        pub trait $signal<T: $instance $(, M: $mode)?>: crate::gpio::Pin {
+            #[doc = concat!("Get the CS index needed to use this pin as ", stringify!($signal))]
+            fn cs_index(&self) -> u8;
+        }
+    };
+}
+
+
+macro_rules! spi_cs_pin_trait_impl {
+    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $alt:expr, $cs_index:expr) => {
+        impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$pin {
+            fn cs_index(&self) -> u8 {
+                $cs_index
+            }
+        }
+    };
+}
+
 // ==========
 // DMA
 

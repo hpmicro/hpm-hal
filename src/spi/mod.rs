@@ -9,6 +9,7 @@ use enums::{AddressSize, ChipSelect2SCLK, ChipSelectHighTime, DataLength, SpiWid
 
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::Interrupt as _;
+use crate::interrupt::InterruptExt as _;
 use crate::mode::Mode;
 use crate::pac::Interrupt;
 use crate::time::Hertz;
@@ -59,12 +60,25 @@ impl Default for Config {
 }
 
 pub struct TransactionConfig {
-    cmd: Option<u8>,
-    addr_size: AddressSize,
-    addr: Option<u32>,
-    addr_width: SpiWidth,
-    data_width: SpiWidth,
-    transfer_mode: TransferMode,
+    pub cmd: Option<u8>,
+    pub addr_size: AddressSize,
+    pub addr: Option<u32>,
+    pub addr_width: SpiWidth,
+    pub data_width: SpiWidth,
+    pub transfer_mode: TransferMode,
+}
+
+impl Default for TransactionConfig {
+    fn default() -> Self {
+        Self {
+            cmd: None,
+            addr_size: AddressSize::_24Bit,
+            addr: None,
+            addr_width: SpiWidth::SING,
+            data_width: SpiWidth::SING,
+            transfer_mode: TransferMode::WriteOnly,
+        }
+    }
 }
 
 // ==========
@@ -77,6 +91,7 @@ pub struct TransactionConfig {
 #[allow(unused)]
 pub struct Spi<'d, M: Mode> {
     info: &'static Info,
+    state: &'static State,
     frequency: Hertz,
     cs: Option<PeripheralRef<'d, AnyPin>>,
     sclk: Option<PeripheralRef<'d, AnyPin>>,
@@ -84,6 +99,7 @@ pub struct Spi<'d, M: Mode> {
     miso: Option<PeripheralRef<'d, AnyPin>>,
     d2: Option<PeripheralRef<'d, AnyPin>>,
     d3: Option<PeripheralRef<'d, AnyPin>>,
+    cs_index: u8,
     _phantom: PhantomData<M>,
 }
 
@@ -91,14 +107,14 @@ impl<'d, M: Mode> Spi<'d, M> {
     /// Create a new blocking SPI instance
     pub fn new_blocking<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
-        cs: impl Peripheral<P = impl CsPin<T>> + 'd,
+        cs: impl Peripheral<P = impl CsPin<T> + CsIndexPin<T>> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(cs, sclk, mosi, miso);
-
+        let cs_index = cs.cs_index();
         cs.set_as_alt(cs.alt_num());
         sclk.set_as_alt(sclk.alt_num());
         mosi.set_as_alt(mosi.alt_num());
@@ -113,13 +129,14 @@ impl<'d, M: Mode> Spi<'d, M> {
             None,
             None,
             config,
+            cs_index,
         )
     }
 
     /// Create a new blocking SPI instance
     pub fn new_blocking_quad<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
-        cs: impl Peripheral<P = impl CsPin<T>> + 'd,
+        cs: impl Peripheral<P = impl CsPin<T> + CsIndexPin<T>> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
@@ -129,6 +146,7 @@ impl<'d, M: Mode> Spi<'d, M> {
     ) -> Self {
         into_ref!(cs, sclk, mosi, miso, d2, d3);
 
+        let cs_index = cs.cs_index();
         cs.set_as_alt(cs.alt_num());
         sclk.set_as_alt(sclk.alt_num());
         mosi.set_as_alt(mosi.alt_num());
@@ -145,6 +163,7 @@ impl<'d, M: Mode> Spi<'d, M> {
             Some(d2.map_into()),
             Some(d3.map_into()),
             config,
+            cs_index,
         )
     }
 
@@ -157,16 +176,19 @@ impl<'d, M: Mode> Spi<'d, M> {
         d2: Option<PeripheralRef<'d, AnyPin>>,
         d3: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
+        cs_index: u8,
     ) -> Self {
         let mut this = Self {
             info: T::info(),
             frequency: T::frequency(),
+            state: T::state(),
             cs,
             sclk,
             mosi,
             miso,
             d2,
             d3,
+            cs_index,
             _phantom: PhantomData,
         };
 
@@ -197,6 +219,9 @@ impl<'d, M: Mode> Spi<'d, M> {
             w.set_cpol(config.cpol);
             w.set_cpha(config.cpha);
         });
+
+        self.info.interrupt.unpend();
+        unsafe { self.info.interrupt.enable() };
         Ok(())
     }
 
@@ -245,10 +270,10 @@ impl<'d, M: Mode> Spi<'d, M> {
             w.set_wrtrancnt((data.len() - 1) as u16);
         });
 
-        // FIXME: According to HPM's sdk, `set_cs_en`'s value is cs_index? How to get it?
-        // Enable CS, Reset FIFO and control
-        // #[cfg(spi_v53)]
-        // regs.ctrl().modify(|w| w.set_cs_en(0x01));
+        // Enable CS
+        #[cfg(spi_v53)]
+        regs.ctrl().modify(|w| w.set_cs_en(self.cs_index));
+        // Reset FIFO and control
         regs.ctrl().modify(|w| {
             w.set_txfiforst(true);
             w.set_txfiforst(true);
@@ -295,12 +320,36 @@ impl<'d, M: Mode> Spi<'d, M> {
     }
 }
 
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        on_interrupt(T::info().regs, T::state())
+    }
+}
+
+unsafe fn on_interrupt(r: crate::pac::spi::Spi, s: &'static State) {
+    let _ = (r, s);
+    todo!()
+}
+
 // ==========
 // helper types and functions
+
+struct State {}
+impl State {
+    const fn new() -> Self {
+        Self {}
+    }
+}
 
 #[allow(private_interfaces)]
 pub(crate) trait SealedInstance: crate::sysctl::ClockPeripheral {
     fn info() -> &'static Info;
+    fn state() -> &'static State;
 }
 
 /// SPI peripheral instance trait.
@@ -312,6 +361,7 @@ pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
 
 pin_trait!(SclkPin, Instance);
 pin_trait!(CsPin, Instance);
+spi_cs_pin_trait!(CsIndexPin, Instance);
 pin_trait!(MosiPin, Instance);
 pin_trait!(MisoPin, Instance);
 pin_trait!(D2Pin, Instance);
@@ -332,6 +382,11 @@ macro_rules! impl_spi {
                     interrupt: crate::interrupt::typelevel::$inst::IRQ,
                 };
                 &INFO
+            }
+
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
             }
         }
 
