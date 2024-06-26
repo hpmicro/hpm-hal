@@ -17,6 +17,7 @@ This crate is a working-in-progress and not ready for use.
   - [x] RTT support (defmt, defmt-rtt)
   - [x] UART blocking TX, RX
   - [x] I2C blocking
+  - [x] MBX, blocking and async
 - MCUs
   - HPM5300 - currently it's the only supported series
 
