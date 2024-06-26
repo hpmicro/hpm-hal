@@ -626,8 +626,8 @@ peri_trait!(
 
 pin_trait!(SclPin, Instance);
 pin_trait!(SdaPin, Instance);
-//dma_trait!(RxDma, Instance);
-//dma_trait!(TxDma, Instance);
+
+dma_trait!(I2cDma, Instance);
 
 foreach_peripheral!(
     (i2c, $inst:ident) => {

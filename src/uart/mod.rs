@@ -838,8 +838,8 @@ pin_trait!(CtsPin, Instance);
 pin_trait!(RtsPin, Instance);
 pin_trait!(DePin, Instance);
 
-//dma_trait!(TxDma, Instance);
-//dma_trait!(RxDma, Instance);
+dma_trait!(TxDma, Instance);
+dma_trait!(RxDma, Instance);
 
 macro_rules! impl_uart {
     ($inst:ident) => {
