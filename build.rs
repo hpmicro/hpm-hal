@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -167,6 +167,44 @@ fn main() {
     }
 
     // ========
+    // Generate dma_trait_impl!
+    let signals: HashMap<_, _> = [
+        // (kind, signal) => trait
+        (("uart", "RX"), quote!(crate::uart::RxDma)),
+        (("uart", "TX"), quote!(crate::uart::TxDma)),
+        (("i2c", "GLOBAL"), quote!(crate::i2c::I2cDma)),
+    ]
+    .into();
+
+    for p in METADATA.peripherals {
+        if let Some(regs) = &p.registers {
+            let mut dupe = HashSet::new();
+            for ch in p.dma_channels {
+                if let Some(tr) = signals.get(&(regs.kind, ch.signal)) {
+                    let peri = format_ident!("{}", p.name);
+
+                    let key = (ch.signal, ch.request.unwrap().to_string());
+                    if !dupe.insert(key) {
+                        continue;
+                    }
+
+                    // request number for peripheral DMA
+                    let request = ch.request.expect("DMA request must be specified") as u8;
+
+                    // let channel = format_ident!("{}", ch.name);
+
+                    for channel in METADATA.dma_channels {
+                        let channel_ident = format_ident!("{}", channel.name);
+                        g.extend(quote! {
+                            dma_trait_impl!(#tr, #peri, #channel_ident, #request);
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // ========
     // Write foreach_foo! macrotables
 
     let mut interrupts_table: Vec<Vec<String>> = Vec::new();
@@ -177,6 +215,32 @@ fn main() {
     for p in METADATA.pins {
         pins_table.push(vec![p.name.to_string(), p.index.to_string()]);
     }
+
+    let mut dmas = TokenStream::new();
+    for ch in METADATA.dma_channels.iter() {
+        let name = format_ident!("{}", ch.name);
+        let idx = ch.channel as u8;
+
+        let ch_num = ch.channel as usize;
+        let mux_num = ch.dmamux_channel as usize;
+
+        // HDMA or XDMA
+        let dma_name = format_ident!("{}", ch.name.split_once('_').expect("DMA channel name format").0);
+
+        g.extend(quote!(dma_channel_impl!(#name, #idx);));
+
+        dmas.extend(quote! {
+            crate::dma::ChannelInfo {
+                dma: crate::dma::DmaInfo::#dma_name(crate::pac::#dma_name),
+                num: #ch_num,
+                mux_num: #mux_num,
+            },
+        });
+    }
+
+    g.extend(quote! {
+        pub(crate) const DMA_CHANNELS: &[crate::dma::ChannelInfo] = &[#dmas];
+    });
 
     for p in METADATA.peripherals {
         let Some(regs) = &p.registers else {

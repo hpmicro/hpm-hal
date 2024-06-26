@@ -45,6 +45,8 @@ pub mod gpio;
 pub mod mbx;
 pub mod sysctl;
 
+pub mod dma;
+
 // other peripherals
 pub mod i2c;
 pub mod uart;
