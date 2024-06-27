@@ -59,7 +59,7 @@ impl RM67162<'_> {
 
     pub fn reset(&self, rst: &mut impl OutputPin, delay: &mut impl DelayNs) -> Result<(), Error> {
         rst.set_low().unwrap();
-        delay.delay_ms(300);
+        delay.delay_ms(250);
 
         rst.set_high().unwrap();
         delay.delay_ms(200);
@@ -78,12 +78,13 @@ impl RM67162<'_> {
             dummy_cnt: 0,
             ..Default::default()
         };
-        info!("Sending cmd 0x{:X}, data: {=[u8]:X}", cmd, data);
+        // info!("Sending cmd 0x{:X}, data: {=[u8]:X}", cmd, data);
 
         if data.len() == 0 {
-            transfer_config.addr = Some(cmd);
-            transfer_config.addr_size = AddressSize::_16Bit;
-            self.ospi.blocking_write(&[0_u8], transfer_config)?;
+            transfer_config.transfer_mode = TransferMode::NoData;
+            // transfer_config.addr = Some(cmd);
+            // transfer_config.addr_size = AddressSize::_16Bit;
+            self.ospi.blocking_write(&[], transfer_config)?;
         } else {
             self.ospi.blocking_write(data, transfer_config)?;
         }
@@ -104,10 +105,11 @@ impl RM67162<'_> {
         };
 
         if data.len() == 0 {
-            transfer_config.addr = Some(cmd);
-            transfer_config.addr_size = AddressSize::_16Bit;
-            transfer_config.data_width = SpiWidth::SING;
-            self.ospi.blocking_write(&[0_u8], transfer_config)?;
+            transfer_config.transfer_mode = TransferMode::NoData;
+            // transfer_config.addr = Some(cmd);
+            // transfer_config.addr_size = AddressSize::_16Bit;
+            // transfer_config.data_width = SpiWidth::SING;
+            self.ospi.blocking_write(&[], transfer_config)?;
         } else {
             self.ospi.blocking_write(data, transfer_config)?;
         }
@@ -196,15 +198,6 @@ impl RM67162<'_> {
         self.set_address(0, 0, self.size().width as u16 - 1, self.size().height as u16 - 1)?;
 
         self.send_cmd_114(0x2C, raw_framebuffer)?;
-        // let mut first_send = true;
-        // let transaction = TransactionConfig {
-        // };
-        // self.ospi.blocking_write(raw_framebuffer, transaction);
-        // for chunk in raw_framebuffer.chunks(536*240) {
-        //     let txbuf = StaticReadBuffer::new(chunk.as_ptr(), chunk.len());
-        //     self.dma_send_colors(txbuf, first_send)?;
-        //     first_send = false;
-        // }
 
         Ok(())
     }
@@ -271,7 +264,7 @@ fn main() -> ! {
     let mut delay = McycleDelay::new(hal::sysctl::clocks().hart0.0);
     defmt::info!("Board init!");
 
-    let mut rst = Output::new(p.PA01, Level::High, Speed::Fast);
+    let mut rst = Output::new(p.PA09, Level::High, Speed::Fast);
 
     let mut im = Output::new(p.PA00, Level::High, Speed::Fast);
     im.set_high();
@@ -283,15 +276,17 @@ fn main() -> ! {
     let mut led = Output::new(p.PA10, Level::Low, Speed::Fast);
 
     let spi_config = hal::spi::Config {
-        // data_merge: true,
-        // mosi_bidir: true,
+        mosi_bidir: false,
         // lsb: true,
-        sclk_div: 0x06,
+        sclk_div: 0x1,
         ..Default::default()
     };
     let spi: hal::spi::Spi<'_, Blocking> =
         Spi::new_blocking_quad(p.SPI1, p.PA26, p.PA27, p.PA29, p.PA28, p.PA30, p.PA31, spi_config);
-    info!("---------------------- Initiallized");
+    // let spi: hal::spi::Spi<'_, Blocking> =
+        // Spi::new_blocking(p.SPI1, p.PA26, p.PA27, p.PA29, p.PA28, spi_config);
+    // let cpp = hal::sysctl::;
+    info!("spi freq: {}", spi.frequency);
 
     let mut rm67162 = RM67162::new(spi);
     rm67162.reset(&mut rst, &mut delay).unwrap();
@@ -300,11 +295,11 @@ fn main() -> ! {
         info!("Error: {:?}", e);
         // defmt::panic!("ERRO")
     }
-    info!("clearing display");
-    if let Err(e) = rm67162.clear(Rgb565::WHITE) {
-        info!("Error: {:?}", e);
-        // defmt::panic!("Error: {:?}", e);
-    }
+    // info!("clearing display");
+    // if let Err(e) = rm67162.clear(Rgb565::WHITE) {
+    //     info!("Error: {:?}", e);
+    //     // defmt::panic!("Error: {:?}", e);
+    // }
     info!("blinking");
     // info!("Load gif");
     // let gif = tinygif::Gif::from_slice(include_bytes!("ferris3.gif")).unwrap();
@@ -331,6 +326,6 @@ fn main() -> ! {
         //     // info!("tick");
         // }
         led.toggle();
-        delay.delay_ms(1000);
+        delay.delay_ms(200);
     }
 }

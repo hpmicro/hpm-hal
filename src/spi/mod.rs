@@ -54,12 +54,13 @@ impl Default for Config {
             cpol: false,
             cpha: false,
             cs2sclk: ChipSelect2SCLK::_4HalfSclk,
-            csht: ChipSelectHighTime::_16HalfSclk,
+            csht: ChipSelectHighTime::_12HalfSclk,
             sclk_div: 0x0,
         }
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct TransactionConfig {
     pub cmd: Option<u8>,
     pub addr_size: AddressSize,
@@ -105,7 +106,7 @@ pub enum Error {
 pub struct Spi<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
-    frequency: Hertz,
+    pub frequency: Hertz,
     cs: Option<PeripheralRef<'d, AnyPin>>,
     sclk: Option<PeripheralRef<'d, AnyPin>>,
     mosi: Option<PeripheralRef<'d, AnyPin>>,
@@ -161,7 +162,10 @@ impl<'d, M: Mode> Spi<'d, M> {
 
         let cs_index = cs.cs_index();
         cs.set_as_alt(cs.alt_num());
-        sclk.set_as_alt(sclk.alt_num());
+        sclk.ioc_pad().func_ctl().write(|w| {
+            w.set_alt_select(sclk.alt_num());
+            w.set_loop_back(true);
+        });
         mosi.set_as_alt(mosi.alt_num());
         miso.set_as_alt(miso.alt_num());
         d2.set_as_alt(d2.alt_num());
@@ -249,11 +253,11 @@ impl<'d, M: Mode> Spi<'d, M> {
         let slv_mode = regs.trans_fmt().read().slvmode();
         let cpol = regs.trans_fmt().read().cpol();
         let cpha = regs.trans_fmt().read().cpha();
-        // print them all
-        info!(
-            "TRANS_FMT: addr_len: {}, data_len: {}, data_merge: {}, mosibidir: {}, lsb: {}, slv_mode: {}, cpol: {}, cpha: {}",
-            addr_len, data_len, data_merge, mosibidir, lsb, slv_mode, cpol, cpha,
-        )
+        // // print them all
+        // info!(
+        //     "TRANS_FMT: addr_len: {}, data_len: {}, data_merge: {}, mosibidir: {}, lsb: {}, slv_mode: {}, cpol: {}, cpha: {}",
+        // addr_len, data_len, data_merge, mosibidir, lsb, slv_mode, cpol, cpha,
+        // )
     }
 
     fn print_trans_ctrl(&mut self) {
@@ -268,10 +272,10 @@ impl<'d, M: Mode> Spi<'d, M> {
         let dummy_cnt = regs.trans_ctrl().read().dummycnt();
         let rdtrancnt = regs.trans_ctrl().read().rdtrancnt();
         // print them all
-        info!(
-            "TRANS_CTRL: slv_data_only: {}, cmd_en: {}, addr_en: {}, addr_fmt: {}, trans_mode: {}, dual_quad: {}, wrtrancnt: {}, dummy_cnt: {}, rdtrancnt: {}", 
-            slv_data_only, cmd_en, addr_en, addr_fmt, trans_mode, dual_quad, wrtrancnt, dummy_cnt, rdtrancnt, 
-        );
+        // info!(
+        //     "TRANS_CTRL: slv_data_only: {}, cmd_en: {}, addr_en: {}, addr_fmt: {}, trans_mode: {}, dual_quad: {}, wrtrancnt: {}, dummy_cnt: {}, rdtrancnt: {}",
+        //     slv_data_only, cmd_en, addr_en, addr_fmt, trans_mode, dual_quad, wrtrancnt, dummy_cnt, rdtrancnt,
+        // );
     }
 
     fn print_ctrl(&mut self) {
@@ -285,13 +289,13 @@ impl<'d, M: Mode> Spi<'d, M> {
         let tx_dma_en = regs.ctrl().read().txdmaen();
         let rx_dma_en = regs.ctrl().read().rxdmaen();
         // print them all
-        info!(
-            "CTRL: txfiforst: {}, rxfiforst: {}, spirst: {}, cs_en: {}, txthres: {}, rxthres: {}, tx_dma_en: {}, rx_dma_en: {}",
-            txfiforst, rxfiforst, spirst, cs_en, txthres, rxthres, tx_dma_en, rx_dma_en
-        );
+        // info!(
+        //     "CTRL: txfiforst: {}, rxfiforst: {}, spirst: {}, cs_en: {}, txthres: {}, rxthres: {}, tx_dma_en: {}, rx_dma_en: {}",
+        //     txfiforst, rxfiforst, spirst, cs_en, txthres, rxthres, tx_dma_en, rx_dma_en
+        // );
     }
 
-    fn set_transaction_config(&mut self, data: &[u8], config: TransactionConfig) -> Result<(), Error> {
+    fn set_transaction_config(&mut self, data: &[u8], config: &TransactionConfig) -> Result<(), Error> {
         // For spi_v67, the size of data must <= 512
         #[cfg(spi_v67)]
         if data.len() > 512 {
@@ -374,9 +378,6 @@ impl<'d, M: Mode> Spi<'d, M> {
             if let Some(addr) = config.addr {
                 regs.addr().write(|w| w.set_addr(addr));
             }
-
-            // Set cmd, start transfer
-            regs.cmd().write(|w| w.set_cmd(config.cmd.unwrap_or(0xff)));
         }
 
         Ok(())
@@ -384,7 +385,7 @@ impl<'d, M: Mode> Spi<'d, M> {
 
     pub fn blocking_read(&mut self, data: &mut [u8], config: TransactionConfig) -> Result<(), Error> {
         // Set transaction config
-        self.set_transaction_config(data, config)?;
+        self.set_transaction_config(data, &config)?;
 
         // Set read length
         let regs = self.info.regs;
@@ -393,6 +394,10 @@ impl<'d, M: Mode> Spi<'d, M> {
         regs.rd_trans_cnt().write(|w| w.set_rdtrancnt(read_len as u32));
         regs.trans_ctrl().modify(|w| w.set_rdtrancnt(read_len as u16));
 
+        // Set cmd, start transfer
+        regs.cmd().write(|w| w.set_cmd(config.cmd.unwrap_or(0xff)));
+
+        // Read data
         let mut retry: u16 = 0;
         let mut pos = 0;
         loop {
@@ -421,23 +426,43 @@ impl<'d, M: Mode> Spi<'d, M> {
         // Check transfer mode
         // TODO: Do we really need transfer mode argument?
         match config.transfer_mode {
-            TransferMode::WriteOnly | TransferMode::DummyWrite => (),
+            TransferMode::WriteOnly | TransferMode::DummyWrite | TransferMode::NoData => (),
             _ => return Err(Error::InvalidArgument),
         }
 
         // Set transaction config
-        self.set_transaction_config(data, config)?;
+        self.set_transaction_config(data, &config)?;
 
         // Set write length
         let regs = self.info.regs;
         if data.len() == 0 {
-            return Err(Error::InvalidArgument);
-        }
+            if config.transfer_mode == TransferMode::NoData {
+                // Set cmd, start transfer
+                regs.cmd().write(|w| {
+                    w.set_cmd(0x0);
+                    w.set_cmd(config.cmd.unwrap_or(0xff));
+                });
+                let cmd = regs.cmd().read().cmd();
+                let addr = regs.addr().read().addr();
+                info!("WRITE NO DATA, CMD: 0x{:x}, addr: 0x{:x}, data: {=[u8]:x}", cmd, addr, data);
+                return Ok(())
+            } else {
+                return Err(Error::InvalidArgument);
+            }
+        };
         let write_len = data.len() - 1;
         #[cfg(spi_v53)]
         regs.wr_trans_cnt().write(|w| w.set_wrtrancnt(write_len as u32));
-        regs.trans_ctrl().modify(|w| w.set_wrtrancnt(write_len as u16));
-        self.print_trans_ctrl();
+
+        // Set cmd, start transfer
+        regs.cmd().write(|w| {
+            w.set_cmd(0x0);
+            w.set_cmd(config.cmd.unwrap_or(0xff));
+        });
+        let cmd = regs.cmd().read().cmd();
+        let addr = regs.addr().read().addr();
+        info!("WRITING CMD: 0x{:x}, addr: 0x{:x}, data: {=[u8]:x}", cmd, addr, data);
+
 
         // Write data
         let data_len = (regs.trans_fmt().read().datalen() + 8) / 8;
@@ -459,7 +484,6 @@ impl<'d, M: Mode> Spi<'d, M> {
                 }
                 regs.data().write(|w| w.set_data(data_u32));
                 if finish || pos >= data.len() {
-                    info!("Wrote data len: {}", pos);
                     break;
                 }
             } else {
