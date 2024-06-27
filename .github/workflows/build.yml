@@ -31,4 +31,7 @@ jobs:
           cd ../hpm-data/build/
           git clone https://github.com/hpmicro-rs/hpm-metapac.git
       - name: Build Only
-        run: cargo build --release --examples
+        run:
+          for d in $(ls -1 ./examples); do
+            (cd ./examples/$d && cargo build --release)
+          done
