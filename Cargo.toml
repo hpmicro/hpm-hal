@@ -60,7 +60,12 @@ rt = ["dep:riscv-rt"]
 defmt = ["dep:defmt"]
 time = ["dep:embassy-time"]
 
-embassy = ["dep:embassy-sync", "dep:embassy-futures", "dep:embassy-time-driver", "dep:futures-util"]
+embassy = [
+    "dep:embassy-sync",
+    "dep:embassy-futures",
+    "dep:embassy-time-driver",
+    "dep:futures-util",
+]
 
 hpm5301 = ["hpm-metapac/hpm5301"]
 hpm5321 = ["hpm-metapac/hpm5321"]
@@ -90,6 +95,10 @@ hpm6754 = ["hpm-metapac/hpm6754"]
 hpm6830 = ["hpm-metapac/hpm6830"]
 hpm6850 = ["hpm-metapac/hpm6850"]
 hpm6880 = ["hpm-metapac/hpm6880"]
+hpm6e50 = ["hpm-metapac/hpm6e50"]
+hpm6e60 = ["hpm-metapac/hpm6e60"]
+hpm6e70 = ["hpm-metapac/hpm6e70"]
+hpm6e80 = ["hpm-metapac/hpm6e80"]
 futures-util = ["dep:futures-util"]
 
 
