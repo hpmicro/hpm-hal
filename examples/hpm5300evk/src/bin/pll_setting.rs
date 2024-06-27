@@ -3,10 +3,10 @@
 
 use embedded_hal::delay::DelayNs;
 use embedded_io::Write as _; // `writeln!` provider
+use hal::gpio::{Level, Output, Speed};
 use hal::pac;
-use hpm_hal::gpio::{Level, Output, Speed};
-use hpm_hal::uart::UartTx;
-use hpm_metapac::MCHTMR;
+use hal::pac::MCHTMR;
+use hal::uart::UartTx;
 use riscv::delay::McycleDelay;
 use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
 
