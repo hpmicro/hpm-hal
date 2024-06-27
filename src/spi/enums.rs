@@ -8,6 +8,7 @@ pub enum Mode {
 }
 
 /// SPI transfer mode
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum TransferMode {
     WriteReadTogether,
     WriteOnly,
