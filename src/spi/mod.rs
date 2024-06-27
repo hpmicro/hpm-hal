@@ -4,6 +4,7 @@
 
 use core::marker::PhantomData;
 
+use defmt::info;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use enums::{AddressSize, ChipSelect2SCLK, ChipSelectHighTime, DataLength, SpiWidth, TransferMode};
 
@@ -20,26 +21,26 @@ pub mod enums;
 /// Config struct of SPI
 pub struct Config {
     /// Data length per transfer, max 32 bits(FIFO width).
-    data_len: DataLength,
+    pub data_len: DataLength,
     /// Enable data merge mode, only valid when data_len is 8bit(0x07) .
-    data_merge: bool,
+    pub data_merge: bool,
     /// Bi-directional MOSI, must be enabled in dual/quad mode.
-    mosi_bidir: bool,
+    pub mosi_bidir: bool,
     /// Whether to use LSB.
-    lsb: bool,
+    pub lsb: bool,
     /// Enable slave mode.
-    slave_mode: bool,
+    pub slave_mode: bool,
     /// CPOL.
-    cpol: bool,
+    pub cpol: bool,
     /// CPHA.
-    cpha: bool,
+    pub cpha: bool,
     /// Time between CS active and SCLK edge.
-    cs2sclk: ChipSelect2SCLK,
+    pub cs2sclk: ChipSelect2SCLK,
     /// Time the Chip Select line stays high.
-    csht: ChipSelectHighTime,
+    pub csht: ChipSelectHighTime,
     /// F(SCLK) = F(SPI_SOURCE) / (2 * (sclk_div + 1).
     /// If sclk_div = 0xff, F(SCLK) = F(SPI_SOURCE).
-    sclk_div: u8,
+    pub sclk_div: u8,
 }
 
 impl Default for Config {
@@ -66,6 +67,9 @@ pub struct TransactionConfig {
     pub addr_width: SpiWidth,
     pub data_width: SpiWidth,
     pub transfer_mode: TransferMode,
+    /// Valid only in TransferMode::DummyWrite|DummyRead|WriteDummyRead|ReadDummyWrite.
+    /// The nubmer of dummy cycle = (dummy_cnt + 1) / ((data_len + 1) / spi_width).
+    pub dummy_cnt: u8,
 }
 
 impl Default for TransactionConfig {
@@ -77,17 +81,26 @@ impl Default for TransactionConfig {
             addr_width: SpiWidth::SING,
             data_width: SpiWidth::SING,
             transfer_mode: TransferMode::WriteOnly,
+            dummy_cnt: 0,
         }
     }
 }
 
-// ==========
-// drivers
+/// SPI error.
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// Timeout
+    Timeout,
+    /// Invalid argument
+    InvalidArgument,
+    /// Buffer too large
+    BufferTooLong,
+    /// FIFO FULL
+    FifoFull,
+}
 
-/// Tx-only SPI Driver.
-///
-/// Can be obtained from [`Spi::split`], or can be constructed independently,
-/// if you do not need the receiving half of the driver.
+/// SPI driver.
 #[allow(unused)]
 pub struct Spi<'d, M: Mode> {
     info: &'static Info,
@@ -196,7 +209,7 @@ impl<'d, M: Mode> Spi<'d, M> {
         this
     }
 
-    fn enable_and_configure(&mut self, config: &Config) -> Result<(), ()> {
+    fn enable_and_configure(&mut self, config: &Config) -> Result<(), Error> {
         let regs = self.info.regs;
 
         // Disable all interrupts
@@ -219,39 +232,104 @@ impl<'d, M: Mode> Spi<'d, M> {
             w.set_cpol(config.cpol);
             w.set_cpha(config.cpha);
         });
+        self.print_trans_fmt();
 
         self.info.interrupt.unpend();
         unsafe { self.info.interrupt.enable() };
         Ok(())
     }
 
-    pub fn transfer(&mut self, data: &[u8], config: TransactionConfig) {
+    fn print_trans_fmt(&mut self) {
+        let regs = self.info.regs;
+        let addr_len = regs.trans_fmt().read().addrlen();
+        let data_len = regs.trans_fmt().read().datalen();
+        let data_merge = regs.trans_fmt().read().datamerge();
+        let mosibidir = regs.trans_fmt().read().mosibidir();
+        let lsb = regs.trans_fmt().read().lsb();
+        let slv_mode = regs.trans_fmt().read().slvmode();
+        let cpol = regs.trans_fmt().read().cpol();
+        let cpha = regs.trans_fmt().read().cpha();
+        // print them all
+        info!(
+            "TRANS_FMT: addr_len: {}, data_len: {}, data_merge: {}, mosibidir: {}, lsb: {}, slv_mode: {}, cpol: {}, cpha: {}",
+            addr_len, data_len, data_merge, mosibidir, lsb, slv_mode, cpol, cpha,
+        )
+    }
+
+    fn print_trans_ctrl(&mut self) {
+        let regs = self.info.regs;
+        let slv_data_only = regs.trans_ctrl().read().slvdataonly();
+        let cmd_en = regs.trans_ctrl().read().cmden();
+        let addr_en = regs.trans_ctrl().read().addren();
+        let addr_fmt = regs.trans_ctrl().read().addrfmt();
+        let trans_mode = regs.trans_ctrl().read().transmode();
+        let dual_quad = regs.trans_ctrl().read().dualquad();
+        let wrtrancnt = regs.trans_ctrl().read().wrtrancnt();
+        let dummy_cnt = regs.trans_ctrl().read().dummycnt();
+        let rdtrancnt = regs.trans_ctrl().read().rdtrancnt();
+        // print them all
+        info!(
+            "TRANS_CTRL: slv_data_only: {}, cmd_en: {}, addr_en: {}, addr_fmt: {}, trans_mode: {}, dual_quad: {}, wrtrancnt: {}, dummy_cnt: {}, rdtrancnt: {}", 
+            slv_data_only, cmd_en, addr_en, addr_fmt, trans_mode, dual_quad, wrtrancnt, dummy_cnt, rdtrancnt, 
+        );
+    }
+
+    fn print_ctrl(&mut self) {
+        let regs = self.info.regs;
+        let txfiforst = regs.ctrl().read().txfiforst();
+        let rxfiforst = regs.ctrl().read().rxfiforst();
+        let spirst = regs.ctrl().read().spirst();
+        let cs_en = regs.ctrl().read().cs_en();
+        let txthres = regs.ctrl().read().txthres();
+        let rxthres = regs.ctrl().read().rxthres();
+        let tx_dma_en = regs.ctrl().read().txdmaen();
+        let rx_dma_en = regs.ctrl().read().rxdmaen();
+        // print them all
+        info!(
+            "CTRL: txfiforst: {}, rxfiforst: {}, spirst: {}, cs_en: {}, txthres: {}, rxthres: {}, tx_dma_en: {}, rx_dma_en: {}",
+            txfiforst, rxfiforst, spirst, cs_en, txthres, rxthres, tx_dma_en, rx_dma_en
+        );
+    }
+
+    fn set_transaction_config(&mut self, data: &[u8], config: TransactionConfig) -> Result<(), Error> {
         // For spi_v67, the size of data must <= 512
         #[cfg(spi_v67)]
-        assert!(data.len() <= 512);
+        if data.len() > 512 {
+            return Err(Error::BufferTooLong);
+        }
+
+        if config.addr.is_none() && config.addr_width != SpiWidth::NONE {
+            info!("Address is not provided, but addr_width is not NONE");
+            return Err(Error::InvalidArgument);
+        }
 
         // SPI controller supports 1-1-1, 1-1-4, 1-1-2, 1-2-2 and 1-4-4 modes only
         if config.addr_width != config.data_width && config.addr_width != SpiWidth::SING {
-            panic!("Unsupported SPI mode, HPM's SPI controller supports 1-1-1, 1-1-4, 1-1-2, 1-2-2 and 1-4-4 modes")
+            info!("Unsupported SPI mode, HPM's SPI controller supports 1-1-1, 1-1-4, 1-1-2, 1-2-2 and 1-4-4 modes");
+            return Err(Error::InvalidArgument);
         }
 
         let regs = self.info.regs;
 
         // Ensure the last SPI transfer is completed
-        while regs.status().read().spiactive() {}
+        let mut retry = 0;
+        while regs.status().read().spiactive() {
+            retry += 1;
+            if retry > 500000 {
+                return Err(Error::Timeout);
+            }
+        }
 
         // Set TRANSFMT register
+        regs.trans_fmt().modify(|w| {
+            w.set_addrlen(config.addr_size.into());
+        });
         if config.data_width == SpiWidth::DUAL || config.data_width == SpiWidth::QUAD {
             regs.trans_fmt().modify(|w| {
                 w.set_mosibidir(true);
             });
         }
-        regs.trans_fmt().modify(|w| {
-            w.set_addrlen(config.addr_size.into());
-        });
-
-        #[cfg(spi_v53)]
-        regs.wr_trans_cnt().write(|w| w.set_wrtrancnt(data.len() as u32 - 1));
+        self.print_trans_fmt();
 
         // Set TRANSCTRL register
         regs.trans_ctrl().write(|w| {
@@ -261,51 +339,129 @@ impl<'d, M: Mode> Spi<'d, M> {
                 SpiWidth::NONE | SpiWidth::SING => false,
                 SpiWidth::DUAL | SpiWidth::QUAD => true,
             });
+            w.set_dummycnt(config.dummy_cnt.into());
             w.set_transmode(config.transfer_mode.into());
             w.set_dualquad(match config.data_width {
                 SpiWidth::NONE | SpiWidth::SING => 0x0,
                 SpiWidth::DUAL => 0x1,
                 SpiWidth::QUAD => 0x2,
             });
-            w.set_wrtrancnt((data.len() - 1) as u16);
         });
 
-        // Enable CS
-        #[cfg(spi_v53)]
-        regs.ctrl().modify(|w| w.set_cs_en(self.cs_index));
+        self.print_trans_ctrl();
+
         // Reset FIFO and control
-        regs.ctrl().modify(|w| {
+        regs.ctrl().write(|w| {
             w.set_txfiforst(true);
-            w.set_txfiforst(true);
+            w.set_rxfiforst(true);
             w.set_spirst(true);
         });
 
-        // Set addr
-        match config.addr {
-            Some(addr) => regs.addr().write(|w| w.set_addr(addr)),
-            None => (),
+        regs.ctrl().modify(|w| {
+            w.set_txfiforst(true);
+            w.set_rxfiforst(true);
+            w.set_spirst(true);
+        });
+        // Enable CS
+        #[cfg(spi_v53)]
+        regs.ctrl().modify(|w| w.set_cs_en(self.cs_index));
+        self.print_ctrl();
+
+        // Get current mode
+        let slave_mode = regs.trans_fmt().read().slvmode();
+        if !slave_mode {
+            // Set addr
+            if let Some(addr) = config.addr {
+                regs.addr().write(|w| w.set_addr(addr));
+            }
+
+            // Set cmd, start transfer
+            regs.cmd().write(|w| w.set_cmd(config.cmd.unwrap_or(0xff)));
         }
 
-        // Set cmd, start transfer
-        regs.cmd().write(|w| w.set_cmd(config.cmd.unwrap_or(0xff)));
+        Ok(())
+    }
+
+    pub fn blocking_read(&mut self, data: &mut [u8], config: TransactionConfig) -> Result<(), Error> {
+        // Set transaction config
+        self.set_transaction_config(data, config)?;
+
+        // Set read length
+        let regs = self.info.regs;
+        let read_len = data.len() - 1;
+        #[cfg(spi_v53)]
+        regs.rd_trans_cnt().write(|w| w.set_rdtrancnt(read_len as u32));
+        regs.trans_ctrl().modify(|w| w.set_rdtrancnt(read_len as u16));
+
+        let mut retry: u16 = 0;
+        let mut pos = 0;
+        loop {
+            // RX is not empty, read data
+            if !regs.status().read().rxempty() {
+                let data_u32: u32 = regs.data().read().data();
+                for i in 0..data.len() {
+                    if pos >= data.len() {
+                        break;
+                    }
+                    data[pos] = (data_u32 >> (8 * i)) as u8;
+                    pos += 1;
+                }
+            } else {
+                retry += 1;
+                if retry > 5000 {
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn blocking_write(&mut self, data: &[u8], config: TransactionConfig) -> Result<(), Error> {
+        // Check transfer mode
+        // TODO: Do we really need transfer mode argument?
+        match config.transfer_mode {
+            TransferMode::WriteOnly | TransferMode::DummyWrite => (),
+            _ => return Err(Error::InvalidArgument),
+        }
+
+        // Set transaction config
+        self.set_transaction_config(data, config)?;
+
+        // Set write length
+        let regs = self.info.regs;
+        if data.len() == 0 {
+            return Err(Error::InvalidArgument);
+        }
+        let write_len = data.len() - 1;
+        #[cfg(spi_v53)]
+        regs.wr_trans_cnt().write(|w| w.set_wrtrancnt(write_len as u32));
+        regs.trans_ctrl().modify(|w| w.set_wrtrancnt(write_len as u16));
+        self.print_trans_ctrl();
 
         // Write data
-        let data_len = regs.trans_fmt().read().datalen() + 8 / 8;
-        assert!(data_len <= 4 && data_len > 0);
+        let data_len = (regs.trans_fmt().read().datalen() + 8) / 8;
         let mut retry: u16 = 0;
         let mut pos = 0;
         loop {
             if !regs.status().read().txfull() {
+                retry = 0;
                 // Write data
                 let mut data_u32: u32 = 0;
+                let mut finish = false;
                 for i in 0..data_len {
-                    if pos >= data.len() {
-                        break;
-                    }
                     data_u32 |= (data[pos] as u32) << (8 * i);
                     pos += 1;
+                    if pos >= data.len() {
+                        finish = true;
+                        break;
+                    }
                 }
                 regs.data().write(|w| w.set_data(data_u32));
+                if finish || pos >= data.len() {
+                    info!("Wrote data len: {}", pos);
+                    break;
+                }
             } else {
                 // FIFO is full, retry 5000 times
                 retry += 1;
@@ -315,12 +471,25 @@ impl<'d, M: Mode> Spi<'d, M> {
             }
         }
 
-        // Wait for transfer to complete
-        while regs.status().read().spiactive() {}
+        let underrun = regs.slv_st().read().underrun();
+        let overrun = regs.slv_st().read().overrun();
+
+        if underrun || overrun {
+            defmt::info!("SPI underrun or overrun error, {}, {}", underrun, overrun);
+        }
+
+        if retry > 5000 {
+            return Err(Error::FifoFull);
+        }
+
+        Ok(())
     }
 }
 
-/// Interrupt handler.
+// ==========
+// Interrupt handler
+
+/// SPI Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
@@ -337,7 +506,7 @@ unsafe fn on_interrupt(r: crate::pac::spi::Spi, s: &'static State) {
 }
 
 // ==========
-// helper types and functions
+// Helper types and functions
 
 struct State {}
 impl State {
@@ -401,3 +570,27 @@ foreach_peripheral!(
         impl_spi!($inst);
     };
 );
+
+// ==========
+// eh traits
+
+impl embedded_hal::spi::Error for Error {
+    fn kind(&self) -> embedded_hal::spi::ErrorKind {
+        match *self {
+            Error::Timeout => embedded_hal::spi::ErrorKind::Other,
+            Error::InvalidArgument => embedded_hal::spi::ErrorKind::Other,
+            Error::BufferTooLong => embedded_hal::spi::ErrorKind::Other,
+            Error::FifoFull => embedded_hal::spi::ErrorKind::Other,
+        }
+    }
+}
+
+impl<'d, M: Mode> embedded_hal::spi::ErrorType for Spi<'d, M> {
+    type Error = Error;
+}
+
+impl<'d, M: Mode> embedded_hal::spi::SpiDevice for Spi<'d, M> {
+    fn transaction(&mut self, operations: &mut [embedded_hal::spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
+        todo!()
+    }
+}
