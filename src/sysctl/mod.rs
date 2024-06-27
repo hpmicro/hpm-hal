@@ -234,6 +234,7 @@ pub(crate) unsafe fn init(config: Config) {
     SYSCTL.group0(0).value().write(|w| w.0 = 0xFFFFFFFF);
     SYSCTL.group0(1).value().write(|w| w.0 = 0xFFFFFFFF);
 
+    // Connect Group0 to CPU0
     SYSCTL.affiliate(0).set().write(|w| w.set_link(1));
 }
 

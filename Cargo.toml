@@ -15,12 +15,7 @@ license = "MIT/Apache-2.0"
 [dependencies]
 # path = "../hpm-data/build/hpm-metapac",
 # git = "https://github.com/hpmicro-rs/hpm-metapac.git",
-hpm-metapac = { version = "0.0.3", path = "../hpm-data/build/hpm-metapac", features = [
-    "rt",
-    # temp feature for demo
-    # "memory-x",
-
-] }
+hpm-metapac = { version = "0.0.3", path = "../hpm-data/build/hpm-metapac" }
 
 riscv = { version = "0.11", features = ["critical-section-single-hart"] }
 embedded-hal = { version = "1.0.0" }
@@ -55,8 +50,9 @@ proc-macro2 = "1.0.85"
 quote = "1.0.15"
 
 [features]
-default = ["hpm5361", "rt", "embassy", "defmt", "time"]
-rt = ["dep:riscv-rt"]
+default = ["rt", "embassy", "defmt", "time"]
+
+rt = ["dep:riscv-rt", "hpm-metapac/rt"]
 defmt = ["dep:defmt"]
 time = ["dep:embassy-time"]
 
@@ -99,27 +95,3 @@ hpm6e50 = ["hpm-metapac/hpm6e50"]
 hpm6e60 = ["hpm-metapac/hpm6e60"]
 hpm6e70 = ["hpm-metapac/hpm6e70"]
 hpm6e80 = ["hpm-metapac/hpm6e80"]
-futures-util = ["dep:futures-util"]
-
-
-[dev-dependencies]
-panic-halt = "0.2.0"
-riscv-rt = "0.12.2"
-
-embassy-time = { version = "0.3.0", features = ["tick-hz-1_000_000"] }
-embassy-executor = { version = "0.5.0", features = [
-    "nightly",
-    "integrated-timers",
-    "arch-riscv32",
-    "executor-thread",
-] }
-defmt = "0.3.8"
-defmt-rtt = "0.4.1"
-embedded-graphics = "0.8.1"
-
-
-[profile.release]
-strip = false   # symbols are not flashed to the microcontroller, so don't strip them.
-lto = true
-opt-level = "z" # Optimize for size.
-debug = 2
