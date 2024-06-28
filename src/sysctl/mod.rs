@@ -5,6 +5,7 @@ use core::ptr::addr_of;
 
 use hpm_metapac::PLLCTL;
 
+use crate::pac;
 pub use crate::pac::sysctl::vals::{ClockMux, SubDiv as AHBDiv};
 use crate::pac::SYSCTL;
 use crate::time::Hertz;
@@ -29,7 +30,7 @@ const F_REF: Hertz = CLK_24M;
 
 /// The default system clock configuration
 static mut CLOCKS: Clocks = Clocks {
-    hart0: CLK_HART0,
+    cpu0: CLK_HART0,
     ahb: CLK_AHB,
     pll0clk0: PLL0CLK0,
     pll0clk1: PLL0CLK1,
@@ -43,7 +44,7 @@ static mut CLOCKS: Clocks = Clocks {
 #[derive(Clone, Copy, Debug)]
 pub struct Clocks {
     /// CPU0
-    pub hart0: Hertz,
+    pub cpu0: Hertz,
     /// AHB clock: HDMA, HRAM, MOT, ACMP, GPIO, ADC/DAC
     pub ahb: Hertz,
 
@@ -85,7 +86,6 @@ impl Clocks {
 
 pub struct Config {
     pub pll0: Option<Pll<(u8, u8, u8)>>,
-    // PLL1 is related to the XPI0, so better not to expose it
     // pub pll1: Option<Pll<(u8, u8, u8, u8)>>,
     pub cpu0: ClockConfig,
     pub ahb_div: AHBDiv,
@@ -96,10 +96,7 @@ impl Default for Config {
         Config {
             pll0: None,
             // pll1: None,
-            cpu0: ClockConfig {
-                src: ClockMux::PLL0CLK0,
-                raw_div: 1, // div 2
-            },
+            cpu0: ClockConfig::new(ClockMux::PLL0CLK0, 2),
             ahb_div: AHBDiv::DIV2,
         }
     }
@@ -108,40 +105,30 @@ impl Default for Config {
 /// PLL configuration
 #[derive(Clone, Copy)]
 pub struct Pll<D> {
-    // 13 to 42
-    pub mfi: u8,
-    // u30
-    pub mfn: u32,
-    // u30
-    pub mfd: u32,
-
+    pub freq_in: Hertz,
     pub div: D,
 }
 
 impl<D> Pll<D> {
-    pub(crate) fn check(self) -> Option<Self> {
-        if self.mfi < 13 || self.mfi > 42 {
+    /// (mfi, mfn)
+    pub(crate) fn get_params(&self) -> Option<(u8, u32)> {
+        const PLL_XTAL_FREQ: u32 = 24000000;
+
+        const PLL_FREQ_MIN: u32 = PLL_XTAL_FREQ * 16; // min MFI, when MFN = 0
+        const PLL_FREQ_MAX: u32 = PLL_XTAL_FREQ * (42 + 1); // max MFI + MFN/MFD
+
+        const MFN_FACTOR: u32 = 10;
+
+        let f_vco = self.freq_in.0;
+
+        if f_vco < PLL_FREQ_MIN || f_vco > PLL_FREQ_MAX {
             return None;
         }
-        if self.mfn > 0x3FFF_FFFF {
-            return None;
-        }
-        if self.mfd > 0x3FFF_FFFF {
-            return None;
-        }
 
-        Some(self)
-    }
+        let mfi = f_vco / PLL_XTAL_FREQ;
+        let mfn = f_vco % PLL_XTAL_FREQ;
 
-    pub fn output_freq(&self) -> Hertz {
-        let fref = F_REF.0 as u64;
-        let mfi = self.mfi as u64;
-        let mfn = self.mfn as u64;
-        let mfd = self.mfd as u64;
-
-        let fvco = fref * (mfi + mfn / mfd);
-
-        Hertz(fvco as u32)
+        Some((mfi as u8, mfn * MFN_FACTOR))
     }
 }
 
@@ -154,7 +141,7 @@ pub struct ClockConfig {
 
 impl ClockConfig {
     pub const fn new(src: ClockMux, div: u16) -> Self {
-        assert!(div <= 256 || div > 0, "div must be in range 1 to 256");
+        assert!(div <= 256 && div > 0, "div must be in range 1 to 256");
         ClockConfig {
             src,
             raw_div: div as u8 - 1,
@@ -162,51 +149,114 @@ impl ClockConfig {
     }
 }
 
+#[inline]
+fn output_freq_of_pll(pll: usize) -> u64 {
+    let fref = F_REF.0 as f64;
+    let mfd = 240_000_000.0; // default value
+
+    let mfi = PLLCTL.pll(pll).mfi().read().mfi() as f64;
+    let mfn = PLLCTL.pll(pll).mfn().read().mfn() as f64;
+
+    let fvco = fref * (mfi + mfn / mfd);
+
+    fvco as u64
+}
+
+#[inline]
+fn enable_group_resource(resource: usize) {
+    let resource_start = 256;
+
+    if resource < resource_start {
+        return;
+    }
+
+    let index = (resource - resource_start) / 32;
+    let offset = (resource - resource_start) % 32;
+
+    SYSCTL.group0(index).set().write(|w| w.set_link(1 << offset));
+
+    while SYSCTL.resource(resource).read().loc_busy() {}
+}
+
 pub(crate) unsafe fn init(config: Config) {
-    if let Some(pll0) = config.pll0.and_then(|pll| pll.check()) {
-        // set cpu0 to 24M
-        SYSCTL.clock_cpu(0).modify(|w| {
-            w.set_mux(ClockMux::CLK_24M);
-            w.set_div(0);
-            w.set_sub0_div(AHBDiv::DIV1);
+    if SYSCTL.clock_cpu(0).read().mux() == ClockMux::CLK_24M {
+        // TODO, enable XTAL
+        // SYSCTL.global00().modify(|w| w.set_mux(0b11));
+    }
+
+    enable_group_resource(pac::resources::CPU0);
+    enable_group_resource(pac::resources::AHB0);
+    enable_group_resource(pac::resources::LMM0);
+    enable_group_resource(pac::resources::MCT0);
+    enable_group_resource(pac::resources::ROM0);
+    enable_group_resource(pac::resources::TMR0);
+    enable_group_resource(pac::resources::TMR1);
+    enable_group_resource(pac::resources::I2C2);
+    enable_group_resource(pac::resources::SPI1);
+    enable_group_resource(pac::resources::URT0);
+    enable_group_resource(pac::resources::URT3);
+
+    enable_group_resource(pac::resources::WDG0);
+    enable_group_resource(pac::resources::WDG1);
+    enable_group_resource(pac::resources::MBX0);
+    enable_group_resource(pac::resources::TSNS);
+    enable_group_resource(pac::resources::CRC0);
+    enable_group_resource(pac::resources::ADC0);
+    enable_group_resource(pac::resources::ACMP);
+    enable_group_resource(pac::resources::KMAN);
+    enable_group_resource(pac::resources::GPIO);
+    enable_group_resource(pac::resources::HDMA);
+    enable_group_resource(pac::resources::XPI0);
+    enable_group_resource(pac::resources::USB0);
+
+    // Connect Group0 to CPU0
+    SYSCTL.affiliate(0).set().write(|w| w.set_link(1 << 0));
+
+    // Bump up DCDC voltage to 1175mv (default is 1150)
+    pac::PCFG.dcdc_mode().modify(|w| w.set_volt(1175));
+
+    if let Some(pll) = config.pll0.as_ref() {
+        if let Some((mfi, mfn)) = pll.get_params() {
+            if PLLCTL.pll(0).mfi().read().mfi() == mfi {
+                PLLCTL.pll(0).mfi().modify(|w| {
+                    w.set_mfi(mfi - 1);
+                });
+            }
+
+            PLLCTL.pll(0).mfi().modify(|w| {
+                w.set_mfi(mfi);
+            });
+
+            // Default mfd is 240M
+            PLLCTL.pll(0).mfn().write(|w| w.set_mfn(mfn));
+
+            while PLLCTL.pll(0).mfi().read().busy() {}
+        }
+
+        let fvco = output_freq_of_pll(0);
+
+        // set postdiv
+        PLLCTL.pll(0).div(0).write(|w| {
+            w.set_div(pll.div.0);
+            w.set_enable(true);
         });
-        while SYSCTL.clock_cpu(0).read().glb_busy() {}
-
-        // close PLL0
-        // NOTE: MFI.enable is documented wrongly in v0.7 UM
-        PLLCTL.pll(0).mfi().modify(|w| w.set_enable(false));
-
-        while PLLCTL.pll(0).mfi().read().busy() {}
-
-        // set PLL parameters and enable PLL
-        PLLCTL.pll(0).mfn().write(|w| w.set_mfn(pll0.mfn));
-        PLLCTL.pll(0).mfd().write(|w| w.set_mfd(pll0.mfd)); // MFD 不支持运行时修改
-
-        PLLCTL.pll(0).mfi().modify(|w| {
-            w.set_mfi(pll0.mfi);
-            w.set_enable(true)
+        PLLCTL.pll(0).div(1).write(|w| {
+            w.set_div(pll.div.1);
+            w.set_enable(true);
         });
-
-        while PLLCTL.pll(0).mfi().read().busy() {}
-
-        // Set DIVs
-        PLLCTL.pll(0).div(0).modify(|w| w.set_div(pll0.div.0));
-        PLLCTL.pll(0).div(1).modify(|w| w.set_div(pll0.div.1));
-        PLLCTL.pll(0).div(2).modify(|w| w.set_div(pll0.div.2));
+        PLLCTL.pll(0).div(2).write(|w| {
+            w.set_div(pll.div.2);
+            w.set_enable(true);
+        });
 
         while PLLCTL.pll(0).div(0).read().busy()
             || PLLCTL.pll(0).div(1).read().busy()
             || PLLCTL.pll(0).div(2).read().busy()
         {}
 
-        let fvco = pll0.output_freq().0 as u64; // convert u64 to avoid overflow
-
-        //let pll0clk0 = fvco / (pll0.div.0 as u32 / 5 + 1);
-        //let pll0clk1 = fvco / (pll0.div.1 as u32 / 5 + 1);
-        //let pll0clk2 = fvco / (pll0.div.2 as u32 / 5 + 1);
-        let pll0clk0 = fvco * 5 / (pll0.div.0 as u64 + 5);
-        let pll0clk1 = fvco * 5 / (pll0.div.1 as u64 + 5);
-        let pll0clk2 = fvco * 5 / (pll0.div.2 as u64 + 5);
+        let pll0clk0 = fvco * 5 / (PLLCTL.pll(0).div(0).read().div() as u64 + 5);
+        let pll0clk1 = fvco * 5 / (PLLCTL.pll(0).div(1).read().div() as u64 + 5);
+        let pll0clk2 = fvco * 5 / (PLLCTL.pll(0).div(2).read().div() as u64 + 5);
 
         unsafe {
             CLOCKS.pll0clk0 = Hertz(pll0clk0 as u32);
@@ -223,19 +273,13 @@ pub(crate) unsafe fn init(config: Config) {
 
     while SYSCTL.clock_cpu(0).read().glb_busy() {}
 
-    let hart0_clk = clocks().get_freq(&config.cpu0);
-    let ahb_clk = hart0_clk / config.ahb_div;
+    let cpu0_clk = clocks().get_freq(&config.cpu0);
+    let ahb_clk = cpu0_clk / config.ahb_div;
 
     unsafe {
-        CLOCKS.hart0 = hart0_clk;
+        CLOCKS.cpu0 = cpu0_clk;
         CLOCKS.ahb = ahb_clk;
     }
-
-    SYSCTL.group0(0).value().write(|w| w.0 = 0xFFFFFFFF);
-    SYSCTL.group0(1).value().write(|w| w.0 = 0xFFFFFFFF);
-
-    // Connect Group0 to CPU0
-    SYSCTL.affiliate(0).set().write(|w| w.set_link(1));
 }
 
 pub fn clocks() -> &'static Clocks {
