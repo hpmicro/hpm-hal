@@ -136,17 +136,13 @@ pub struct Config {
 }
 
 pub fn init(config: Config) -> Peripherals {
+    #[cfg(hpm53)]
+    gpio::init_py_pins_as_gpio();
+
+    // board_init_clock
     unsafe {
         sysctl::init(config.sysctl);
     }
-
-    // Bump up DCDC voltage to 1175mv (default is 1150)
-    pac::PCFG.dcdc_mode().modify(|w| {
-        w.set_volt(1175)
-    });
-
-    #[cfg(hpm53)]
-    gpio::init_py_pins_as_gpio();
 
     unsafe {
         gpio::input_future::init_gpio0_irq();
