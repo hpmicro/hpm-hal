@@ -145,27 +145,6 @@ impl<'d> I2c<'d, Blocking> {
             w.set_ps(true);
         });
 
-        let r = T::info().regs;
-
-        if r.status().read().linescl() == false {
-            defmt::info!("CLK is low, panic");
-            loop {}
-        }
-
-        if r.status().read().linesda() == false {
-            defmt::info!("SDA is low, reset bus");
-            // i2s_gen_reset_signal
-            // generate SCL clock as reset signal
-            r.ctrl().modify(|w| {
-                w.set_reset_len(9);
-                w.set_reset_hold_sckin(true);
-                w.set_reset_on(true);
-            });
-            McycleDelay::new(crate::sysctl::clocks().hart0.0).delay_ms(100);
-
-            defmt::info!("bus cleared");
-        }
-
         {
             use crate::sysctl::*;
             T::set_clock(ClockConfig::new(ClockMux::CLK_24M, 1));
@@ -244,6 +223,26 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_iicen(true);
             w.set_master(true);
         });
+
+
+        if r.status().read().linescl() == false {
+            defmt::info!("CLK is low, panic");
+            loop {}
+        }
+
+        if r.status().read().linesda() == false {
+            defmt::info!("SDA is low, reset bus");
+            // i2s_gen_reset_signal
+            // generate SCL clock as reset signal
+            r.ctrl().modify(|w| {
+                w.set_reset_len(9);
+                w.set_reset_hold_sckin(true);
+                w.set_reset_on(true);
+            });
+            McycleDelay::new(crate::sysctl::clocks().cpu0.0).delay_ms(100);
+
+            defmt::info!("bus cleared");
+        }
     }
 
     /// Blocking write, restart, read.
