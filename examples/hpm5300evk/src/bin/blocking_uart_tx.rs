@@ -8,15 +8,19 @@ use hpm_hal::uart::UartTx;
 use riscv::delay::McycleDelay;
 use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
 
+const BANNER: &str = include_str!("./BANNER");
+
 #[hal::entry]
 fn main() -> ! {
     let p = hal::init(Default::default());
 
-    let mut delay = McycleDelay::new(hal::sysctl::clocks().hart0.0);
+    let mut delay = McycleDelay::new(hal::sysctl::clocks().cpu0.0);
 
     defmt::info!("Board init!");
 
     let mut tx = UartTx::new_blocking(p.UART0, p.PA00, Default::default()).unwrap();
+
+    writeln!(tx, "{}", BANNER).unwrap();
 
     tx.blocking_write(b"Hello, board!\r\n").unwrap();
 
