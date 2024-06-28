@@ -35,7 +35,7 @@ async fn main(spawner: Spawner) -> ! {
     println!("==============================");
     println!(" {} clock summary", BOARD_NAME);
     println!("==============================");
-    println!("cpu0:\t\t {}Hz", hal::sysctl::clocks().hart0.0);
+    println!("cpu0:\t\t {}Hz", hal::sysctl::clocks().cpu0.0);
     println!("ahb:\t\t {}Hz", hal::sysctl::clocks().ahb.0);
     println!("==============================");
 

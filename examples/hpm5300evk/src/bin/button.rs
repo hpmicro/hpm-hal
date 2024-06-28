@@ -10,7 +10,7 @@ use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
 fn main() -> ! {
     let p = hal::init(Default::default());
 
-    let mut delay = McycleDelay::new(hal::sysctl::clocks().hart0.0);
+    let mut delay = McycleDelay::new(hal::sysctl::clocks().cpu0.0);
 
     defmt::info!("Board init!");
 

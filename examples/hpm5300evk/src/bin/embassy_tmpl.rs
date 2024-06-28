@@ -49,7 +49,7 @@ async fn main(spawner: Spawner) -> ! {
     println!("{} init OK!", BOARD_NAME);
 
     println!("Clock summary:");
-    println!("  CPU0:\t{}Hz", hal::sysctl::clocks().hart0.0);
+    println!("  CPU0:\t{}Hz", hal::sysctl::clocks().cpu0.0);
     println!("  AHB:\t{}Hz", hal::sysctl::clocks().ahb.0);
     println!(
         "  XPI0:\t{}Hz",
