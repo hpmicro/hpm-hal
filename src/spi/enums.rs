@@ -289,3 +289,15 @@ impl Into<u8> for SlaveModeCommand {
         }
     }
 }
+
+/// SPI polarity mode
+pub enum PolarityMode {
+    /// Mode0, CPOL=0, CPHA=0
+    Mode0,
+    /// Mode1, CPOL=0, CPHA=1
+    Mode1,
+    /// Mode2, CPOL=1, CPHA=0
+    Mode2,
+    /// Mode3, CPOL=1, CPHA=1
+    Mode3,
+} 
