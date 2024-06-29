@@ -1,0 +1,30 @@
+[package]
+name = "hpm6e00evk"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+
+[dependencies]
+# git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-86124df0e9c855436aecece4a17469dd7ac6baf6",
+hpm-metapac = { version = "0.0.3", path = "../../../hpm-data/build/hpm-metapac", features = [
+    "rt",
+    "pac",
+    "hpm6e80",
+] }
+
+# TODO
+# hpm-hal = { path = "../../", features = ["hpm6e80"]}
+panic-halt = "0.2.0"
+riscv-rt = { version = "0.12.2", features = ["single-hart"] }
+
+defmt = "0.3.8"
+defmt-rtt = "0.4.1"
+embedded-hal = "1.0.0"
+riscv = { version = "0.11.1", features = ["critical-section-single-hart"] }
+
+
+[profile.release]
+strip = false   # symbols are not flashed to the microcontroller, so don't strip them.
+lto = true
+opt-level = "z" # Optimize for size.
+debug = 2
