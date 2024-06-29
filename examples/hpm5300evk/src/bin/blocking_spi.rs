@@ -261,7 +261,7 @@ impl DrawTarget for RM67162<'_> {
 fn main() -> ! {
     let p = hal::init(Default::default());
 
-    let mut delay = McycleDelay::new(hal::sysctl::clocks().hart0.0);
+    let mut delay = McycleDelay::new(hal::sysctl::clocks().cpu0.0);
     defmt::info!("Board init!");
 
     let mut rst = Output::new(p.PA09, Level::High, Speed::Fast);
