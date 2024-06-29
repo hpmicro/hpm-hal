@@ -2,6 +2,7 @@
 
 use core::arch::asm;
 
+use crate::interrupt::PlicExt;
 use crate::pac;
 
 #[no_mangle]
@@ -10,6 +11,21 @@ pub unsafe extern "Rust" fn _setup_interrupts() {
         // Symbol defined in hpm-metapac.
         // The symbol must be in FLASH(XPI) or ILM section.
         static __VECTORED_INTERRUPTS: [u32; 1];
+    }
+
+    // clean up plic, it will help while debugging
+    pac::PLIC.set_threshold(0);
+    for i in 0..128 {
+        pac::PLIC.targetconfig(0).claim().modify(|w| w.set_interrupt_id(i));
+    }
+    // clear any bits left in plic enable register
+    for i in 0..4 {
+        pac::PLIC.targetint(0).inten(i).write(|w| w.0 = 0);
+    }
+
+    // enable mcycle
+    unsafe {
+        riscv::register::mcounteren::set_cy();
     }
 
     let vector_addr = __VECTORED_INTERRUPTS.as_ptr() as u32;
@@ -22,6 +38,7 @@ pub unsafe extern "Rust" fn _setup_interrupts() {
         asm!("csrsi 0x7D0, 2");
         pac::PLIC.feature().modify(|w| w.set_vectored(true));
         riscv::register::mstatus::set_mie(); // must enable global interrupt
+        riscv::register::mstatus::set_sie(); // and supervisor interrupt
         riscv::register::mie::set_mext(); // and PLIC external interrupt
     }
 }
@@ -38,6 +55,7 @@ unsafe extern "riscv-interrupt-m" fn CORE_LOCAL() {
     let code = cause.code();
 
     if cause.is_exception() {
+        defmt::error!("Exception code: {}", code);
         loop {} // dead loop
     } else if code < __INTERRUPTS.len() {
         let h = &__INTERRUPTS[code];
@@ -79,9 +97,4 @@ unsafe fn __pre_init() {
         input = out(reg) _,
         a = out(reg) _,
     );
-
-    // enable mcycle
-    unsafe {
-        riscv::register::mcounteren::set_cy();
-    }
 }
