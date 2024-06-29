@@ -59,5 +59,7 @@ fn main() -> ! {
         delay.delay_ms(100);
 
         pac::FGPIO.do_(PE).toggle().write(|w| w.set_output(1 << 4));
+
+        delay.delay_ms(100);
     }
 }
