@@ -79,4 +79,9 @@ unsafe fn __pre_init() {
         input = out(reg) _,
         a = out(reg) _,
     );
+
+    // enable mcycle
+    unsafe {
+        riscv::register::mcounteren::set_cy();
+    }
 }
