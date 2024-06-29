@@ -453,7 +453,7 @@ pub(crate) trait SealedPin: Sized {
     /// IOC peripheral
     #[inline]
     fn ioc_pad(&self) -> pac::ioc::Pad {
-        pac::IOC.pad(self._port())
+        pac::IOC.pad(self.pin_pad() as usize)
     }
 
     // helper method used across the HAL, not intended to be used by user code
