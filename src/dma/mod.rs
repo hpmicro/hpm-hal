@@ -13,6 +13,7 @@
 mod dmamux;
 pub(crate) use dmamux::*;
 use embassy_hal_internal::{impl_peripheral, Peripheral};
+pub(crate) mod dma;
 
 pub mod word;
 
@@ -30,6 +31,15 @@ pub(crate) struct ChannelInfo {
 pub(crate) enum DmaInfo {
     HDMA(pac::dma::Dma),
     XDMA(pac::dma::Dma),
+}
+
+impl DmaInfo {
+    pub(crate) fn regs(&self) -> &pac::dma::Dma {
+        match self {
+            DmaInfo::HDMA(dma) => dma,
+            DmaInfo::XDMA(dma) => dma,
+        }
+    }
 }
 
 /// DMA request type alias. (also known as DMA channel number)

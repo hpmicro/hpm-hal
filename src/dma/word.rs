@@ -21,4 +21,14 @@ impl WordSize {
             Self::EightBytes => 8,
         }
     }
+
+    /// Check if the address is aligned for this word size.
+    pub fn aligned(&self, addr: u32) -> bool {
+        match self {
+            Self::OneByte => true,
+            Self::TwoBytes => addr % 2 == 0,
+            Self::FourBytes => addr % 4 == 0,
+            Self::EightBytes => addr % 8 == 0,
+        }
+    }
 }
