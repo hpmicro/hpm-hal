@@ -19,7 +19,7 @@ use crate::time::Hertz;
 const HPM_I2C_DRV_DEFAULT_TPM: i32 = 0;
 
 // family specific features
-#[cfg(any(hpm53, hpm68))]
+#[cfg(any(hpm53, hpm68, hpm6e))]
 const I2C_SOC_TRANSFER_COUNT_MAX: usize = 4096;
 #[cfg(any(hpm67, hpm62, hpm63, hpm64))]
 const I2C_SOC_TRANSFER_COUNT_MAX: usize = 256;
@@ -223,7 +223,6 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_iicen(true);
             w.set_master(true);
         });
-
 
         if r.status().read().linescl() == false {
             defmt::info!("CLK is low, panic");
