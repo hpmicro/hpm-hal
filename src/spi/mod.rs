@@ -4,7 +4,6 @@
 
 use core::marker::PhantomData;
 
-use defmt::{info, panic, todo};
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use enums::*;
@@ -51,7 +50,7 @@ impl Default for Config {
 
 /// Transaction config
 #[derive(Copy, Clone)]
-pub struct TransactionConfig {
+pub struct TransferConfig {
     pub cmd: Option<u8>,
     pub addr_size: AddressSize,
     pub addr: Option<u32>,
@@ -60,19 +59,23 @@ pub struct TransactionConfig {
     pub transfer_mode: TransferMode,
     /// Valid only in TransferMode::DummyWrite|DummyRead|WriteDummyRead|ReadDummyWrite.
     /// The nubmer of dummy cycle = (dummy_cnt + 1) / ((data_len + 1) / spi_width).
+    /// dummy_cnt = dummy_cycle * ((data_len + 1) / spi_width) - 1.
     pub dummy_cnt: u8,
+    /// slave_data_only mode works with WriteReadTogether mode only
+    pub slave_data_only_mode: bool,
 }
 
-impl Default for TransactionConfig {
+impl Default for TransferConfig {
     fn default() -> Self {
         Self {
             cmd: None,
             addr_size: AddressSize::_8Bit,
             addr: None,
-            addr_width: SpiWidth::NONE,
-            data_width: SpiWidth::NONE,
+            addr_width: SpiWidth::SING,
+            data_width: SpiWidth::SING,
             transfer_mode: TransferMode::WriteOnly,
             dummy_cnt: 0,
+            slave_data_only_mode: false,
         }
     }
 }
@@ -115,8 +118,6 @@ impl<'d> Spi<'d, Blocking> {
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
-        // d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        // d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(cs, sclk, mosi, miso);
@@ -124,15 +125,15 @@ impl<'d> Spi<'d, Blocking> {
         cs.ioc_pad().func_ctl().write(|w| {
             w.set_alt_select(cs.alt_num());
         });
-        sclk.ioc_pad().func_ctl().write(|w| {
-            w.set_alt_select(sclk.alt_num());
-            w.set_loop_back(true);
-        });
         mosi.ioc_pad().func_ctl().write(|w| {
             w.set_alt_select(mosi.alt_num());
         });
         miso.ioc_pad().func_ctl().write(|w| {
             w.set_alt_select(miso.alt_num());
+        });
+        sclk.ioc_pad().func_ctl().write(|w| {
+            w.set_alt_select(sclk.alt_num());
+            w.set_loop_back(true);
         });
 
         let cs_index = cs.cs_index();
@@ -149,6 +150,54 @@ impl<'d> Spi<'d, Blocking> {
         )
     }
 
+    pub fn new_blocking_quad<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        cs: impl Peripheral<P = impl CsPin<T> + CsIndexPin<T>> + 'd,
+        sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(cs, sclk, mosi, miso, d2, d3);
+
+        cs.ioc_pad().func_ctl().write(|w| {
+            w.set_alt_select(cs.alt_num());
+        });
+        mosi.ioc_pad().func_ctl().write(|w| {
+            w.set_alt_select(mosi.alt_num());
+        });
+        miso.ioc_pad().func_ctl().write(|w| {
+            w.set_alt_select(miso.alt_num());
+        });
+        sclk.ioc_pad().func_ctl().write(|w| {
+            w.set_alt_select(sclk.alt_num());
+            w.set_loop_back(true);
+        });
+        d2.ioc_pad().func_ctl().write(|w| {
+            w.set_alt_select(d2.alt_num());
+        });
+        d3.ioc_pad().func_ctl().write(|w| {
+            w.set_alt_select(d3.alt_num());
+        });
+
+        let cs_index = cs.cs_index();
+        Self::_new_inner(
+            peri,
+            Some(cs.map_into()),
+            Some(sclk.map_into()),
+            Some(mosi.map_into()),
+            Some(miso.map_into()),
+            Some(d2.map_into()),
+            Some(d3.map_into()),
+            config,
+            cs_index,
+        )
+    }
+}
+
+impl<'d, M: Mode> Spi<'d, M> {
     fn _new_inner<T: Instance>(
         _peri: impl Peripheral<P = T> + 'd,
         cs: Option<PeripheralRef<'d, AnyPin>>,
@@ -197,11 +246,6 @@ impl<'d> Spi<'d, Blocking> {
             w.set_cs2sclk(config.cs2sclk.into());
             w.set_csht(config.csht.into());
         });
-        // TODO
-        info!(
-            "sclk_div: {}, kernel clock: {}, freq: {}",
-            sclk_div, self.kernel_clock.0, config.frequency.0
-        );
 
         // Set default format
         let (cpha, cpol) = match config.mode {
@@ -212,7 +256,9 @@ impl<'d> Spi<'d, Blocking> {
         };
         r.trans_fmt().write(|w| {
             w.set_addrlen(config.addr_len.into());
-            // Default 8 bit data length
+            // Use 8bit data length by default
+            // TODO: Use 32bit data length, improve the performance
+            // 32 bit data length only works when the data is 32bit aligned
             w.set_datalen(DataLength::_8Bit.into());
             w.set_datamerge(false);
             w.set_mosibidir(false);
@@ -225,85 +271,137 @@ impl<'d> Spi<'d, Blocking> {
         Ok(())
     }
 
-    // Write in master mode
-    pub fn write(&mut self, data: &[u8], config: TransactionConfig) -> Result<(), Error> {
+    fn setup_transfer_config(&mut self, data: &[u8], config: &TransferConfig) -> Result<(), Error> {
+        // For spi_v67, the size of data must <= 512
+        #[cfg(spi_v67)]
         if data.len() > 512 {
             return Err(Error::BufferTooLong);
         }
-        info!("Base addr: {}, data_len: {}", self.info.regs.as_ptr(), data.len());
+
+        // slave_data_only mode works with WriteReadTogether mode only
+        if config.slave_data_only_mode && config.transfer_mode != TransferMode::WriteReadTogether {
+            return Err(Error::InvalidArgument);
+        }
+
+        if config.addr_width != config.data_width && config.addr_width != SpiWidth::SING {
+            // info!("Unsupported SPI mode, HPM's SPI controller supports 1-1-1, 1-1-4, 1-1-2, 1-2-2 and 1-4-4 modes");
+            return Err(Error::InvalidArgument);
+        }
 
         let r = self.info.regs;
 
+        // SPI format init
+        r.trans_fmt().modify(|w| {
+            if config.data_width == SpiWidth::DUAL || config.data_width == SpiWidth::QUAD {
+                w.set_mosibidir(true);
+            }
+            w.set_addrlen(config.addr_size.into());
+        });
+
         // SPI control init
         r.trans_ctrl().write(|w| {
-            w.set_slvdataonly(false);
+            w.set_slvdataonly(config.slave_data_only_mode);
             w.set_cmden(config.cmd.is_some());
             w.set_addren(config.addr.is_some());
             // Addr fmt: false: 1 line, true: 2/4 lines(same with data)
-            w.set_addrfmt(false);
-            // TODO: Match data format
-            w.set_dualquad(0);
+            w.set_addrfmt(match config.addr_width {
+                SpiWidth::SING => false,
+                SpiWidth::DUAL | SpiWidth::QUAD => true,
+            });
+            w.set_dualquad(match config.data_width {
+                SpiWidth::SING => 0x0,
+                SpiWidth::DUAL => 0x1,
+                SpiWidth::QUAD => 0x2,
+            });
             w.set_tokenen(false);
-            w.set_wrtrancnt(data.len() as u16 - 1);
+            #[cfg(spi_v67)]
+            match config.transfer_mode {
+                TransferMode::WriteReadTogether
+                | TransferMode::ReadDummyWrite
+                | TransferMode::WriteDummyRead
+                | TransferMode::ReadWrite
+                | TransferMode::WriteRead => {
+                    w.set_wrtrancnt(data.len() as u16 - 1);
+                    w.set_rdtrancnt(data.len() as u16 - 1);
+                }
+                TransferMode::WriteOnly | TransferMode::DummyWrite => w.set_wrtrancnt(data.len() as u16 - 1),
+                TransferMode::ReadOnly | TransferMode::DummyRead => w.set_rdtrancnt(data.len() as u16 - 1),
+                TransferMode::NoData => (),
+            }
             w.set_tokenvalue(false);
-            w.set_dummycnt(0);
+            w.set_dummycnt(config.dummy_cnt);
             w.set_rdtrancnt(0);
         });
 
-        r.ctrl().modify(|w| w.set_cs_en(self.cs_index));
-
-        r.wr_trans_cnt().write(|w| w.set_wrtrancnt(data.len() as u32 - 1));
-        r.rd_trans_cnt().write(|w| w.set_rdtrancnt(0));
+        #[cfg(spi_v53)]
+        match config.transfer_mode {
+            TransferMode::WriteReadTogether
+            | TransferMode::ReadDummyWrite
+            | TransferMode::WriteDummyRead
+            | TransferMode::ReadWrite
+            | TransferMode::WriteRead => {
+                r.wr_trans_cnt().write(|w| w.set_wrtrancnt(data.len() as u32 - 1));
+                r.rd_trans_cnt().write(|w| w.set_rdtrancnt(data.len() as u32 - 1));
+            }
+            TransferMode::WriteOnly | TransferMode::DummyWrite => {
+                r.wr_trans_cnt().write(|w| w.set_wrtrancnt(data.len() as u32 - 1))
+            }
+            TransferMode::ReadOnly | TransferMode::DummyRead => {
+                r.rd_trans_cnt().write(|w| w.set_rdtrancnt(data.len() as u32 - 1))
+            }
+            TransferMode::NoData => (),
+        }
 
         r.ctrl().modify(|w| {
             w.set_txfiforst(true);
             w.set_rxfiforst(true);
             w.set_spirst(true);
+            w.set_cs_en(self.cs_index);
         });
 
         // Read SPI control mode
         let mode = r.trans_fmt().read().slvmode();
-        info!("Current slave mode status: {}", mode);
 
-        // Write addr
-        if let Some(addr) = config.addr {
-            r.addr().write(|w| w.set_addr(addr));
+        // Write addr and cmd only in master mode
+        if !mode {
+            if let Some(addr) = config.addr {
+                r.addr().write(|w| w.set_addr(addr));
+            }
+            // Write cmd
+            r.cmd().write(|w| w.set_cmd(config.cmd.unwrap_or(0xff)));
         }
+        Ok(())
+    }
 
-        // Write cmd
-        r.cmd().write(|w| w.set_cmd(config.cmd.unwrap_or(0xff)));
+    // Write in master mode
+    pub fn blocking_write(&mut self, data: &[u8], config: &TransferConfig) -> Result<(), Error> {
+        self.setup_transfer_config(data, config)?;
 
-        info!("data reg addr: {}", r.data().as_ptr());
+        let r = self.info.regs;
 
-        // Start write
+        // Write data byte by byte
         for &b in data {
-            info!("Write data: {}", b);
-            // Wait until tx fifo is not full
             while r.status().read().txfull() {}
-            // Write u8 data
             r.data().write(|w| w.set_data(b as u32));
         }
 
-        info!("fifo status after write: {:b}", r.status().read().0);
-        info!("tx/rx empty status after write: {:b}, {:b}", r.status().read().txempty(), r.status().read().rxempty());
-        info!("tx num status after write: {:b}{:b}", r.status().read().txnum_7_6(), r.status().read().txnum_5_0());
-        info!("tx full: {}", r.status().read().txfull());
+        Ok(())
+    }
 
-        // while (transfered < data.len() as u32) {
-        //     if !r.status().read().txfull() {
-        //         let mut data_word: u32 = 0;
-        //         // for i in 0..data_len_in_bytes {
-        //         //     data_word |= (data[transfered as usize + i] as u32) << (8 * i);
-        //         // }
-        //         r.data().write(|w| w.set_data(data_word));
-        //         transfered += data_len_in_bytes as u32;
-        //     }
-        // }
+    pub fn blocking_read(&mut self, data: &mut [u8], config: &TransferConfig) -> Result<(), Error> {
+        self.setup_transfer_config(data, config)?;
+
+        let r = self.info.regs;
+
+        for i in 0..data.len() {
+            while r.status().read().rxempty() {}
+            let b = r.data().read().0 as u8;
+            data[i] = b;
+        }
 
         Ok(())
     }
 }
-
 // ==========
 // Interrupt handler
 
@@ -397,6 +495,40 @@ impl<'d, M: Mode> embedded_hal::spi::ErrorType for Spi<'d, M> {
 
 impl<'d, M: Mode> embedded_hal::spi::SpiDevice for Spi<'d, M> {
     fn transaction(&mut self, operations: &mut [embedded_hal::spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
-        todo!()
+        match operations {
+            [embedded_hal::spi::Operation::Write(buf)] => {
+                let config = TransferConfig::default();
+                self.blocking_write(buf, &config)
+            }
+            [embedded_hal::spi::Operation::Read(buf)] => {
+                let config = TransferConfig {
+                    transfer_mode: TransferMode::ReadOnly,
+                    ..Default::default()
+                };
+                self.blocking_read(buf, &config)
+            }
+            [embedded_hal::spi::Operation::Transfer(read, write)] => {
+                let mut config = TransferConfig {
+                    transfer_mode: TransferMode::WriteOnly,
+                    ..Default::default()
+                };
+                self.blocking_write(write, &config)?;
+                config.transfer_mode = TransferMode::ReadOnly;
+                self.blocking_read(read, &config)
+            }
+            [embedded_hal::spi::Operation::TransferInPlace(buf)] => {
+                let mut config = TransferConfig {
+                    transfer_mode: TransferMode::WriteOnly,
+                    ..Default::default()
+                };
+                self.blocking_write(buf, &config)?;
+                config.transfer_mode = TransferMode::ReadOnly;
+                self.blocking_read(buf, &config)
+            }
+            [embedded_hal::spi::Operation::DelayNs(_ns)] => {
+                todo!();
+            }
+            _ => todo!("WORD not supported"),
+        }
     }
 }

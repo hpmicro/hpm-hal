@@ -108,8 +108,6 @@ impl Into<u8> for ChipSelectHighTime {
 #[allow(dead_code)]
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum SpiWidth {
-    /// None
-    NONE,
     /// Single lane
     SING,
     /// Dual lanes

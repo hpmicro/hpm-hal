@@ -16,7 +16,7 @@ use embedded_hal::digital::OutputPin;
 use hpm_hal::gpio::{Level, Output, Speed};
 use hpm_hal::mode::Blocking;
 use hpm_hal::spi::enums::{AddressSize, SpiWidth, TransferMode};
-use hpm_hal::spi::{Error, Spi, TransactionConfig};
+use hpm_hal::spi::{Error, Spi, TransferConfig};
 use riscv::delay::McycleDelay;
 use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
 
@@ -40,14 +40,14 @@ impl Orientation {
 }
 
 pub struct RM67162<'a> {
-    ospi: Spi<'a, Blocking>,
+    qspi: Spi<'a, Blocking>,
     orientation: Orientation,
 }
 
 impl RM67162<'_> {
-    pub fn new<'a>(ospi: Spi<'a, Blocking>) -> RM67162<'a> {
+    pub fn new<'a>(qspi: Spi<'a, Blocking>) -> RM67162<'a> {
         RM67162 {
-            ospi,
+            qspi,
             orientation: Orientation::LandscapeFlipped,
         }
     }
@@ -68,7 +68,7 @@ impl RM67162<'_> {
 
     /// send 1-1-1 command by default
     fn send_cmd(&mut self, cmd: u32, data: &[u8]) -> Result<(), Error> {
-        let mut transfer_config = TransactionConfig {
+        let mut transfer_config = TransferConfig {
             cmd: Some(0x02),
             addr_size: AddressSize::_24Bit,
             addr: Some(0 | (cmd << 8)),
@@ -84,16 +84,16 @@ impl RM67162<'_> {
             transfer_config.transfer_mode = TransferMode::NoData;
             // transfer_config.addr = Some(cmd);
             // transfer_config.addr_size = AddressSize::_16Bit;
-            self.ospi.blocking_write(&[], transfer_config)?;
+            self.qspi.blocking_write(&[], &transfer_config)?;
         } else {
-            self.ospi.blocking_write(data, transfer_config)?;
+            self.qspi.blocking_write(data, &transfer_config)?;
         }
 
         Ok(())
     }
 
     fn send_cmd_114(&mut self, cmd: u32, data: &[u8]) -> Result<(), Error> {
-        let mut transfer_config = TransactionConfig {
+        let mut transfer_config = TransferConfig {
             cmd: Some(0x32),
             addr_size: AddressSize::_24Bit,
             addr: Some(0 | (cmd << 8)),
@@ -109,15 +109,15 @@ impl RM67162<'_> {
             // transfer_config.addr = Some(cmd);
             // transfer_config.addr_size = AddressSize::_16Bit;
             // transfer_config.data_width = SpiWidth::SING;
-            self.ospi.blocking_write(&[], transfer_config)?;
+            self.qspi.blocking_write(&[], &transfer_config)?;
         } else {
-            self.ospi.blocking_write(data, transfer_config)?;
+            self.qspi.blocking_write(data, &transfer_config)?;
         }
 
         Ok(())
     }
 
-    /// rm67162_ospi_init
+    /// rm67162_qspi_init
     pub fn init(&mut self, delay: &mut impl embedded_hal::delay::DelayNs) -> Result<(), Error> {
         // for _ in 0..3 {
         self.send_cmd(0x11, &[])?; // sleep out
@@ -182,7 +182,7 @@ impl RM67162<'_> {
 
         // Convert color rectangle to buffer
         for i in 0..(w as u32) * (h as u32) {
-            if i >  536 * 240 - 2 {
+            if i > 536 * 240 - 2 {
                 break;
             }
             buffer[i as usize] = color.to_be_bytes()[0];
@@ -275,56 +275,55 @@ fn main() -> ! {
     // PA10
     let mut led = Output::new(p.PA10, Level::Low, Speed::Fast);
 
-    let spi_config = hal::spi::Config {
-        mosi_bidir: false,
-        // lsb: true,
-        sclk_div: 0x1,
+    let mut spi: hal::spi::Spi<'_, Blocking> =
+        Spi::new_blocking_quad(p.SPI1, p.PA26, p.PA27, p.PA29, p.PA28, p.PA30, p.PA31, Default::default());
+
+    let config = TransferConfig {
+        cmd: None,
+        addr: None,
+        addr_width: SpiWidth::SING,
+        data_width: SpiWidth::SING,
+        transfer_mode: TransferMode::WriteOnly,
         ..Default::default()
     };
-    let spi: hal::spi::Spi<'_, Blocking> =
-        Spi::new_blocking_quad(p.SPI1, p.PA26, p.PA27, p.PA29, p.PA28, p.PA30, p.PA31, spi_config);
-    // let spi: hal::spi::Spi<'_, Blocking> =
-        // Spi::new_blocking(p.SPI1, p.PA26, p.PA27, p.PA29, p.PA28, spi_config);
-    // let cpp = hal::sysctl::;
-    info!("spi freq: {}", spi.frequency);
+
+    if let Err(e) = spi.blocking_write(&[1, 2, 3, 4, 5, 6, 7, 8], &config) {
+        defmt::panic!("Error: {:?}", e);
+    }
 
     let mut rm67162 = RM67162::new(spi);
     rm67162.reset(&mut rst, &mut delay).unwrap();
     info!("reset display");
     if let Err(e) = rm67162.init(&mut delay) {
         info!("Error: {:?}", e);
-        // defmt::panic!("ERRO")
     }
-    // info!("clearing display");
-    // if let Err(e) = rm67162.clear(Rgb565::WHITE) {
-    //     info!("Error: {:?}", e);
-    //     // defmt::panic!("Error: {:?}", e);
-    // }
-    info!("blinking");
-    // info!("Load gif");
-    // let gif = tinygif::Gif::from_slice(include_bytes!("ferris3.gif")).unwrap();
+    info!("clearing display");
+    if let Err(e) = rm67162.clear(Rgb565::WHITE) {
+        info!("Error: {:?}", e);
+    }
+    info!("Load gif");
+    let gif = tinygif::Gif::from_slice(include_bytes!("assets/ferris.gif")).unwrap();
 
-    // let mut fb = Framebuffer::<
-    //     Rgb565,
-    //     _,
-    //     BigEndian,
-    //     536,
-    //     240,
-    //     { embedded_graphics::framebuffer::buffer_size::<Rgb565>(536, 240) },
-    // >::new();
+    let mut fb = Framebuffer::<
+        Rgb565,
+        _,
+        BigEndian,
+        536,
+        240,
+        { embedded_graphics::framebuffer::buffer_size::<Rgb565>(536, 240) },
+    >::new();
 
-    // fb.clear(Rgb565::WHITE).unwrap();
-    // unsafe { rm67162.fill_with_framebuffer(fb.data()).unwrap() };
-    // info!("Start drawing");
+    fb.clear(Rgb565::WHITE).unwrap();
+    unsafe { rm67162.fill_with_framebuffer(fb.data()).unwrap() };
+    info!("Start drawing");
     loop {
-        // for frame in gif.frames() {
-        //     frame.draw(&mut fb.translated(Point::new(0, 0))).unwrap();
-        //     // println!("draw frame {:?}", frame);
-        //     unsafe {
-        //         rm67162.fill_with_framebuffer(fb.data()).unwrap();
-        //     }
-        //     // info!("tick");
-        // }
+        for frame in gif.frames() {
+            frame.draw(&mut fb.translated(Point::new(0, 0))).unwrap();
+            unsafe {
+                rm67162.fill_with_framebuffer(fb.data()).unwrap();
+            }
+            // info!("tick");
+        }
         led.toggle();
         delay.delay_ms(200);
     }
