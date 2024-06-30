@@ -51,6 +51,9 @@ pub mod dma;
 pub mod i2c;
 pub mod uart;
 
+#[cfg(femc)]
+pub mod femc;
+
 #[cfg(feature = "rt")]
 pub mod rt;
 #[cfg(feature = "rt")]
