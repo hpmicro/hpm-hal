@@ -1,314 +1,72 @@
-//! System control, clocks, group links.
+#[cfg(hpm53)]
+#[path = "v53.rs"]
+mod sysctl_impl;
 
-use core::ops;
+#[cfg(hpm6e)]
+#[path = "v6e.rs"]
+mod sysctl_impl;
+
+mod pll;
+
 use core::ptr::addr_of;
 
-use hpm_metapac::PLLCTL;
+pub use pll::*;
+pub use sysctl_impl::*;
 
-use crate::pac;
-pub use crate::pac::sysctl::vals::{ClockMux, SubDiv as AHBDiv};
 use crate::pac::SYSCTL;
 use crate::time::Hertz;
 
-pub const CLK_32K: Hertz = Hertz(32_768);
-pub const CLK_24M: Hertz = Hertz(24_000_000);
-
-// default clock sources
-const PLL0CLK0: Hertz = Hertz(720_000_000);
-const PLL0CLK1: Hertz = Hertz(600_000_000);
-const PLL0CLK2: Hertz = Hertz(400_000_000);
-
-const PLL1CLK0: Hertz = Hertz(800_000_000);
-const PLL1CLK1: Hertz = Hertz(666_666_667);
-const PLL1CLK2: Hertz = Hertz(500_000_000);
-const PLL1CLK3: Hertz = Hertz(266_666_667);
-
-const CLK_HART0: Hertz = Hertz(720_000_000 / 2); // PLL0CLK0 / 2
-const CLK_AHB: Hertz = Hertz(720_000_000 / 2 / 2); // CLK_HART0 / 2
-
-const F_REF: Hertz = CLK_24M;
-
-/// The default system clock configuration
-static mut CLOCKS: Clocks = Clocks {
-    cpu0: CLK_HART0,
-    ahb: CLK_AHB,
-    pll0clk0: PLL0CLK0,
-    pll0clk1: PLL0CLK1,
-    pll0clk2: PLL0CLK2,
-    pll1clk0: PLL1CLK0,
-    pll1clk1: PLL1CLK1,
-    pll1clk2: PLL1CLK2,
-    pll1clk3: PLL1CLK3,
-};
-
-#[derive(Clone, Copy, Debug)]
-pub struct Clocks {
-    /// CPU0
-    pub cpu0: Hertz,
-    /// AHB clock: HDMA, HRAM, MOT, ACMP, GPIO, ADC/DAC
-    pub ahb: Hertz,
-
-    // System clock source
-    pub pll0clk0: Hertz,
-    pub pll0clk1: Hertz,
-    pub pll0clk2: Hertz,
-    pub pll1clk0: Hertz,
-    pub pll1clk1: Hertz,
-    pub pll1clk2: Hertz,
-    pub pll1clk3: Hertz,
+/// System clock srouce
+pub fn clocks() -> &'static Clocks {
+    unsafe { &*addr_of!(sysctl_impl::CLOCKS) }
 }
 
-impl Clocks {
-    pub fn of(&self, src: ClockMux) -> Hertz {
-        match src {
-            ClockMux::CLK_24M => CLK_24M,
-            ClockMux::PLL0CLK0 => self.pll0clk0,
-            ClockMux::PLL0CLK1 => self.pll0clk1,
-            ClockMux::PLL0CLK2 => self.pll0clk2,
-            ClockMux::PLL1CLK0 => self.pll1clk0,
-            ClockMux::PLL1CLK1 => self.pll1clk1,
-            ClockMux::PLL1CLK2 => self.pll1clk2,
-            ClockMux::PLL1CLK3 => self.pll1clk3,
-        }
-    }
-
-    pub fn get_freq(&self, cfg: &ClockConfig) -> Hertz {
-        let clock_in = self.of(cfg.src);
-        clock_in / (cfg.raw_div as u32 + 1)
-    }
-
-    pub fn get_clock_freq(&self, clock: usize) -> Hertz {
-        let r = SYSCTL.clock(clock).read();
-        let clock_in = self.of(r.mux());
-        clock_in / (r.div() + 1)
-    }
-}
-
-pub struct Config {
-    pub pll0: Option<Pll<(u8, u8, u8)>>,
-    // pub pll1: Option<Pll<(u8, u8, u8, u8)>>,
-    pub cpu0: ClockConfig,
-    pub ahb_div: AHBDiv,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            pll0: None,
-            // pll1: None,
-            cpu0: ClockConfig::new(ClockMux::PLL0CLK0, 2),
-            ahb_div: AHBDiv::DIV2,
-        }
-    }
-}
-
-/// PLL configuration
-#[derive(Clone, Copy)]
-pub struct Pll<D> {
-    pub freq_in: Hertz,
-    pub div: D,
-}
-
-impl<D> Pll<D> {
-    /// (mfi, mfn)
-    pub(crate) fn get_params(&self) -> Option<(u8, u32)> {
-        const PLL_XTAL_FREQ: u32 = 24000000;
-
-        const PLL_FREQ_MIN: u32 = PLL_XTAL_FREQ * 16; // min MFI, when MFN = 0
-        const PLL_FREQ_MAX: u32 = PLL_XTAL_FREQ * (42 + 1); // max MFI + MFN/MFD
-
-        const MFN_FACTOR: u32 = 10;
-
-        let f_vco = self.freq_in.0;
-
-        if f_vco < PLL_FREQ_MIN || f_vco > PLL_FREQ_MAX {
-            return None;
-        }
-
-        let mfi = f_vco / PLL_XTAL_FREQ;
-        let mfn = f_vco % PLL_XTAL_FREQ;
-
-        Some((mfi as u8, mfn * MFN_FACTOR))
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct ClockConfig {
-    pub src: ClockMux,
-    /// raw div, 0 to 255, mapping to div 1 to 256
-    pub raw_div: u8,
-}
-
-impl ClockConfig {
-    pub const fn new(src: ClockMux, div: u16) -> Self {
-        assert!(div <= 256 && div > 0, "div must be in range 1 to 256");
-        ClockConfig {
-            src,
-            raw_div: div as u8 - 1,
-        }
-    }
-}
-
-#[inline]
-fn output_freq_of_pll(pll: usize) -> u64 {
-    let fref = F_REF.0 as f64;
-    let mfd = 240_000_000.0; // default value
-
-    let mfi = PLLCTL.pll(pll).mfi().read().mfi() as f64;
-    let mfn = PLLCTL.pll(pll).mfn().read().mfn() as f64;
-
-    let fvco = fref * (mfi + mfn / mfd);
-
-    fvco as u64
-}
-
-#[inline]
-fn enable_group_resource(resource: usize) {
-    let resource_start = 256;
-
-    if resource < resource_start {
+/// Add clock resource to a resource group
+pub fn clock_and_to_group(resource: usize, group: usize) {
+    const RESOURCE_START: usize = 256;
+    if resource < RESOURCE_START {
         return;
     }
+    let index = (resource - RESOURCE_START) / 32;
+    let offset = (resource - RESOURCE_START) % 32;
 
-    let index = (resource - resource_start) / 32;
-    let offset = (resource - resource_start) % 32;
-
-    SYSCTL.group0(index).set().write(|w| w.set_link(1 << offset));
+    if group == 0 {
+        SYSCTL.group0(index).set().write(|w| w.set_link(1 << offset));
+    } else {
+        #[cfg(any(hpm6e, hpm67, hpm62))]
+        SYSCTL.group1(index).set().write(|w| w.set_link(1 << offset));
+    }
 
     while SYSCTL.resource(resource).read().loc_busy() {}
 }
 
-pub(crate) unsafe fn init(config: Config) {
-    if SYSCTL.clock_cpu(0).read().mux() == ClockMux::CLK_24M {
-        // TODO, enable XTAL
-        // SYSCTL.global00().modify(|w| w.set_mux(0b11));
-    }
-
-    enable_group_resource(pac::resources::CPU0);
-    enable_group_resource(pac::resources::AHB0);
-    enable_group_resource(pac::resources::LMM0);
-    enable_group_resource(pac::resources::MCT0);
-    enable_group_resource(pac::resources::ROM0);
-    enable_group_resource(pac::resources::TMR0);
-    enable_group_resource(pac::resources::TMR1);
-    enable_group_resource(pac::resources::I2C2);
-    enable_group_resource(pac::resources::SPI1);
-    enable_group_resource(pac::resources::URT0);
-    enable_group_resource(pac::resources::URT3);
-
-    enable_group_resource(pac::resources::WDG0);
-    enable_group_resource(pac::resources::WDG1);
-    enable_group_resource(pac::resources::MBX0);
-    enable_group_resource(pac::resources::TSNS);
-    enable_group_resource(pac::resources::CRC0);
-    enable_group_resource(pac::resources::ADC0);
-    enable_group_resource(pac::resources::ACMP);
-    enable_group_resource(pac::resources::KMAN);
-    enable_group_resource(pac::resources::GPIO);
-    enable_group_resource(pac::resources::HDMA);
-    enable_group_resource(pac::resources::XPI0);
-    enable_group_resource(pac::resources::USB0);
-
-    // Connect Group0 to CPU0
-    SYSCTL.affiliate(0).set().write(|w| w.set_link(1 << 0));
-
-    // Bump up DCDC voltage to 1175mv (default is 1150)
-    pac::PCFG.dcdc_mode().modify(|w| w.set_volt(1175));
-
-    if let Some(pll) = config.pll0.as_ref() {
-        if let Some((mfi, mfn)) = pll.get_params() {
-            if PLLCTL.pll(0).mfi().read().mfi() == mfi {
-                PLLCTL.pll(0).mfi().modify(|w| {
-                    w.set_mfi(mfi - 1);
-                });
-            }
-
-            PLLCTL.pll(0).mfi().modify(|w| {
-                w.set_mfi(mfi);
-            });
-
-            // Default mfd is 240M
-            PLLCTL.pll(0).mfn().write(|w| w.set_mfn(mfn));
-
-            while PLLCTL.pll(0).mfi().read().busy() {}
-        }
-
-        let fvco = output_freq_of_pll(0);
-
-        // set postdiv
-        PLLCTL.pll(0).div(0).write(|w| {
-            w.set_div(pll.div.0);
-            w.set_enable(true);
-        });
-        PLLCTL.pll(0).div(1).write(|w| {
-            w.set_div(pll.div.1);
-            w.set_enable(true);
-        });
-        PLLCTL.pll(0).div(2).write(|w| {
-            w.set_div(pll.div.2);
-            w.set_enable(true);
-        });
-
-        while PLLCTL.pll(0).div(0).read().busy()
-            || PLLCTL.pll(0).div(1).read().busy()
-            || PLLCTL.pll(0).div(2).read().busy()
-        {}
-
-        let pll0clk0 = fvco * 5 / (PLLCTL.pll(0).div(0).read().div() as u64 + 5);
-        let pll0clk1 = fvco * 5 / (PLLCTL.pll(0).div(1).read().div() as u64 + 5);
-        let pll0clk2 = fvco * 5 / (PLLCTL.pll(0).div(2).read().div() as u64 + 5);
-
-        unsafe {
-            CLOCKS.pll0clk0 = Hertz(pll0clk0 as u32);
-            CLOCKS.pll0clk1 = Hertz(pll0clk1 as u32);
-            CLOCKS.pll0clk2 = Hertz(pll0clk2 as u32);
-        }
-    }
-
-    SYSCTL.clock_cpu(0).modify(|w| {
-        w.set_mux(config.cpu0.src);
-        w.set_div(config.cpu0.raw_div);
-        w.set_sub0_div(config.ahb_div);
-    });
-
-    while SYSCTL.clock_cpu(0).read().glb_busy() {}
-
-    let cpu0_clk = clocks().get_freq(&config.cpu0);
-    let ahb_clk = cpu0_clk / config.ahb_div;
-
-    unsafe {
-        CLOCKS.cpu0 = cpu0_clk;
-        CLOCKS.ahb = ahb_clk;
-    }
-}
-
-pub fn clocks() -> &'static Clocks {
-    unsafe { &*addr_of!(CLOCKS) }
-}
-
 pub(crate) trait SealedClockPeripheral {
     const SYSCTL_CLOCK: usize = usize::MAX;
+    const SYSCTL_RESOURCE: usize = usize::MAX;
 
     fn frequency() -> Hertz {
         clocks().get_clock_freq(Self::SYSCTL_CLOCK)
     }
 
+    fn add_resource_group(&self, group: usize) {
+        if Self::SYSCTL_RESOURCE == usize::MAX {
+            return;
+        }
+
+        clock_and_to_group(Self::SYSCTL_RESOURCE, group);
+    }
+
     fn set_clock(cfg: ClockConfig) {
+        if Self::SYSCTL_CLOCK == usize::MAX {
+            return;
+        }
         SYSCTL.clock(Self::SYSCTL_CLOCK).modify(|w| {
             w.set_mux(cfg.src);
             w.set_div(cfg.raw_div);
         });
+        while SYSCTL.clock(Self::SYSCTL_CLOCK).read().loc_busy() {}
     }
 }
 
 #[allow(private_bounds)]
 pub trait ClockPeripheral: SealedClockPeripheral + 'static {}
-
-impl ops::Div<AHBDiv> for Hertz {
-    type Output = Hertz;
-
-    /// raw bits 0 to 15 mapping to div 1 to div 16
-    fn div(self, rhs: AHBDiv) -> Hertz {
-        Hertz(self.0 / (rhs as u32 + 1))
-    }
-}
