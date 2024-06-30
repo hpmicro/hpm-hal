@@ -48,7 +48,7 @@ pub(crate) trait SealedClockPeripheral {
         clocks().get_clock_freq(Self::SYSCTL_CLOCK)
     }
 
-    fn add_resource_group(&self, group: usize) {
+    fn add_resource_group(group: usize) {
         if Self::SYSCTL_RESOURCE == usize::MAX {
             return;
         }
