@@ -436,6 +436,8 @@ impl<'d> Uart<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         into_ref!(rx, tx);
 
+        T::add_resource_group(0);
+
         rx.set_as_alt(rx.alt_num());
         tx.set_as_alt(tx.alt_num());
 

@@ -145,6 +145,7 @@ impl<'d> I2c<'d, Blocking> {
             w.set_ps(true);
         });
 
+        T::add_resource_group(0);
         {
             use crate::sysctl::*;
             T::set_clock(ClockConfig::new(ClockMux::CLK_24M, 1));
