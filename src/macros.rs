@@ -97,10 +97,18 @@ macro_rules! dma_trait {
     };
 }
 
+// Usage: impl TxDma for every DMA channel
+/* usage of dma_trait! macro
+impl<C: crate::dma::Channel> TxDma<crate::peripherals::I2C0> for C {
+    fn request(&self) -> crate::dma::Request {
+        todo!()
+    }
+}
+*/
 #[allow(unused)]
 macro_rules! dma_trait_impl {
-    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $channel:ident, $request:expr) => {
-        impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$channel {
+    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $request:expr) => {
+        impl<C: crate::dma::Channel> crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for C {
             fn request(&self) -> crate::dma::Request {
                 $request
             }

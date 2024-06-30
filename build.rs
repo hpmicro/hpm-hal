@@ -36,6 +36,8 @@ fn main() {
         if let Some(r) = &p.registers {
             cfgs.enable(r.kind);
             cfgs.enable(format!("{}_{}", r.kind, r.version));
+
+            // cfgs.enable(format!("peri_{}", p.name.to_ascii_lowercase()));
         }
     }
 
@@ -113,9 +115,11 @@ fn main() {
 
         if let Some(sysctl) = &p.sysctl {
             if let Some(clock_idx) = sysctl.clock_node {
+                let resource_idx = sysctl.resource;
                 g.extend(quote! {
                     impl crate::sysctl::SealedClockPeripheral for peripherals::#pname {
                         const SYSCTL_CLOCK: usize = #clock_idx;
+                        const SYSCTL_RESOURCE: usize = #resource_idx;
                     }
                     impl crate::sysctl::ClockPeripheral for peripherals::#pname {}
                 });
@@ -189,16 +193,11 @@ fn main() {
                     }
 
                     // request number for peripheral DMA
-                    let request = ch.request.expect("DMA request must be specified") as u8;
+                    let request = ch.request.expect("DMA request number must be specified") as u8;
 
-                    // let channel = format_ident!("{}", ch.name);
-
-                    for channel in METADATA.dma_channels {
-                        let channel_ident = format_ident!("{}", channel.name);
-                        g.extend(quote! {
-                            dma_trait_impl!(#tr, #peri, #channel_ident, #request);
-                        });
-                    }
+                    g.extend(quote! {
+                        dma_trait_impl!(#tr, #peri, #request);
+                    });
                 }
             }
         }
