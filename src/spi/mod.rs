@@ -122,6 +122,8 @@ impl<'d> Spi<'d, Blocking> {
     ) -> Self {
         into_ref!(cs, sclk, mosi, miso);
 
+        T::add_resource_group(0);
+
         cs.ioc_pad().func_ctl().write(|w| {
             w.set_alt_select(cs.alt_num());
         });
@@ -161,6 +163,8 @@ impl<'d> Spi<'d, Blocking> {
         config: Config,
     ) -> Self {
         into_ref!(cs, sclk, mosi, miso, d2, d3);
+
+        T::add_resource_group(0);
 
         cs.ioc_pad().func_ctl().write(|w| {
             w.set_alt_select(cs.alt_num());
