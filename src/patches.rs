@@ -1,7 +1,7 @@
 //! Patches for the some of the peripherals
 
-#[cfg(hpm53)]
-mod hpm53 {
+#[cfg(any(hpm53, hpm6e))]
+mod power_domain_perih {
     use crate::peripherals;
     use crate::sysctl::ClockConfig;
     use crate::time::Hertz;
