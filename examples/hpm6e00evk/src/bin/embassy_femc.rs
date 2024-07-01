@@ -10,16 +10,19 @@ use embedded_io::Write as _;
 use hal::gpio::{AnyPin, Level, Output, Pin as _};
 use hal::mode::Blocking;
 use hal::pac;
-use {defmt_rtt as _, hpm_hal as hal, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal};
 
-const BANNER: &str = include_str!("../../../BANNER");
+const BANNER: &str = include_str!("./BANNER");
 
 static mut UART: Option<hal::uart::Uart<'static, Blocking>> = None;
 
 macro_rules! println {
     ($($arg:tt)*) => {
-        if let Some(uart) = UART.as_mut() {
-            let _ = writeln!(uart, $($arg)*);
+        #[allow(unused_unsafe)]
+        unsafe {
+            if let Some(uart) = UART.as_mut() {
+                let _ = writeln!(uart, $($arg)*);
+            }
         }
     };
 }
@@ -336,6 +339,13 @@ fn memtest() {
             println!("Memory test failed!");
             return;
         }
+        if i % 0x100000 == 0 {
+            println!(
+                "Memory test: 0x{:08X} of 0x{:08X} written",
+                i,
+                MEM_SIZE / mem::size_of::<u32>()
+            );
+        }
     }
 
     // Read and verify pattern
@@ -344,6 +354,13 @@ fn memtest() {
         if !memtest_operation(addr, pattern, 1) {
             println!("Memory test failed!");
             return;
+        }
+        if i % 0x100000 == 0 {
+            println!(
+                "Memory test: 0x{:08X} of 0x{:08X} read",
+                i,
+                MEM_SIZE / mem::size_of::<u32>()
+            );
         }
     }
 

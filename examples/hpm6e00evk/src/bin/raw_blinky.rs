@@ -5,9 +5,9 @@ use embedded_hal::delay::DelayNs;
 use hal::pac;
 use pac::gpiom::vals;
 use riscv::delay::McycleDelay;
-use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal, panic_halt as _};
 
-#[riscv_rt::entry]
+#[hal::entry]
 fn main() -> ! {
     // default clock
     let mut delay = McycleDelay::new(600_000_000);

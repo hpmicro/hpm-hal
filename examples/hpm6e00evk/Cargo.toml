@@ -5,12 +5,9 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-hpm-hal = { path = "../../", features = ["hpm6e80"] }
+hpm-hal = { path = "../../", features = ["hpm6e80", "rt", "embassy"] }
 
-# TODO
-# hpm-hal = { path = "../../", features = ["hpm6e80"]}
 panic-halt = "0.2.0"
-riscv-rt = { version = "0.12.2", features = ["single-hart"] }
 
 defmt = "0.3.8"
 defmt-rtt = "0.4.1"
