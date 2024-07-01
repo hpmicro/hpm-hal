@@ -109,6 +109,7 @@ impl<C: crate::dma::Channel> TxDma<crate::peripherals::I2C0> for C {
 macro_rules! dma_trait_impl {
     (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $request:expr) => {
         impl<C: crate::dma::Channel> crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for C {
+            #[inline(always)]
             fn request(&self) -> crate::dma::Request {
                 $request
             }
