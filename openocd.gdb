@@ -13,3 +13,5 @@ set confirm off
 
 load
 continue
+
+# quit
