@@ -296,6 +296,7 @@ async fn blink(pin: AnyPin, interval_ms: u32) {
 const MEM_START: usize = 0x40000000; // Start address for memory test
 const MEM_SIZE: usize = 0x2000000; // 32MB
 
+#[link_section = ".fast"]
 fn memtest_operation(addr: *mut u32, data: u32, operation: u8) -> bool {
     unsafe {
         match operation {
@@ -321,6 +322,7 @@ fn memtest_operation(addr: *mut u32, data: u32, operation: u8) -> bool {
     }
 }
 
+#[link_section = ".fast"]
 fn memtest() {
     let mem_start = MEM_START as *mut u32;
     let pattern = 0x12345678;
@@ -333,6 +335,7 @@ fn memtest() {
 
     // Write pattern
     // Write pattern
+    let mut start = riscv::register::mcycle::read64();
     for i in 0..(MEM_SIZE / mem::size_of::<u32>()) {
         let addr = unsafe { mem_start.offset(i as isize) };
         if !memtest_operation(addr, pattern, 0) {
@@ -340,11 +343,19 @@ fn memtest() {
             return;
         }
         if i % 0x100000 == 0 {
-            println!(
-                "Memory test: 0x{:08X} of 0x{:08X} written",
-                i,
-                MEM_SIZE / mem::size_of::<u32>()
-            );
+            if i != 0 {
+                let elapsed = riscv::register::mcycle::read64() - start;
+                let elapsed_ms = elapsed * 1000 / (hal::sysctl::clocks().cpu0.0 as u64);
+                let byte_per_sec = 0x100000 * mem::size_of::<u32>() as u64 * 1000 / elapsed_ms;
+                println!(
+                    "Memory test: 0x{:08X} of 0x{:08X} written, elapsed {}ms, {} bytes/s",
+                    i,
+                    MEM_SIZE / mem::size_of::<u32>(),
+                    elapsed_ms,
+                    byte_per_sec
+                );
+            }
+            start = riscv::register::mcycle::read64();
         }
     }
 
@@ -356,11 +367,19 @@ fn memtest() {
             return;
         }
         if i % 0x100000 == 0 {
-            println!(
-                "Memory test: 0x{:08X} of 0x{:08X} read",
-                i,
-                MEM_SIZE / mem::size_of::<u32>()
-            );
+            if i != 0 {
+                let elapsed = riscv::register::mcycle::read64() - start;
+                let elapsed_ms = elapsed * 1000 / (hal::sysctl::clocks().cpu0.0 as u64);
+                let byte_per_sec = 0x100000 * mem::size_of::<u32>() as u64 * 1000 / elapsed_ms;
+                println!(
+                    "Memory test: 0x{:08X} of 0x{:08X} read, elapsed {}ms, {} bytes/s",
+                    i,
+                    MEM_SIZE / mem::size_of::<u32>(),
+                    elapsed_ms,
+                    byte_per_sec
+                );
+            }
+            start = riscv::register::mcycle::read64();
         }
     }
 
