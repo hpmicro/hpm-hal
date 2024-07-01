@@ -224,7 +224,8 @@ where
     pub fn issue_ip_cmd(&mut self, base_address: u32, cmd: SdramCmd, data: u32) -> Result<u32, Error> {
         let r = T::REGS;
 
-        let read_data = !(cmd == SdramCmd::WRITE);
+        // femc_is_write_cmd
+        let read_data = cmd == SdramCmd::READ;
 
         r.saddr().write(|w| w.0 = base_address);
         if !read_data {

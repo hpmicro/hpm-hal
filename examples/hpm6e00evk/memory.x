@@ -4,7 +4,7 @@ MEMORY
     XPI0_APP    : ORIGIN = 0x80003000, LENGTH = 1024K - 0x3000 /* app firmware */
     DLM0        : ORIGIN = 0x00200000, LENGTH =  256K /* data local memory */
     ILM0        : ORIGIN = 0x00000000, LENGTH =  256K /* instruction local memory */
-    AAXI_SRAM   : ORIGIN = 0x01200000, LENGTH = 1M
+    AXI_SRAM   : ORIGIN = 0x01200000, LENGTH = 1M
 }
 REGION_ALIAS("REGION_TEXT", XPI0_APP);
 REGION_ALIAS("REGION_RODATA", XPI0_APP);
