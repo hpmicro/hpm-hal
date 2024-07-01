@@ -6,7 +6,7 @@ use embassy_executor::Spawner;
 use embassy_time::Timer;
 use hal::gpio::Pin as _;
 use hpm_hal::gpio::{AnyPin, Level, Output};
-use {defmt_rtt as _, hpm_hal as hal, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal};
 
 #[embassy_executor::task(pool_size = 3)]
 async fn blink(pin: AnyPin, interval_ms: u32) {

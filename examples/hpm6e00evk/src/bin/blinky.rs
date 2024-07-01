@@ -2,10 +2,9 @@
 #![no_std]
 
 use embedded_hal::delay::DelayNs;
-use hal::pac;
 use hpm_hal::gpio::{Level, Output};
 use riscv::delay::McycleDelay;
-use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal, panic_halt as _};
 
 #[hal::entry]
 fn main() -> ! {
