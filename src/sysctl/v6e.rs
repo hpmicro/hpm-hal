@@ -173,7 +173,7 @@ pub(crate) unsafe fn init(config: Config) {
     // Connect Group0 to CPU0
     SYSCTL.affiliate(0).set().write(|w| w.set_link(1 << 0));
 
-    clock_and_to_group(pac::resources::CPU1, 1);
+    clock_and_to_group(pac::resources::CPU1, 0);
     clock_and_to_group(pac::resources::MCT1, 1);
 
     SYSCTL.affiliate(1).set().write(|w| w.set_link(1 << 1));
