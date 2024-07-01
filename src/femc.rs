@@ -224,7 +224,7 @@ where
     pub fn issue_ip_cmd(&mut self, base_address: u32, cmd: SdramCmd, data: u32) -> Result<u32, Error> {
         let r = T::REGS;
 
-        // femc_is_write_cmd
+        // SDK-BUG: logic of femc_is_write_cmd
         let read_data = cmd == SdramCmd::READ;
 
         r.saddr().write(|w| w.0 = base_address);
@@ -354,8 +354,9 @@ where
             r.dlycfg().modify(|w| w.set_oe(true));
         }
 
-        // r.datsz().write(|w| w.set_datsz(config.cmd_data_width));
-        r.datsz().write(|w| w.0 = (config.cmd_data_width as u32) & 0x3); //????
+        r.datsz().write(|w| w.set_datsz(config.cmd_data_width));
+        // SDK-BUG: what's the meaning of 0x3 as mask?
+        // r.datsz().write(|w| w.0 = (config.cmd_data_width as u32) & 0x3); //????
         r.bytemsk().write(|w| w.0 = 0);
 
         self.issue_ip_cmd(config.base_address, SdramCmd::PRECHARGE_ALL, 0)?;
