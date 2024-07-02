@@ -1,12 +1,6 @@
 //! Enums for HPM SPI
 //!
 
-/// SPI mode
-pub enum Mode {
-    Master,
-    Slave,
-}
-
 /// SPI transfer mode
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum TransferMode {
@@ -214,88 +208,4 @@ impl Into<u8> for AddressSize {
             AddressSize::_32Bit => 0x03,
         }
     }
-}
-
-pub enum FifoSize {
-    /// 2 bytes
-    _2Bytes,
-    /// 4 bytes
-    _4Bytes,
-    /// 8 bytes
-    _8Bytes,
-    /// 16 bytes
-    _16Bytes,
-    /// 32 bytes
-    _32Bytes,
-    /// 64 bytes
-    _64Bytes,
-    /// 128 bytes
-    _128Bytes,
-}
-
-impl Into<u8> for FifoSize {
-    fn into(self) -> u8 {
-        match self {
-            FifoSize::_2Bytes => 0x0,
-            FifoSize::_4Bytes => 0x01,
-            FifoSize::_8Bytes => 0x02,
-            FifoSize::_16Bytes => 0x03,
-            FifoSize::_32Bytes => 0x04,
-            FifoSize::_64Bytes => 0x05,
-            FifoSize::_128Bytes => 0x06,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub enum SlaveModeCommand {
-    /// Read controller status, single lane
-    ReadControllerStatusSingle,
-    /// Read controller status, dual lanes
-    ReadControllerStatusDual,
-    /// Read controller status, quad lanes
-    ReadControllerStatusQuad,
-    /// Read data, single lane
-    ReadDataSingle,
-    /// Read data, dual lanes
-    ReadDataDual,
-    /// Read data, quad lanes
-    ReadDataQuad,
-    /// Write data, single lane
-    WriteDataSingle,
-    /// Write data, dual lanes
-    WriteDataDual,
-    /// Write data, quad lanes
-    WriteDataQuad,
-    /// Customized command
-    CustomizedCommand(u8),
-}
-
-impl Into<u8> for SlaveModeCommand {
-    fn into(self) -> u8 {
-        match self {
-            SlaveModeCommand::ReadControllerStatusSingle => 0x05,
-            SlaveModeCommand::ReadControllerStatusDual => 0x15,
-            SlaveModeCommand::ReadControllerStatusQuad => 0x25,
-            SlaveModeCommand::ReadDataSingle => 0x0b,
-            SlaveModeCommand::ReadDataDual => 0x0c,
-            SlaveModeCommand::ReadDataQuad => 0x0e,
-            SlaveModeCommand::WriteDataSingle => 0x51,
-            SlaveModeCommand::WriteDataDual => 0x52,
-            SlaveModeCommand::WriteDataQuad => 0x54,
-            SlaveModeCommand::CustomizedCommand(c) => c,
-        }
-    }
-}
-
-/// SPI polarity mode
-pub enum PolarityMode {
-    /// Mode0, CPOL=0, CPHA=0
-    Mode0,
-    /// Mode1, CPOL=0, CPHA=1
-    Mode1,
-    /// Mode2, CPOL=1, CPHA=0
-    Mode2,
-    /// Mode3, CPOL=1, CPHA=1
-    Mode3,
 }

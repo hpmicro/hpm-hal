@@ -7,6 +7,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_hal::delay::DelayNs;
+pub use embedded_hal::spi::{Mode as SpiMode, MODE_0, MODE_1, MODE_2, MODE_3};
 use enums::*;
 use riscv::delay::McycleDelay;
 
@@ -15,6 +16,25 @@ use crate::mode::{Blocking, Mode};
 use crate::time::Hertz;
 
 pub mod enums;
+
+#[derive(Clone, Copy)]
+pub struct Timings {
+    /// Time between CS active and SCLK edge.
+    /// T = SCLK * (CS2SCLK+1) / 2
+    pub cs2sclk: ChipSelect2SCLK,
+    /// Time the Chip Select line stays high.
+    /// T = SCLK * (CSHT+1) / 2
+    pub csht: ChipSelectHighTime,
+}
+
+impl Default for Timings {
+    fn default() -> Self {
+        Self {
+            cs2sclk: ChipSelect2SCLK::_4HalfSclk,
+            csht: ChipSelectHighTime::_12HalfSclk,
+        }
+    }
+}
 
 /// Config struct of SPI
 pub struct Config {
@@ -25,13 +45,11 @@ pub struct Config {
     /// Default address length.
     pub addr_len: AddressSize,
     /// Mode
-    pub mode: PolarityMode,
-    /// Time between CS active and SCLK edge.
-    pub cs2sclk: ChipSelect2SCLK,
-    /// Time the Chip Select line stays high.
-    pub csht: ChipSelectHighTime,
+    pub mode: SpiMode,
     /// SPI frequency.
     pub frequency: Hertz,
+    /// Timings
+    pub timing: Timings,
 }
 
 impl Default for Config {
@@ -40,10 +58,9 @@ impl Default for Config {
             lsb: false,
             slave_mode: false,
             addr_len: AddressSize::_24Bit,
-            mode: PolarityMode::Mode0,
-            cs2sclk: ChipSelect2SCLK::_4HalfSclk,
-            csht: ChipSelectHighTime::_12HalfSclk,
+            mode: MODE_0,
             frequency: Hertz(80_000_000),
+            timing: Timings::default(),
         }
     }
 }
@@ -231,19 +248,17 @@ impl<'d, M: Mode> Spi<'d, M> {
         } else {
             0xff
         };
+
         r.timing().write(|w| {
             w.set_sclk_div(sclk_div);
-            w.set_cs2sclk(config.cs2sclk.into());
-            w.set_csht(config.csht.into());
+            w.set_cs2sclk(config.timing.cs2sclk.into());
+            w.set_csht(config.timing.csht.into());
         });
 
         // Set default format
-        let (cpha, cpol) = match config.mode {
-            PolarityMode::Mode0 => (false, false),
-            PolarityMode::Mode1 => (true, false),
-            PolarityMode::Mode2 => (false, true),
-            PolarityMode::Mode3 => (true, true),
-        };
+        let cpol = config.mode.phase == embedded_hal::spi::Phase::CaptureOnSecondTransition;
+        let cpha = config.mode.polarity == embedded_hal::spi::Polarity::IdleHigh;
+
         r.trans_fmt().write(|w| {
             w.set_addrlen(config.addr_len.into());
             // Use 8bit data length by default
