@@ -100,6 +100,7 @@ pub struct Spi<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
+    delay: McycleDelay,
     cs: Option<PeripheralRef<'d, AnyPin>>,
     sclk: Option<PeripheralRef<'d, AnyPin>>,
     mosi: Option<PeripheralRef<'d, AnyPin>>,

@@ -18,7 +18,7 @@ use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::SpiDevice;
 use hpm_hal::gpio::{Level, Output, Speed};
 use hpm_hal::mode::Blocking;
-use hpm_hal::spi::{Config, Spi};
+use hpm_hal::spi::{Config, Spi, TransferConfig};
 use hpm_hal::time::Hertz;
 use riscv::delay::McycleDelay;
 use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
@@ -269,7 +269,6 @@ fn main() -> ! {
         ..Default::default()
     };
     let spi: hal::spi::Spi<'_, Blocking> = Spi::new_blocking(p.SPI1, p.PA26, p.PA27, p.PA29, p.PA28, spi_config);
-
     let dc = Output::new(p.PB13, Level::High, Speed::Fast);
     let mut display = ST7789::<_, _, 320, 172, 0, 34>::new(spi, dc);
     display.init(&mut delay);
