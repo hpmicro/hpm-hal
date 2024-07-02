@@ -19,19 +19,20 @@ This crate is a working-in-progress and not ready for use.
   - [x] MBX, blocking and async
   - [x] FEMC
     - [x] SDRAM init
+  - [x] SPI blocking
 - Long term Plans
   - [ ] andes-riscv for specific CSRs
   - [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
   - [ ] CPU1 support - how to?
 
-| MCU Family | Demo | PAC | SYSCTL | GPIO | UART | I2C | MBX | ADC | DMA |
-|------------|:----:|:---:|:------:|:----:|:----:|:---:|:---:|:---:|:---:|
-| HPM6700    |  ✓   |  ✓  |        |      |      |     |     |     |     |
-| HPM6300    |  ✓   |  ✓  |        |      |      |     |     |     |     |
-| HPM6200    |      |  ✓  |        |      |      |     |     |     |     |
-| HPM5300    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ✓  |  ✓  |     |     |
-| HPM6800    |      |  ✓  |        |      |      |     |     |     |     |
-| HPM6E00    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ?  |  ?  |     |     |
+| MCU Family | Demo | PAC | SYSCTL | GPIO | UART | I2C | MBX | ADC | DMA | SPI |
+|------------|:----:|:---:|:------:|:----:|:----:|:---:|:---:|:---:|:---:|:---:|
+| HPM6700    |  ✓   |  ✓  |        |      |      |     |     |     |     |     |
+| HPM6300    |  ✓   |  ✓  |        |      |      |     |     |     |     |     |
+| HPM6200    |      |  ✓  |        |      |      |     |     |     |     |     |
+| HPM5300    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ✓  |  ✓  |     |     |  ✓  |
+| HPM6800    |      |  ✓  |        |      |      |     |     |     |     |     |
+| HPM6E00    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ?  |  ?  |     |     |     |
 
 - ✓: Implemented
 - ?: Requires demo verification
