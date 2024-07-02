@@ -1,7 +1,8 @@
+use core::option;
 use core::sync::atomic::AtomicUsize;
 
 use embassy_sync::waitqueue::AtomicWaker;
-use hpm_metapac::dma::vals::AddrCtrl;
+use hpm_metapac::dma::vals::{self, AddrCtrl};
 
 use super::word::WordSize;
 use super::{AnyChannel, Request};
@@ -63,6 +64,21 @@ pub enum Burst {
     Exponential(u8),
 }
 
+impl Burst {
+    fn burstopt(&self) -> bool {
+        match self {
+            Self::Liner(_) => true,
+            Self::Exponential(_) => false,
+        }
+    }
+    fn burstsize(&self) -> u8 {
+        match self {
+            Self::Liner(n) => *n,
+            Self::Exponential(n) => *n,
+        }
+    }
+}
+
 pub(crate) struct ChannelState {
     waker: AtomicWaker,
     complete_count: AtomicUsize,
@@ -102,6 +118,24 @@ pub enum HandshakeMode {
     Destination,
 }
 
+impl HandshakeMode {
+    fn src_mode(self) -> vals::Mode {
+        match self {
+            Self::Normal => vals::Mode::NORMAL,
+            Self::Source => vals::Mode::HANDSHAKE,
+            Self::Destination => vals::Mode::NORMAL,
+        }
+    }
+
+    fn dst_mode(self) -> vals::Mode {
+        match self {
+            Self::Normal => vals::Mode::NORMAL,
+            Self::Source => vals::Mode::NORMAL,
+            Self::Destination => vals::Mode::HANDSHAKE,
+        }
+    }
+}
+
 impl AnyChannel {
     unsafe fn configure(
         &self,
@@ -114,6 +148,7 @@ impl AnyChannel {
         dst_addr_ctrl: AddrCtrl,
         // TRANSIZE
         size_in_bytes: usize,
+        //  handshake: HandshakeMode,
         options: TransferOptions,
     ) {
         let info = self.info();
@@ -150,11 +185,40 @@ impl AnyChannel {
         // TODO: handle SwapTable here
 
         // clear transfer irq status (W1C)
+        // dma_clear_transfer_status
         r.inthalfsts().modify(|w| w.set_sts(ch, true));
         r.inttcsts().modify(|w| w.set_sts(ch, true));
         r.intabortsts().modify(|w| w.set_sts(ch, true));
         r.interrsts().modify(|w| w.set_sts(ch, true));
 
-        ch_cr.ctrl().modify(|w| {});
+        ch_cr.ctrl().modify(|w| {
+            w.set_infiniteloop(options.circular);
+            w.set_handshakeopt(options.handshake != HandshakeMode::Normal);
+
+            w.set_burstopt(options.burst.burstopt());
+            w.set_priority(options.priority);
+            w.set_srcburstsize(options.burst.burstsize());
+            w.set_srcwidth(src_width.width());
+            w.set_dstwidth(dst_width.width());
+            w.set_srcmode(options.handshake.src_mode());
+            w.set_dstmode(options.handshake.dst_mode());
+
+            w.set_srcaddrctrl(src_addr_ctrl);
+            w.set_dstaddrctrl(dst_addr_ctrl);
+
+            w.set_inthalfcntmask(options.half_transfer_irq);
+            w.set_inttcmask(options.complete_transfer_irq);
+
+            w.set_enable(false); // don't start yet
+        });
+    }
+
+    fn start(&self) {
+        let info = self.info();
+
+        let r = info.dma.regs();
+        let ch = info.num; // channel number in current dma controller
+
+
     }
 }
