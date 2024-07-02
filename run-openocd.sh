@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 # export HPM_SDK_BASE=/path/to/hpm_sdk
 
 export HPM_SDK_BASE=`pwd`/../hpm_sdk
@@ -14,6 +13,9 @@ export FAMILY=hpm6e00; export BOARD=hpm6e00evk
 
 # export FAMILY=hpm6300; export BOARD=hpm6300evk
 
+# export FAMILY=hpm6750; export BOARD=hpm6750evkmini
+# export FAMILY=hpm6750; export BOARD=hpm6750evk
+# export FAMILY=hpm6750; export BOARD=hpm6750evk2
 
 export PROBE=ft2232
 # export PROBE=cmsis_dap
