@@ -63,6 +63,7 @@ impl MachineTimerDriver {
         self.period.store(cnt_per_tick as u32, Ordering::Relaxed);
 
         // make sure mchtmr will not be gated on "wfi"
+        // Design consideration: use WAIT is also useful to enter low-power mode
         SYSCTL.cpu(0).lp().modify(|w| w.set_mode(vals::LpMode::RUN));
         // 4 * 32 = 128 bits
         // enable wake up from all interrupts
