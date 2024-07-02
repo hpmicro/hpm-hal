@@ -1,0 +1,24 @@
+[package]
+name = "hpm6300evk"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+defmt = "0.3.8"
+defmt-rtt = "0.4.1"
+embedded-hal = "1.0.0"
+hpm-metapac = { path = "../../../hpm-data/build/hpm-metapac", features = [
+    "hpm6360",
+    "memory-x",
+    "rt",
+] }
+panic-halt = "0.2.0"
+riscv = { version = "0.11.1", features = ["critical-section-single-hart"] }
+riscv-rt = { version = "0.12.2", features = ["single-hart"] }
+
+
+[profile.release]
+strip = false   # symbols are not flashed to the microcontroller, so don't strip them.
+lto = true
+opt-level = "z" # Optimize for size.
+debug = 2
