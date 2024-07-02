@@ -94,7 +94,6 @@ macro_rules! spi_cs_pin_trait {
     };
 }
 
-
 macro_rules! spi_cs_pin_trait_impl {
     (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $alt:expr, $cs_index:expr) => {
         impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$pin {

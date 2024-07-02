@@ -9,6 +9,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embedded_hal::delay::DelayNs;
 pub use embedded_hal::spi::{Mode as SpiMode, MODE_0, MODE_1, MODE_2, MODE_3};
 use enums::*;
+pub use hpm_metapac::spi::vals::{AddrLen, AddrPhaseFormat, DataPhaseFormat, TransMode};
 use riscv::delay::McycleDelay;
 
 use crate::gpio::AnyPin;
@@ -43,7 +44,7 @@ pub struct Config {
     /// Enable slave mode.
     pub slave_mode: bool,
     /// Default address length.
-    pub addr_len: AddressSize,
+    pub addr_len: AddrLen,
     /// Mode
     pub mode: SpiMode,
     /// SPI frequency.
@@ -57,7 +58,7 @@ impl Default for Config {
         Self {
             lsb: false,
             slave_mode: false,
-            addr_len: AddressSize::_24Bit,
+            addr_len: AddrLen::_24BIT,
             mode: MODE_0,
             frequency: Hertz(80_000_000),
             timing: Timings::default(),
@@ -69,12 +70,12 @@ impl Default for Config {
 #[derive(Copy, Clone)]
 pub struct TransferConfig {
     pub cmd: Option<u8>,
-    pub addr_size: AddressSize,
+    pub addr_len: AddrLen,
     pub addr: Option<u32>,
-    pub addr_width: SpiWidth,
-    pub data_width: SpiWidth,
-    pub transfer_mode: TransferMode,
-    /// Valid only in TransferMode::DummyWrite|DummyRead|WriteDummyRead|ReadDummyWrite.
+    pub addr_phase: AddrPhaseFormat,
+    pub data_phase: DataPhaseFormat,
+    pub transfer_mode: TransMode,
+    /// Valid only in TransMode::DummyWrite|DummyRead|WriteDummyRead|ReadDummyWrite.
     /// The nubmer of dummy cycle = (dummy_cnt + 1) / ((data_len + 1) / spi_width).
     /// dummy_cnt = dummy_cycle * ((data_len + 1) / spi_width) - 1.
     pub dummy_cnt: u8,
@@ -86,11 +87,11 @@ impl Default for TransferConfig {
     fn default() -> Self {
         Self {
             cmd: None,
-            addr_size: AddressSize::_8Bit,
+            addr_len: AddrLen::_8BIT,
             addr: None,
-            addr_width: SpiWidth::SING,
-            data_width: SpiWidth::SING,
-            transfer_mode: TransferMode::WriteOnly,
+            addr_phase: AddrPhaseFormat::SINGLE_IO,
+            data_phase: DataPhaseFormat::SINGLE_IO,
+            transfer_mode: TransMode::WRITE_ONLY,
             dummy_cnt: 0,
             slave_data_only_mode: false,
         }
@@ -284,23 +285,20 @@ impl<'d, M: Mode> Spi<'d, M> {
         }
 
         // slave_data_only mode works with WriteReadTogether mode only
-        if config.slave_data_only_mode && config.transfer_mode != TransferMode::WriteReadTogether {
+        if config.slave_data_only_mode && config.transfer_mode != TransMode::WRITE_READ_TOGETHER {
             return Err(Error::InvalidArgument);
         }
 
-        if config.addr_width != config.data_width && config.addr_width != SpiWidth::SING {
-            // info!("Unsupported SPI mode, HPM's SPI controller supports 1-1-1, 1-1-4, 1-1-2, 1-2-2 and 1-4-4 modes");
-            return Err(Error::InvalidArgument);
-        }
+        // info!("Unsupported SPI mode, HPM's SPI controller supports 1-1-1, 1-1-4, 1-1-2, 1-2-2 and 1-4-4 modes");
 
         let r = self.info.regs;
 
         // SPI format init
         r.trans_fmt().modify(|w| {
-            if config.data_width == SpiWidth::DUAL || config.data_width == SpiWidth::QUAD {
+            if config.data_phase == DataPhaseFormat::DUAL_IO || config.data_phase == DataPhaseFormat::QUAD_IO {
                 w.set_mosibidir(true);
             }
-            w.set_addrlen(config.addr_size.into());
+            w.set_addrlen(config.addr_len);
         });
 
         // SPI control init
@@ -309,53 +307,47 @@ impl<'d, M: Mode> Spi<'d, M> {
             w.set_cmden(config.cmd.is_some());
             w.set_addren(config.addr.is_some());
             // Addr fmt: false: 1 line, true: 2/4 lines(same with data, aka `dualquad` field)
-            w.set_addrfmt(match config.addr_width {
-                SpiWidth::SING => false,
-                SpiWidth::DUAL | SpiWidth::QUAD => true,
-            });
-            w.set_dualquad(match config.data_width {
-                SpiWidth::SING => 0x0,
-                SpiWidth::DUAL => 0x1,
-                SpiWidth::QUAD => 0x2,
-            });
+            w.set_addrfmt(config.addr_phase);
+            w.set_dualquad(config.data_phase);
             w.set_tokenen(false);
             #[cfg(spi_v67)]
             match config.transfer_mode {
-                TransferMode::WriteReadTogether
-                | TransferMode::ReadDummyWrite
-                | TransferMode::WriteDummyRead
-                | TransferMode::ReadWrite
-                | TransferMode::WriteRead => {
+                TransMode::WriteReadTogether
+                | TransMode::ReadDummyWrite
+                | TransMode::WriteDummyRead
+                | TransMode::ReadWrite
+                | TransMode::WriteRead => {
                     w.set_wrtrancnt(data.len() as u16 - 1);
                     w.set_rdtrancnt(data.len() as u16 - 1);
                 }
-                TransferMode::WriteOnly | TransferMode::DummyWrite => w.set_wrtrancnt(data.len() as u16 - 1),
-                TransferMode::ReadOnly | TransferMode::DummyRead => w.set_rdtrancnt(data.len() as u16 - 1),
-                TransferMode::NoData => (),
+                TransMode::WriteOnly | TransMode::DummyWrite => w.set_wrtrancnt(data.len() as u16 - 1),
+                TransMode::ReadOnly | TransMode::DummyRead => w.set_rdtrancnt(data.len() as u16 - 1),
+                TransMode::NoData => (),
             }
             w.set_tokenvalue(false);
             w.set_dummycnt(config.dummy_cnt);
             w.set_rdtrancnt(0);
-            w.set_transmode(config.transfer_mode.into());
+            w.set_transmode(config.transfer_mode);
         });
 
         #[cfg(spi_v53)]
         match config.transfer_mode {
-            TransferMode::WriteReadTogether
-            | TransferMode::ReadDummyWrite
-            | TransferMode::WriteDummyRead
-            | TransferMode::ReadWrite
-            | TransferMode::WriteRead => {
+            TransMode::WRITE_READ_TOGETHER
+            | TransMode::READ_DUMMY_WRITE
+            | TransMode::WRITE_DUMMY_READ
+            | TransMode::READ_WRITE
+            | TransMode::WRITE_READ => {
                 r.wr_trans_cnt().write(|w| w.set_wrtrancnt(data.len() as u32 - 1));
                 r.rd_trans_cnt().write(|w| w.set_rdtrancnt(data.len() as u32 - 1));
             }
-            TransferMode::WriteOnly | TransferMode::DummyWrite => {
+            TransMode::WRITE_ONLY | TransMode::DUMMY_WRITE => {
                 r.wr_trans_cnt().write(|w| w.set_wrtrancnt(data.len() as u32 - 1))
             }
-            TransferMode::ReadOnly | TransferMode::DummyRead => {
+            TransMode::READ_ONLY | TransMode::DUMMY_READ => {
                 r.rd_trans_cnt().write(|w| w.set_rdtrancnt(data.len() as u32 - 1))
             }
-            TransferMode::NoData => (),
+            TransMode::NO_DATA => (),
+            _ => (),
         }
 
         r.ctrl().modify(|w| {
@@ -511,27 +503,27 @@ impl<'d, M: Mode> embedded_hal::spi::SpiDevice for Spi<'d, M> {
                 }
                 embedded_hal::spi::Operation::Read(buf) => {
                     let config = TransferConfig {
-                        transfer_mode: TransferMode::ReadOnly,
+                        transfer_mode: TransMode::READ_ONLY,
                         ..Default::default()
                     };
                     self.blocking_read(buf, &config)?;
                 }
                 embedded_hal::spi::Operation::Transfer(read, write) => {
                     let mut config = TransferConfig {
-                        transfer_mode: TransferMode::WriteOnly,
+                        transfer_mode: TransMode::WRITE_ONLY,
                         ..Default::default()
                     };
                     self.blocking_write(write, &config)?;
-                    config.transfer_mode = TransferMode::ReadOnly;
+                    config.transfer_mode = TransMode::READ_ONLY;
                     self.blocking_read(read, &config)?;
                 }
                 embedded_hal::spi::Operation::TransferInPlace(buf) => {
                     let mut config = TransferConfig {
-                        transfer_mode: TransferMode::WriteOnly,
+                        transfer_mode: TransMode::WRITE_ONLY,
                         ..Default::default()
                     };
                     self.blocking_write(buf, &config)?;
-                    config.transfer_mode = TransferMode::ReadOnly;
+                    config.transfer_mode = TransMode::READ_ONLY;
                     self.blocking_read(buf, &config)?;
                 }
                 embedded_hal::spi::Operation::DelayNs(ns) => {
