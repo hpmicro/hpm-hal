@@ -13,7 +13,7 @@
 mod dmamux;
 pub(crate) use dmamux::*;
 use embassy_hal_internal::{impl_peripheral, Peripheral};
-pub(crate) mod dma;
+pub(crate) mod v2;
 
 pub mod word;
 
