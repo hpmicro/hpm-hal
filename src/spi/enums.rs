@@ -1,39 +1,6 @@
 //! Enums for HPM SPI
 //!
 
-/// SPI transfer mode
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub enum TransferMode {
-    WriteReadTogether,
-    WriteOnly,
-    ReadOnly,
-    WriteRead,
-    ReadWrite,
-    WriteDummyRead,
-    ReadDummyWrite,
-    /// Master mode with CmdEn or AddrEn only
-    NoData,
-    DummyWrite,
-    DummyRead,
-}
-
-impl Into<u8> for TransferMode {
-    fn into(self) -> u8 {
-        match self {
-            TransferMode::WriteReadTogether => 0x0,
-            TransferMode::WriteOnly => 0x1,
-            TransferMode::ReadOnly => 0x2,
-            TransferMode::WriteRead => 0x3,
-            TransferMode::ReadWrite => 0x4,
-            TransferMode::WriteDummyRead => 0x5,
-            TransferMode::ReadDummyWrite => 0x6,
-            TransferMode::NoData => 0x7,
-            TransferMode::DummyWrite => 0x8,
-            TransferMode::DummyRead => 0x9,
-        }
-    }
-}
-
 /// Time between CS active and SCLK edge.
 #[derive(Copy, Clone)]
 pub enum ChipSelect2SCLK {
@@ -96,18 +63,6 @@ impl Into<u8> for ChipSelectHighTime {
             ChipSelectHighTime::_16HalfSclk => 0b1111,
         }
     }
-}
-
-/// SPI lane width
-#[allow(dead_code)]
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub enum SpiWidth {
-    /// Single lane
-    SING,
-    /// Dual lanes
-    DUAL,
-    /// Quad lanes
-    QUAD,
 }
 
 /// SPI data length
@@ -182,30 +137,6 @@ impl Into<u8> for DataLength {
             DataLength::_30Bit => 0x1d,
             DataLength::_31Bit => 0x1e,
             DataLength::_32Bit => 0x1f,
-        }
-    }
-}
-
-/// SPI Address size
-#[derive(Copy, Clone)]
-pub enum AddressSize {
-    /// 8-bit address
-    _8Bit,
-    /// 16-bit address
-    _16Bit,
-    /// 24-bit address
-    _24Bit,
-    /// 32-bit address
-    _32Bit,
-}
-
-impl Into<u8> for AddressSize {
-    fn into(self) -> u8 {
-        match self {
-            AddressSize::_8Bit => 0x00,
-            AddressSize::_16Bit => 0x01,
-            AddressSize::_24Bit => 0x02,
-            AddressSize::_32Bit => 0x03,
         }
     }
 }
