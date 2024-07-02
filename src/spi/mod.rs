@@ -6,7 +6,9 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
+use embedded_hal::delay::DelayNs;
 use enums::*;
+use riscv::delay::McycleDelay;
 
 use crate::gpio::AnyPin;
 use crate::mode::{Blocking, Mode};
@@ -28,9 +30,7 @@ pub struct Config {
     pub cs2sclk: ChipSelect2SCLK,
     /// Time the Chip Select line stays high.
     pub csht: ChipSelectHighTime,
-    /// F(SCLK) = F(SPI_SOURCE) / (2 * (sclk_div + 1).
-    /// If sclk_div = 0xff, F(SCLK) = F(SPI_SOURCE).
-    // pub sclk_div: u8,
+    /// SPI frequency.
     pub frequency: Hertz,
 }
 
@@ -125,16 +125,10 @@ impl<'d> Spi<'d, Blocking> {
 
         T::add_resource_group(0);
 
-        cs.ioc_pad().func_ctl().write(|w| {
-            w.set_alt_select(cs.alt_num());
-        });
-        mosi.ioc_pad().func_ctl().write(|w| {
-            w.set_alt_select(mosi.alt_num());
-        });
-        miso.ioc_pad().func_ctl().write(|w| {
-            w.set_alt_select(miso.alt_num());
-        });
-        sclk.ioc_pad().func_ctl().write(|w| {
+        cs.set_as_alt(cs.alt_num());
+        mosi.set_as_alt(mosi.alt_num());
+        miso.set_as_alt(miso.alt_num());
+        sclk.ioc_pad().func_ctl().modify(|w| {
             w.set_alt_select(sclk.alt_num());
             w.set_loop_back(true);
         });
@@ -167,25 +161,15 @@ impl<'d> Spi<'d, Blocking> {
 
         T::add_resource_group(0);
 
-        cs.ioc_pad().func_ctl().write(|w| {
-            w.set_alt_select(cs.alt_num());
-        });
-        mosi.ioc_pad().func_ctl().write(|w| {
-            w.set_alt_select(mosi.alt_num());
-        });
-        miso.ioc_pad().func_ctl().write(|w| {
-            w.set_alt_select(miso.alt_num());
-        });
-        sclk.ioc_pad().func_ctl().write(|w| {
+        cs.set_as_alt(cs.alt_num());
+        mosi.set_as_alt(mosi.alt_num());
+        miso.set_as_alt(miso.alt_num());
+        sclk.ioc_pad().func_ctl().modify(|w| {
             w.set_alt_select(sclk.alt_num());
             w.set_loop_back(true);
         });
-        d2.ioc_pad().func_ctl().write(|w| {
-            w.set_alt_select(d2.alt_num());
-        });
-        d3.ioc_pad().func_ctl().write(|w| {
-            w.set_alt_select(d3.alt_num());
-        });
+        d2.set_as_alt(d2.alt_num());
+        d3.set_as_alt(d3.alt_num());
 
         let cs_index = cs.cs_index();
         Self::_new_inner(
@@ -218,6 +202,7 @@ impl<'d, M: Mode> Spi<'d, M> {
             info: T::info(),
             state: T::state(),
             kernel_clock: T::frequency(),
+            delay: McycleDelay::new(crate::sysctl::clocks().cpu0.0),
             cs,
             sclk,
             mosi,
@@ -308,7 +293,7 @@ impl<'d, M: Mode> Spi<'d, M> {
             w.set_slvdataonly(config.slave_data_only_mode);
             w.set_cmden(config.cmd.is_some());
             w.set_addren(config.addr.is_some());
-            // Addr fmt: false: 1 line, true: 2/4 lines(same with data)
+            // Addr fmt: false: 1 line, true: 2/4 lines(same with data, aka `dualquad` field)
             w.set_addrfmt(match config.addr_width {
                 SpiWidth::SING => false,
                 SpiWidth::DUAL | SpiWidth::QUAD => true,
@@ -386,9 +371,10 @@ impl<'d, M: Mode> Spi<'d, M> {
         let r = self.info.regs;
 
         // Write data byte by byte
-        for &b in data {
+        for b in data {
+            // TODO: Add timeout
             while r.status().read().txfull() {}
-            r.data().write(|w| w.set_data(b as u32));
+            r.data().write(|w| w.set_data(*b as u32));
         }
 
         Ok(())
@@ -400,6 +386,7 @@ impl<'d, M: Mode> Spi<'d, M> {
         let r = self.info.regs;
 
         for i in 0..data.len() {
+            // TODO: Add timeout
             while r.status().read().rxempty() {}
             let b = r.data().read().0 as u8;
             data[i] = b;

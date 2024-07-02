@@ -18,7 +18,7 @@ use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::SpiDevice;
 use hpm_hal::gpio::{Level, Output, Speed};
 use hpm_hal::mode::Blocking;
-use hpm_hal::spi::{Config, Spi, TransferConfig};
+use hpm_hal::spi::{Config, Spi};
 use hpm_hal::time::Hertz;
 use riscv::delay::McycleDelay;
 use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
@@ -305,5 +305,4 @@ fn main() -> ! {
         f.draw(&mut display).unwrap();
         display.fill_solid(&clear, Rgb565::BLACK).unwrap();
     }
-
 }
