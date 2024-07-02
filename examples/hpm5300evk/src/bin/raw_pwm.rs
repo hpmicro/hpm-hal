@@ -9,6 +9,7 @@ use embedded_io::Write as _;
 use hal::pac;
 use hpm_hal::gpio::Output;
 use hpm_hal::mode::Blocking;
+use hpm_hal::pac::pwm::vals;
 use hpm_hal::pac::{iomux, pins};
 use {defmt_rtt as _, hpm_hal as hal};
 
@@ -93,7 +94,7 @@ fn main() -> ! {
 
     pac::PWM1.cmpcfg(7).modify(|w| {
         w.set_cmpmode(false);
-        w.set_cmpshdwupt(0b01); // real-time shadow
+        w.set_cmpshdwupt(vals::ShadowUpdateTrigger::ON_MODIFY);
     }); // output
 
     pac::PWM1.cmp(7).modify(|w| {
@@ -103,7 +104,9 @@ fn main() -> ! {
 
     //    pac::PWM1.shlk().modify(|w| w.set_)
     // shadow latch
-    pac::PWM1.shcr().modify(|w| w.set_cntshdwupt(0b01)); // real-time shadow
+    pac::PWM1
+        .shcr()
+        .modify(|w| w.set_cntshdwupt(vals::ShadowUpdateTrigger::ON_MODIFY));
 
     pac::PWM1.gcr().modify(|w| {
         w.set_cen(true);
