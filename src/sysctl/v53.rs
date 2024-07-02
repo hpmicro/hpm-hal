@@ -2,7 +2,7 @@
 
 use core::ops;
 
-use super::{clock_and_to_group, Pll};
+use super::{clock_add_to_group, Pll};
 use crate::pac;
 pub use crate::pac::sysctl::vals::{ClockMux, SubDiv as AHBDiv};
 use crate::pac::{PLLCTL, SYSCTL};
@@ -136,30 +136,30 @@ pub(crate) unsafe fn init(config: Config) {
         // SYSCTL.global00().modify(|w| w.set_mux(0b11));
     }
 
-    clock_and_to_group(pac::resources::CPU0, 0);
-    clock_and_to_group(pac::resources::AHB0, 0);
-    clock_and_to_group(pac::resources::LMM0, 0);
-    clock_and_to_group(pac::resources::MCT0, 0);
-    clock_and_to_group(pac::resources::ROM0, 0);
-    clock_and_to_group(pac::resources::TMR0, 0);
-    clock_and_to_group(pac::resources::TMR1, 0);
-    clock_and_to_group(pac::resources::I2C2, 0);
-    clock_and_to_group(pac::resources::SPI1, 0);
-    clock_and_to_group(pac::resources::URT0, 0);
-    clock_and_to_group(pac::resources::URT3, 0);
+    clock_add_to_group(pac::resources::CPU0, 0);
+    clock_add_to_group(pac::resources::AHB0, 0);
+    clock_add_to_group(pac::resources::LMM0, 0);
+    clock_add_to_group(pac::resources::MCT0, 0);
+    clock_add_to_group(pac::resources::ROM0, 0);
+    clock_add_to_group(pac::resources::TMR0, 0);
+    clock_add_to_group(pac::resources::TMR1, 0);
+    clock_add_to_group(pac::resources::I2C2, 0);
+    clock_add_to_group(pac::resources::SPI1, 0);
+    clock_add_to_group(pac::resources::URT0, 0);
+    clock_add_to_group(pac::resources::URT3, 0);
 
-    clock_and_to_group(pac::resources::WDG0, 0);
-    clock_and_to_group(pac::resources::WDG1, 0);
-    clock_and_to_group(pac::resources::MBX0, 0);
-    clock_and_to_group(pac::resources::TSNS, 0);
-    clock_and_to_group(pac::resources::CRC0, 0);
-    clock_and_to_group(pac::resources::ADC0, 0);
-    clock_and_to_group(pac::resources::ACMP, 0);
-    clock_and_to_group(pac::resources::KMAN, 0);
-    clock_and_to_group(pac::resources::GPIO, 0);
-    clock_and_to_group(pac::resources::HDMA, 0);
-    clock_and_to_group(pac::resources::XPI0, 0);
-    clock_and_to_group(pac::resources::USB0, 0);
+    clock_add_to_group(pac::resources::WDG0, 0);
+    clock_add_to_group(pac::resources::WDG1, 0);
+    clock_add_to_group(pac::resources::MBX0, 0);
+    clock_add_to_group(pac::resources::TSNS, 0);
+    clock_add_to_group(pac::resources::CRC0, 0);
+    clock_add_to_group(pac::resources::ADC0, 0);
+    clock_add_to_group(pac::resources::ACMP, 0);
+    clock_add_to_group(pac::resources::KMAN, 0);
+    clock_add_to_group(pac::resources::GPIO, 0);
+    clock_add_to_group(pac::resources::HDMA, 0);
+    clock_add_to_group(pac::resources::XPI0, 0);
+    clock_add_to_group(pac::resources::USB0, 0);
 
     // Connect Group0 to CPU0
     SYSCTL.affiliate(0).set().write(|w| w.set_link(1 << 0));

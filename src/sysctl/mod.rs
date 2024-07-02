@@ -22,7 +22,7 @@ pub fn clocks() -> &'static Clocks {
 }
 
 /// Add clock resource to a resource group
-pub fn clock_and_to_group(resource: usize, group: usize) {
+pub fn clock_add_to_group(resource: usize, group: usize) {
     const RESOURCE_START: usize = 256;
     if resource < RESOURCE_START {
         return;
@@ -53,7 +53,7 @@ pub(crate) trait SealedClockPeripheral {
             return;
         }
 
-        clock_and_to_group(Self::SYSCTL_RESOURCE, group);
+        clock_add_to_group(Self::SYSCTL_RESOURCE, group);
     }
 
     fn set_clock(cfg: ClockConfig) {
