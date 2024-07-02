@@ -18,8 +18,9 @@ use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 use hpm_hal::gpio::{Level, Output, Speed};
 use hpm_hal::mode::Blocking;
-use hpm_hal::spi::enums::{AddressSize, SpiWidth, TransferMode};
-use hpm_hal::spi::{Config, Error, Spi, TransferConfig};
+use hpm_hal::spi::{
+    AddrLen, AddrPhaseFormat, Config, DataPhaseFormat, Error, Spi, Timings, TransMode, TransferConfig, MODE_0,
+};
 use hpm_hal::time::Hertz;
 use riscv::delay::McycleDelay;
 use {defmt_rtt as _, hpm_hal as hal, riscv_rt as _};
@@ -74,17 +75,17 @@ impl RM67162<'_> {
     fn send_cmd(&mut self, cmd: u32, data: &[u8]) -> Result<(), Error> {
         let mut transfer_config = TransferConfig {
             cmd: Some(0x02),
-            addr_size: AddressSize::_24Bit,
+            addr_len: AddrLen::_24BIT,
             addr: Some(0 | (cmd << 8)),
-            addr_width: SpiWidth::SING,
-            data_width: SpiWidth::SING,
-            transfer_mode: TransferMode::WriteOnly,
+            addr_phase: AddrPhaseFormat::SINGLE_IO,
+            data_phase: DataPhaseFormat::SINGLE_IO,
+            transfer_mode: TransMode::WRITE_ONLY,
             dummy_cnt: 0,
             ..Default::default()
         };
 
         if data.len() == 0 {
-            transfer_config.transfer_mode = TransferMode::NoData;
+            transfer_config.transfer_mode = TransMode::NO_DATA;
             self.qspi.blocking_write(&[], &transfer_config)?;
         } else {
             self.qspi.blocking_write(data, &transfer_config)?;
@@ -96,17 +97,17 @@ impl RM67162<'_> {
     fn send_cmd_114(&mut self, cmd: u32, data: &[u8]) -> Result<(), Error> {
         let mut transfer_config = TransferConfig {
             cmd: Some(0x32),
-            addr_size: AddressSize::_24Bit,
+            addr_len: AddrLen::_24BIT,
             addr: Some(0 | (cmd << 8)),
-            addr_width: SpiWidth::SING,
-            data_width: SpiWidth::QUAD,
-            transfer_mode: TransferMode::WriteOnly,
+            addr_phase: AddrPhaseFormat::SINGLE_IO,
+            data_phase: DataPhaseFormat::QUAD_IO,
+            transfer_mode: TransMode::WRITE_ONLY,
             dummy_cnt: 0,
             ..Default::default()
         };
 
         if data.len() == 0 {
-            transfer_config.transfer_mode = TransferMode::NoData;
+            transfer_config.transfer_mode = TransMode::NO_DATA;
             self.qspi.blocking_write(&[], &transfer_config)?;
         } else {
             self.qspi.blocking_write(data, &transfer_config)?;
@@ -282,11 +283,13 @@ fn main() -> ! {
     let mut led = Output::new(p.PA10, Level::Low, Speed::Fast);
 
     let spi_config = Config {
-        addr_len: AddressSize::_24Bit,
+        addr_len: AddrLen::_24BIT,
         frequency: Hertz(40_000_000),
-        cs2sclk: hpm_hal::spi::enums::ChipSelect2SCLK::_3HalfSclk,
-        csht: hpm_hal::spi::enums::ChipSelectHighTime::_11HalfSclk,
-        mode: hpm_hal::spi::enums::PolarityMode::Mode0,
+        mode: MODE_0,
+        timing: Timings {
+            cs2sclk: hpm_hal::spi::enums::ChipSelect2SCLK::_3HalfSclk,
+            csht: hpm_hal::spi::enums::ChipSelectHighTime::_11HalfSclk,
+        },
         ..Default::default()
     };
 
