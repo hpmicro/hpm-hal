@@ -2,23 +2,27 @@
 #![no_std]
 
 use defmt::info;
-use embedded_graphics::draw_target::{DrawTarget, DrawTargetExt as _};
-use embedded_graphics::framebuffer::Framebuffer;
-use embedded_graphics::geometry::{Point, Size};
-use embedded_graphics::image::ImageDrawable;
-use embedded_graphics::pixelcolor::raw::{BigEndian, ToBytes};
+use embedded_graphics::draw_target::DrawTarget;
+use embedded_graphics::geometry::{Dimensions, Point, Size};
+use embedded_graphics::image::{Image, ImageRawLE};
+use embedded_graphics::mono_font::ascii::FONT_10X20;
+use embedded_graphics::mono_font::MonoTextStyle;
+use embedded_graphics::pixelcolor::raw::ToBytes;
 use embedded_graphics::pixelcolor::{Rgb565, RgbColor};
 use embedded_graphics::prelude::OriginDimensions;
 use embedded_graphics::primitives::Rectangle;
-use embedded_graphics::Pixel;
+use embedded_graphics::text::Text;
+use embedded_graphics::transform::Transform;
+use embedded_graphics::{Drawable, Pixel};
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 use hpm_hal::gpio::{Level, Output, Speed};
 use hpm_hal::mode::Blocking;
 use hpm_hal::spi::enums::{AddressSize, SpiWidth, TransferMode};
-use hpm_hal::spi::{Error, Spi, TransferConfig};
+use hpm_hal::spi::{Config, Error, Spi, TransferConfig};
+use hpm_hal::time::Hertz;
 use riscv::delay::McycleDelay;
-use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal, riscv_rt as _};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum Orientation {
@@ -78,12 +82,9 @@ impl RM67162<'_> {
             dummy_cnt: 0,
             ..Default::default()
         };
-        // info!("Sending cmd 0x{:X}, data: {=[u8]:X}", cmd, data);
 
         if data.len() == 0 {
             transfer_config.transfer_mode = TransferMode::NoData;
-            // transfer_config.addr = Some(cmd);
-            // transfer_config.addr_size = AddressSize::_16Bit;
             self.qspi.blocking_write(&[], &transfer_config)?;
         } else {
             self.qspi.blocking_write(data, &transfer_config)?;
@@ -106,9 +107,6 @@ impl RM67162<'_> {
 
         if data.len() == 0 {
             transfer_config.transfer_mode = TransferMode::NoData;
-            // transfer_config.addr = Some(cmd);
-            // transfer_config.addr_size = AddressSize::_16Bit;
-            // transfer_config.data_width = SpiWidth::SING;
             self.qspi.blocking_write(&[], &transfer_config)?;
         } else {
             self.qspi.blocking_write(data, &transfer_config)?;
@@ -119,7 +117,6 @@ impl RM67162<'_> {
 
     /// rm67162_qspi_init
     pub fn init(&mut self, delay: &mut impl embedded_hal::delay::DelayNs) -> Result<(), Error> {
-        // for _ in 0..3 {
         self.send_cmd(0x11, &[])?; // sleep out
         delay.delay_ms(120);
 
@@ -131,9 +128,8 @@ impl RM67162<'_> {
         delay.delay_ms(120);
 
         self.send_cmd(0x51, &[0xD0])?; // write brightness
-                                       // }
 
-        // self.set_orientation(self.orientation)?;
+        self.set_orientation(self.orientation)?;
         Ok(())
     }
 
@@ -152,8 +148,9 @@ impl RM67162<'_> {
 
     pub fn draw_point(&mut self, x: u16, y: u16, color: Rgb565) -> Result<(), Error> {
         self.set_address(x, y, x, y)?;
-        self.send_cmd_114(0x2C, &color.to_le_bytes()[..])?;
-        self.send_cmd_114(0x3C, &color.to_le_bytes()[..])?;
+        self.send_cmd_114(0x2C, &color.to_be_bytes()[..])?;
+        // self.send_cmd_114(0x2C, &color.to_le_bytes()[..])?;
+        // self.send_cmd_114(0x3C, &color.to_le_bytes()[..])?;
         Ok(())
     }
 
@@ -168,7 +165,7 @@ impl RM67162<'_> {
         self.set_address(x, y, x + w - 1, y + h - 1)?;
 
         for _ in 1..((w as u32) * (h as u32)) {
-            self.send_cmd_114(0x2C, &colors.next().unwrap().to_be_bytes()[..])?;
+            self.send_cmd_114(0x3C, &colors.next().unwrap().to_be_bytes()[..])?;
         }
 
         Ok(())
@@ -176,28 +173,37 @@ impl RM67162<'_> {
 
     fn fill_color(&mut self, x: u16, y: u16, w: u16, h: u16, color: Rgb565) -> Result<(), Error> {
         self.set_address(x, y, x + w - 1, y + h - 1)?;
-        // self.cs.set_low().unwrap();
-        let mut buffer: [u8; 536 * 240] = [0; 536 * 240];
-        info!("get buffer: {}", buffer.len());
 
-        // Convert color rectangle to buffer
-        for i in 0..(w as u32) * (h as u32) {
-            if i > 536 * 240 - 2 {
+        let mut buffer: [u8; 536 * 240] = [0; 536 * 240];
+        let total_size = (w as usize) * (h as usize);
+        let mut i: usize = 0;
+        let mut buffer_idx = 0;
+        while i < total_size * 2 {
+            if buffer_idx >= buffer.len() {
+                i += buffer.len();
+                // Write buffer
+                self.send_cmd_114(0x3C, &buffer).unwrap();
+                buffer_idx = 0;
+            }
+            if i + buffer_idx >= total_size * 2 {
                 break;
             }
-            buffer[i as usize] = color.to_be_bytes()[0];
-            buffer[i as usize + 1] = color.to_be_bytes()[1];
+            // Fill the buffer
+            buffer[buffer_idx] = color.to_be_bytes()[0];
+            buffer[buffer_idx + 1] = color.to_be_bytes()[1];
+            buffer_idx += 2;
         }
-        info!("writing buffer: {}", buffer.len());
-        self.send_cmd_114(0x2C, &buffer).unwrap();
-        info!("wrote buffer: {}", buffer.len());
 
+        if buffer_idx > 0 {
+            self.send_cmd_114(0x3C, &buffer[..buffer_idx]).unwrap();
+        }
         Ok(())
     }
+
     pub unsafe fn fill_with_framebuffer(&mut self, raw_framebuffer: &[u8]) -> Result<(), Error> {
         self.set_address(0, 0, self.size().width as u16 - 1, self.size().height as u16 - 1)?;
 
-        self.send_cmd_114(0x2C, raw_framebuffer)?;
+        self.send_cmd_114(0x3C, raw_framebuffer)?;
 
         Ok(())
     }
@@ -266,7 +272,7 @@ fn main() -> ! {
 
     let mut rst = Output::new(p.PA09, Level::High, Speed::Fast);
 
-    let mut im = Output::new(p.PA00, Level::High, Speed::Fast);
+    let mut im = Output::new(p.PB12, Level::High, Speed::Fast);
     im.set_high();
 
     let mut iovcc = Output::new(p.PB13, Level::High, Speed::Fast);
@@ -275,56 +281,65 @@ fn main() -> ! {
     // PA10
     let mut led = Output::new(p.PA10, Level::Low, Speed::Fast);
 
-    let mut spi: hal::spi::Spi<'_, Blocking> =
-        Spi::new_blocking_quad(p.SPI1, p.PA26, p.PA27, p.PA29, p.PA28, p.PA30, p.PA31, Default::default());
-
-    let config = TransferConfig {
-        cmd: None,
-        addr: None,
-        addr_width: SpiWidth::SING,
-        data_width: SpiWidth::SING,
-        transfer_mode: TransferMode::WriteOnly,
+    let spi_config = Config {
+        addr_len: AddressSize::_24Bit,
+        frequency: Hertz(40_000_000),
+        cs2sclk: hpm_hal::spi::enums::ChipSelect2SCLK::_3HalfSclk,
+        csht: hpm_hal::spi::enums::ChipSelectHighTime::_11HalfSclk,
+        mode: hpm_hal::spi::enums::PolarityMode::Mode0,
         ..Default::default()
     };
 
-    if let Err(e) = spi.blocking_write(&[1, 2, 3, 4, 5, 6, 7, 8], &config) {
-        defmt::panic!("Error: {:?}", e);
-    }
+    let spi: hal::spi::Spi<'_, Blocking> =
+        Spi::new_blocking_quad(p.SPI1, p.PA26, p.PA27, p.PA29, p.PA28, p.PA30, p.PA31, spi_config);
 
-    let mut rm67162 = RM67162::new(spi);
-    rm67162.reset(&mut rst, &mut delay).unwrap();
+    let mut display = RM67162::new(spi);
+    display.reset(&mut rst, &mut delay).unwrap();
     info!("reset display");
-    if let Err(e) = rm67162.init(&mut delay) {
-        info!("Error: {:?}", e);
+    if let Err(e) = display.init(&mut delay) {
+        panic!("Error: {:?}", e);
     }
     info!("clearing display");
-    if let Err(e) = rm67162.clear(Rgb565::WHITE) {
-        info!("Error: {:?}", e);
+    if let Err(e) = display.clear(Rgb565::BLACK) {
+        panic!("Error: {:?}", e);
     }
-    info!("Load gif");
-    let gif = tinygif::Gif::from_slice(include_bytes!("assets/ferris.gif")).unwrap();
 
-    let mut fb = Framebuffer::<
-        Rgb565,
-        _,
-        BigEndian,
-        536,
-        240,
-        { embedded_graphics::framebuffer::buffer_size::<Rgb565>(536, 240) },
-    >::new();
+    let img_width = 86;
+    let raw_image_data = ImageRawLE::new(include_bytes!("./assets/ferris.raw"), img_width);
+    let style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
 
-    fb.clear(Rgb565::WHITE).unwrap();
-    unsafe { rm67162.fill_with_framebuffer(fb.data()).unwrap() };
-    info!("Start drawing");
+    Text::new("Hello HPM!", Point::new(200, 150), style)
+        .draw(&mut display)
+        .unwrap();
+    let diff = 1;
+    let mut ferris = Image::new(&raw_image_data, Point::new(0, 40));
+    info!("Looping");
     loop {
-        for frame in gif.frames() {
-            frame.draw(&mut fb.translated(Point::new(0, 0))).unwrap();
-            unsafe {
-                rm67162.fill_with_framebuffer(fb.data()).unwrap();
-            }
-            // info!("tick");
-        }
         led.toggle();
-        delay.delay_ms(200);
+        let mut clear = Rectangle::new(
+            Point {
+                x: ferris.bounding_box().top_left.x,
+                y: 40,
+            },
+            Size {
+                width: diff as u32,
+                height: raw_image_data.bounding_box().size.height as u32,
+            },
+        );
+        let f = if ferris.bounding_box().top_left.x + img_width as i32 >= 536 {
+            clear.size.width = img_width;
+            ferris.translate_mut(Point::new(-450, 0))
+        } else {
+            ferris.translate_mut(Point::new(diff, 0))
+        };
+
+        f.draw(&mut display).unwrap();
+        display.fill_solid(&clear, Rgb565::BLACK).unwrap();
     }
+}
+
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    defmt::error!("{:?}", defmt::Debug2Format(info));
+    loop {}
 }

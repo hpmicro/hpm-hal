@@ -298,4 +298,4 @@ pub enum PolarityMode {
     Mode2,
     /// Mode3, CPOL=1, CPHA=1
     Mode3,
-} 
+}
