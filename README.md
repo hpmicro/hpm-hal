@@ -26,7 +26,7 @@ This crate is a working-in-progress and not ready for use.
 
 | MCU Family | Demo | PAC | SYSCTL | GPIO | UART | I2C | MBX | ADC | DMA |
 |------------|:----:|:---:|:------:|:----:|:----:|:---:|:---:|:---:|:---:|
-| HPM6700    |      |  ✓  |        |      |      |     |     |     |     |
+| HPM6700    |  ✓   |  ✓  |        |      |      |     |     |     |     |
 | HPM6300    |  ✓   |  ✓  |        |      |      |     |     |     |     |
 | HPM6200    |      |  ✓  |        |      |      |     |     |     |     |
 | HPM5300    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ✓  |  ✓  |     |     |
