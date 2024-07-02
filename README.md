@@ -11,16 +11,31 @@ This crate is a working-in-progress and not ready for use.
   - [x] basic start up code: linker, startup
   - [x] Embassy time driver using MCHTMR
   - [x] SYSCTL init
-  - [x] PLL setting (only PLL0 is supported, since others might be unsafe)
-  - [x] GPIO, Flex, Input, Output
-    - [x] Async GPIO
+  - [x] PLL setting
+  - [x] GPIO, Flex, Input, Output, Async
   - [x] RTT support (defmt, defmt-rtt)
   - [x] UART blocking TX, RX
   - [x] I2C blocking
   - [x] MBX, blocking and async
-- MCUs
-  - HPM5300
-  - HPM6E00, without PLL setting
+  - [x] FEMC
+    - [x] SDRAM init
+- Long term Plans
+  - [ ] andes-riscv for specific CSRs
+  - [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
+  - [ ] CPU1 support - how to?
+
+| MCU Family | Demo | PAC | SYSCTL | GPIO | UART | I2C | MBX | ADC | DMA |
+|------------|:----:|:---:|:------:|:----:|:----:|:---:|:---:|:---:|:---:|
+| HPM6700    |      |  ✓  |        |      |      |     |     |     |     |
+| HPM6300    |  ✓   |  ✓  |        |      |      |     |     |     |     |
+| HPM6200    |      |  ✓  |        |      |      |     |     |     |     |
+| HPM5300    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ✓  |  ✓  |     |     |
+| HPM6800    |      |  ✓  |        |      |      |     |     |     |     |
+| HPM6E00    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ?  |  ?  |     |     |
+
+- ✓: Implemented
+- ?: Requires demo verification
+- Blank: Not implemented
 
 ### Toolchain Support
 
