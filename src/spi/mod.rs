@@ -335,6 +335,7 @@ impl<'d, M: Mode> Spi<'d, M> {
             w.set_tokenvalue(false);
             w.set_dummycnt(config.dummy_cnt);
             w.set_rdtrancnt(0);
+            w.set_transmode(config.transfer_mode.into());
         });
 
         #[cfg(spi_v53)]
@@ -499,40 +500,42 @@ impl<'d, M: Mode> embedded_hal::spi::ErrorType for Spi<'d, M> {
 
 impl<'d, M: Mode> embedded_hal::spi::SpiDevice for Spi<'d, M> {
     fn transaction(&mut self, operations: &mut [embedded_hal::spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
-        match operations {
-            [embedded_hal::spi::Operation::Write(buf)] => {
-                let config = TransferConfig::default();
-                self.blocking_write(buf, &config)
+        for operation in operations {
+            match operation {
+                embedded_hal::spi::Operation::Write(buf) => {
+                    let config = TransferConfig::default();
+                    self.blocking_write(buf, &config)?;
+                }
+                embedded_hal::spi::Operation::Read(buf) => {
+                    let config = TransferConfig {
+                        transfer_mode: TransferMode::ReadOnly,
+                        ..Default::default()
+                    };
+                    self.blocking_read(buf, &config)?;
+                }
+                embedded_hal::spi::Operation::Transfer(read, write) => {
+                    let mut config = TransferConfig {
+                        transfer_mode: TransferMode::WriteOnly,
+                        ..Default::default()
+                    };
+                    self.blocking_write(write, &config)?;
+                    config.transfer_mode = TransferMode::ReadOnly;
+                    self.blocking_read(read, &config)?;
+                }
+                embedded_hal::spi::Operation::TransferInPlace(buf) => {
+                    let mut config = TransferConfig {
+                        transfer_mode: TransferMode::WriteOnly,
+                        ..Default::default()
+                    };
+                    self.blocking_write(buf, &config)?;
+                    config.transfer_mode = TransferMode::ReadOnly;
+                    self.blocking_read(buf, &config)?;
+                }
+                embedded_hal::spi::Operation::DelayNs(ns) => {
+                    self.delay.delay_ns(*ns);
+                }
             }
-            [embedded_hal::spi::Operation::Read(buf)] => {
-                let config = TransferConfig {
-                    transfer_mode: TransferMode::ReadOnly,
-                    ..Default::default()
-                };
-                self.blocking_read(buf, &config)
-            }
-            [embedded_hal::spi::Operation::Transfer(read, write)] => {
-                let mut config = TransferConfig {
-                    transfer_mode: TransferMode::WriteOnly,
-                    ..Default::default()
-                };
-                self.blocking_write(write, &config)?;
-                config.transfer_mode = TransferMode::ReadOnly;
-                self.blocking_read(read, &config)
-            }
-            [embedded_hal::spi::Operation::TransferInPlace(buf)] => {
-                let mut config = TransferConfig {
-                    transfer_mode: TransferMode::WriteOnly,
-                    ..Default::default()
-                };
-                self.blocking_write(buf, &config)?;
-                config.transfer_mode = TransferMode::ReadOnly;
-                self.blocking_read(buf, &config)
-            }
-            [embedded_hal::spi::Operation::DelayNs(_ns)] => {
-                todo!();
-            }
-            _ => todo!("WORD not supported"),
         }
+        Ok(())
     }
 }
