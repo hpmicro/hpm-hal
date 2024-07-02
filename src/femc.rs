@@ -224,11 +224,10 @@ where
     pub fn issue_ip_cmd(&mut self, base_address: u32, cmd: SdramCmd, data: u32) -> Result<u32, Error> {
         let r = T::REGS;
 
-        // SDK-BUG: logic of femc_is_write_cmd
-        let read_data = cmd == SdramCmd::READ;
+        let write_data = cmd == SdramCmd::WRITE || cmd == SdramCmd::MODE_SET;
 
         r.saddr().write(|w| w.0 = base_address);
-        if !read_data {
+        if write_data {
             r.iptx().write(|w| w.0 = data);
         }
         r.ipcmd().write(|w| {
@@ -238,7 +237,8 @@ where
 
         self.check_ip_cmd_done()?;
 
-        if read_data {
+        // read data
+        if !write_data {
             Ok(r.iprx().read().0)
         } else {
             Ok(0)
