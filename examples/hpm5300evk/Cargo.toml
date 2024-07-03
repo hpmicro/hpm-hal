@@ -24,6 +24,9 @@ embedded-hal = "1.0.0"
 embedded-io = "0.6.1"
 futures-util = { version = "0.3.30", default-features = false }
 tinygif = "0.0.4"
+heapless = "0.8.0"
+micromath = "2.1.0"
+embedded-hal-bus = "0.2.0"
 
 
 [profile.release]
