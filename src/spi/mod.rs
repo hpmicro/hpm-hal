@@ -1,14 +1,18 @@
 //! SPI, Serial Peripheral Interface
 //!
-//!
+//! IP features:
+//! - SPI_NEW_TRANS_COUNT: v53, v68,
+//! - SPI_CS_SELECT: v53, v68,
+//! - SPI_SUPPORT_DIRECTIO: v53, v68
 
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_hal::delay::DelayNs;
+// re-export
 pub use embedded_hal::spi::{Mode as SpiMode, MODE_0, MODE_1, MODE_2, MODE_3};
-use enums::*;
+pub use enums::*;
 pub use hpm_metapac::spi::vals::{AddrLen, AddrPhaseFormat, DataPhaseFormat, TransMode};
 use riscv::delay::McycleDelay;
 
@@ -16,35 +20,44 @@ use crate::gpio::AnyPin;
 use crate::mode::{Blocking, Mode};
 use crate::time::Hertz;
 
-pub mod enums;
+mod enums;
 
 #[derive(Clone, Copy)]
 pub struct Timings {
     /// Time between CS active and SCLK edge.
     /// T = SCLK * (CS2SCLK+1) / 2
-    pub cs2sclk: ChipSelect2SCLK,
+    pub cs2sclk: Cs2Sclk,
     /// Time the Chip Select line stays high.
     /// T = SCLK * (CSHT+1) / 2
-    pub csht: ChipSelectHighTime,
+    pub csht: CsHighTime,
 }
 
 impl Default for Timings {
     fn default() -> Self {
         Self {
-            cs2sclk: ChipSelect2SCLK::_4HalfSclk,
-            csht: ChipSelectHighTime::_12HalfSclk,
+            cs2sclk: Cs2Sclk::_4HalfSclk,
+            csht: CsHighTime::_12HalfSclk,
         }
     }
+}
+
+/// SPI bit order
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum BitOrder {
+    /// Least significant bit first.
+    LsbFirst,
+    /// Most significant bit first.
+    MsbFirst,
 }
 
 /// Config struct of SPI
 pub struct Config {
     /// Whether to use LSB.
-    pub lsb: bool,
-    /// Enable slave mode.
-    pub slave_mode: bool,
-    /// Default address length.
-    pub addr_len: AddrLen,
+    pub bit_order: BitOrder,
+    /// // Enable slave mode.
+    // pub slave_mode: bool,
+    // /// Default address length.
+    // pub addr_len: AddrLen,
     /// Mode
     pub mode: SpiMode,
     /// SPI frequency.
@@ -56,11 +69,11 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            lsb: false,
-            slave_mode: false,
-            addr_len: AddrLen::_24BIT,
+            bit_order: BitOrder::MsbFirst,
+            // slave_mode: false,
+            // addr_len: AddrLen::_24BIT,
             mode: MODE_0,
-            frequency: Hertz(80_000_000),
+            frequency: Hertz(10_000_000),
             timing: Timings::default(),
         }
     }
@@ -118,7 +131,6 @@ pub struct Spi<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    delay: McycleDelay,
     cs: Option<PeripheralRef<'d, AnyPin>>,
     sclk: Option<PeripheralRef<'d, AnyPin>>,
     mosi: Option<PeripheralRef<'d, AnyPin>>,
@@ -152,12 +164,76 @@ impl<'d> Spi<'d, Blocking> {
         });
 
         let cs_index = cs.cs_index();
-        Self::_new_inner(
+        Self::new_inner(
             peri,
             Some(cs.map_into()),
             Some(sclk.map_into()),
             Some(mosi.map_into()),
             Some(miso.map_into()),
+            None,
+            None,
+            config,
+            cs_index,
+        )
+    }
+
+    pub fn new_blocking_rxonly<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        cs: impl Peripheral<P = impl CsPin<T> + CsIndexPin<T>> + 'd,
+        sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(cs, sclk, miso);
+
+        T::add_resource_group(0);
+
+        cs.set_as_alt(cs.alt_num());
+        miso.set_as_alt(miso.alt_num());
+        sclk.ioc_pad().func_ctl().modify(|w| {
+            w.set_alt_select(sclk.alt_num());
+            w.set_loop_back(true);
+        });
+
+        let cs_index = cs.cs_index();
+        Self::new_inner(
+            peri,
+            Some(cs.map_into()),
+            Some(sclk.map_into()),
+            None,
+            Some(miso.map_into()),
+            None,
+            None,
+            config,
+            cs_index,
+        )
+    }
+
+    pub fn new_blocking_txonly<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        cs: impl Peripheral<P = impl CsPin<T> + CsIndexPin<T>> + 'd,
+        sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(cs, sclk, mosi);
+
+        T::add_resource_group(0);
+
+        cs.set_as_alt(cs.alt_num());
+        mosi.set_as_alt(mosi.alt_num());
+        sclk.ioc_pad().func_ctl().modify(|w| {
+            w.set_alt_select(sclk.alt_num());
+            w.set_loop_back(true);
+        });
+
+        let cs_index = cs.cs_index();
+        Self::new_inner(
+            peri,
+            Some(cs.map_into()),
+            Some(sclk.map_into()),
+            Some(mosi.map_into()),
+            None,
             None,
             None,
             config,
@@ -190,7 +266,7 @@ impl<'d> Spi<'d, Blocking> {
         d3.set_as_alt(d3.alt_num());
 
         let cs_index = cs.cs_index();
-        Self::_new_inner(
+        Self::new_inner(
             peri,
             Some(cs.map_into()),
             Some(sclk.map_into()),
@@ -205,7 +281,7 @@ impl<'d> Spi<'d, Blocking> {
 }
 
 impl<'d, M: Mode> Spi<'d, M> {
-    fn _new_inner<T: Instance>(
+    fn new_inner<T: Instance>(
         _peri: impl Peripheral<P = T> + 'd,
         cs: Option<PeripheralRef<'d, AnyPin>>,
         sclk: Option<PeripheralRef<'d, AnyPin>>,
@@ -220,7 +296,6 @@ impl<'d, M: Mode> Spi<'d, M> {
             info: T::info(),
             state: T::state(),
             kernel_clock: T::frequency(),
-            delay: McycleDelay::new(crate::sysctl::clocks().cpu0.0),
             cs,
             sclk,
             mosi,
@@ -261,15 +336,16 @@ impl<'d, M: Mode> Spi<'d, M> {
         let cpha = config.mode.polarity == embedded_hal::spi::Polarity::IdleHigh;
 
         r.trans_fmt().write(|w| {
-            w.set_addrlen(config.addr_len.into());
+            // addrlen is set in transfer config, not here
+            w.set_addrlen(AddrLen::_8BIT);
             // Use 8bit data length by default
             // TODO: Use 32bit data length, improve the performance
             // 32 bit data length only works when the data is 32bit aligned
-            w.set_datalen(DataLength::_8Bit.into());
+            w.set_datalen(DataLen::_8Bit.into());
             w.set_datamerge(false);
             w.set_mosibidir(false);
-            w.set_lsb(config.lsb);
-            w.set_slvmode(config.slave_mode);
+            w.set_lsb(config.bit_order == BitOrder::LsbFirst);
+            w.set_slvmode(false); // default master mode
             w.set_cpha(cpha);
             w.set_cpol(cpol);
         });
@@ -334,7 +410,7 @@ impl<'d, M: Mode> Spi<'d, M> {
             w.set_transmode(config.transfer_mode);
         });
 
-        #[cfg(spi_v53)]
+        #[cfg(any(spi_v53, spi_v68))]
         match config.transfer_mode {
             TransMode::WRITE_READ_TOGETHER
             | TransMode::READ_DUMMY_WRITE
@@ -358,7 +434,8 @@ impl<'d, M: Mode> Spi<'d, M> {
             w.set_txfiforst(true);
             w.set_rxfiforst(true);
             w.set_spirst(true);
-            #[cfg(spi_v53)]
+            // spi v67 only has CSN pin
+            #[cfg(any(spi_v53, spi_v68))]
             w.set_cs_en(self.cs_index);
         });
 
@@ -397,11 +474,10 @@ impl<'d, M: Mode> Spi<'d, M> {
 
         let r = self.info.regs;
 
-        for i in 0..data.len() {
+        for b in data {
             // TODO: Add timeout
             while r.status().read().rxempty() {}
-            let b = r.data().read().0 as u8;
-            data[i] = b;
+            *b = r.data().read().0 as u8;
         }
 
         Ok(())
@@ -489,7 +565,7 @@ impl embedded_hal::spi::Error for Error {
             Error::Timeout => embedded_hal::spi::ErrorKind::Other,
             Error::InvalidArgument => embedded_hal::spi::ErrorKind::Other,
             Error::BufferTooLong => embedded_hal::spi::ErrorKind::Other,
-            Error::FifoFull => embedded_hal::spi::ErrorKind::Other,
+            Error::FifoFull => embedded_hal::spi::ErrorKind::Overrun,
         }
     }
 }
@@ -532,7 +608,8 @@ impl<'d, M: Mode> embedded_hal::spi::SpiDevice for Spi<'d, M> {
                     self.blocking_read(buf, &config)?;
                 }
                 embedded_hal::spi::Operation::DelayNs(ns) => {
-                    self.delay.delay_ns(*ns);
+                    let mut delay = McycleDelay::new(crate::sysctl::clocks().cpu0.0);
+                    delay.delay_ns(*ns);
                 }
             }
         }
