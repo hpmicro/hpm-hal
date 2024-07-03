@@ -177,7 +177,9 @@ fn main() {
                         "CS1" => 2,
                         "CS2" => 4,
                         "CS3" => 8,
-                        _ => unreachable!(),
+                        // CSN pin is available on hpm67 chips
+                        "CSN" => 0,
+                        _ => unreachable!("CS pin not found {:?}", pin.signal),
                     };
                     g.extend(quote! {
                         spi_cs_pin_trait_impl!(crate::spi::CsIndexPin, #peri, #pin_name, #alt, #cs_index);

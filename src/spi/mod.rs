@@ -290,6 +290,9 @@ impl<'d, M: Mode> Spi<'d, M> {
         }
 
         // info!("Unsupported SPI mode, HPM's SPI controller supports 1-1-1, 1-1-4, 1-1-2, 1-2-2 and 1-4-4 modes");
+        if config.addr_phase == AddrPhaseFormat::DUAL_QUAD_IO && config.data_phase == DataPhaseFormat::SINGLE_IO {
+            return Err(Error::InvalidArgument);
+        }
 
         let r = self.info.regs;
 
@@ -312,17 +315,18 @@ impl<'d, M: Mode> Spi<'d, M> {
             w.set_tokenen(false);
             #[cfg(spi_v67)]
             match config.transfer_mode {
-                TransMode::WriteReadTogether
-                | TransMode::ReadDummyWrite
-                | TransMode::WriteDummyRead
-                | TransMode::ReadWrite
-                | TransMode::WriteRead => {
+                TransMode::WRITE_READ_TOGETHER
+                | TransMode::READ_DUMMY_WRITE
+                | TransMode::WRITE_DUMMY_READ
+                | TransMode::READ_WRITE
+                | TransMode::WRITE_READ => {
                     w.set_wrtrancnt(data.len() as u16 - 1);
                     w.set_rdtrancnt(data.len() as u16 - 1);
                 }
-                TransMode::WriteOnly | TransMode::DummyWrite => w.set_wrtrancnt(data.len() as u16 - 1),
-                TransMode::ReadOnly | TransMode::DummyRead => w.set_rdtrancnt(data.len() as u16 - 1),
-                TransMode::NoData => (),
+                TransMode::WRITE_ONLY | TransMode::DUMMY_WRITE => w.set_wrtrancnt(data.len() as u16 - 1),
+                TransMode::READ_ONLY | TransMode::DUMMY_READ => w.set_rdtrancnt(data.len() as u16 - 1),
+                TransMode::NO_DATA => (),
+                _ => (),
             }
             w.set_tokenvalue(false);
             w.set_dummycnt(config.dummy_cnt);
@@ -354,6 +358,7 @@ impl<'d, M: Mode> Spi<'d, M> {
             w.set_txfiforst(true);
             w.set_rxfiforst(true);
             w.set_spirst(true);
+            #[cfg(spi_v53)]
             w.set_cs_en(self.cs_index);
         });
 
