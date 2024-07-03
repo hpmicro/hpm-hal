@@ -292,6 +292,7 @@ impl<'d> Spi<'d, Blocking> {
 
     pub fn new_blocking_quad<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
+        cs: impl Peripheral<P = impl CsPin<T> + CsIndexPin<T>> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
@@ -299,10 +300,11 @@ impl<'d> Spi<'d, Blocking> {
         d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(sclk, mosi, miso, d2, d3);
+        into_ref!(cs, sclk, mosi, miso, d2, d3);
 
         T::add_resource_group(0);
 
+        cs.set_as_alt(cs.alt_num());
         mosi.set_as_alt(mosi.alt_num());
         miso.set_as_alt(miso.alt_num());
         sclk.ioc_pad().func_ctl().modify(|w| {
@@ -311,6 +313,9 @@ impl<'d> Spi<'d, Blocking> {
         });
         d2.set_as_alt(d2.alt_num());
         d3.set_as_alt(d3.alt_num());
+
+        let cs_index = cs.cs_index();
+        T::info().regs.ctrl().modify(|w| w.set_cs_en(cs_index));
 
         Self::new_inner(
             peri,
