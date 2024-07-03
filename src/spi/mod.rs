@@ -310,14 +310,27 @@ impl<'d, M: Mode> Spi<'d, M> {
         this
     }
 
+    /// Actual SPI frequency
+    pub fn frequency(&self) -> Hertz {
+        let r = self.info.regs;
+        let clk_in = self.kernel_clock.0;
+        let sclk_div = r.timing().read().sclk_div();
+        let f_sclk = clk_in / ((sclk_div as u32 + 1) * 2);
+
+        Hertz(f_sclk)
+    }
+
     fn enable_and_configure(&mut self, config: &Config) -> Result<(), Error> {
         let r = self.info.regs;
 
         // Timing init
         let sclk_div: u8 = if self.kernel_clock > config.frequency {
             let div_remainder = self.kernel_clock.0 % config.frequency.0;
-            let div_integer = self.kernel_clock.0 / config.frequency.0;
-            if (div_remainder != 0) || (div_integer % 2 != 0) {
+            let mut div_integer = self.kernel_clock.0 / config.frequency.0;
+            if div_remainder != 0 {
+                div_integer += 1;
+            }
+            if div_integer == 0 {
                 return Err(Error::InvalidArgument);
             }
             ((div_integer / 2) - 1) as u8
