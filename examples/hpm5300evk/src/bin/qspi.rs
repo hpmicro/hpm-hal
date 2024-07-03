@@ -86,7 +86,7 @@ impl RM67162<'_> {
 
         if data.len() == 0 {
             transfer_config.transfer_mode = TransMode::NO_DATA;
-            self.qspi.blocking_write(&[], &transfer_config)?;
+            self.qspi.blocking_write::<u8>(&[], &transfer_config)?;
         } else {
             self.qspi.blocking_write(data, &transfer_config)?;
         }
@@ -108,7 +108,7 @@ impl RM67162<'_> {
 
         if data.len() == 0 {
             transfer_config.transfer_mode = TransMode::NO_DATA;
-            self.qspi.blocking_write(&[], &transfer_config)?;
+            self.qspi.blocking_write::<u8>(&[], &transfer_config)?;
         } else {
             self.qspi.blocking_write(data, &transfer_config)?;
         }
@@ -286,8 +286,8 @@ fn main() -> ! {
         frequency: Hertz(40_000_000),
         mode: MODE_0,
         timing: Timings {
-            cs2sclk: hpm_hal::spi::Cs2Sclk::_3HalfSclk,
-            csht: hpm_hal::spi::CsHighTime::_11HalfSclk,
+            cs2sclk: hpm_hal::spi::Cs2Sclk::_1HalfSclk,
+            csht: hpm_hal::spi::CsHighTime::_8HalfSclk,
         },
         ..Default::default()
     };
@@ -313,7 +313,7 @@ fn main() -> ! {
     Text::new("Hello HPM!", Point::new(200, 150), style)
         .draw(&mut display)
         .unwrap();
-    let diff = 1;
+    let diff = 2;
     let mut ferris = Image::new(&raw_image_data, Point::new(0, 40));
     info!("Looping");
     loop {
