@@ -37,8 +37,8 @@ pub struct Timings {
 impl Default for Timings {
     fn default() -> Self {
         Self {
-            cs2sclk: Cs2Sclk::_4HalfSclk,
-            csht: CsHighTime::_12HalfSclk,
+            cs2sclk: Cs2Sclk::_1HalfSclk,
+            csht: CsHighTime::_1HalfSclk,
         }
     }
 }
@@ -497,6 +497,8 @@ impl<'d, M: Mode> Spi<'d, M> {
                 ptr::write_volatile(r.data().as_ptr() as *mut W, *b);
             }
         }
+
+        while r.status().read().spiactive() {}
 
         Ok(())
     }
