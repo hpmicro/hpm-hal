@@ -6,6 +6,7 @@
 //! - SPI_SUPPORT_DIRECTIO: v53, v68
 
 use core::marker::PhantomData;
+use core::ptr;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -16,6 +17,7 @@ pub use enums::*;
 pub use hpm_metapac::spi::vals::{AddrLen, AddrPhaseFormat, DataPhaseFormat, TransMode};
 use riscv::delay::McycleDelay;
 
+use crate::dma::word;
 use crate::gpio::AnyPin;
 use crate::mode::{Blocking, Mode};
 use crate::time::Hertz;
@@ -138,6 +140,7 @@ pub struct Spi<'d, M: Mode> {
     d2: Option<PeripheralRef<'d, AnyPin>>,
     d3: Option<PeripheralRef<'d, AnyPin>>,
     cs_index: u8,
+    current_word_size: word_impl::Config,
     _phantom: PhantomData<M>,
 }
 
@@ -303,6 +306,7 @@ impl<'d, M: Mode> Spi<'d, M> {
             d2,
             d3,
             cs_index,
+            current_word_size: <u8 as SealedWord>::CONFIG,
             _phantom: PhantomData,
         };
 
@@ -366,10 +370,22 @@ impl<'d, M: Mode> Spi<'d, M> {
         Ok(())
     }
 
-    fn setup_transfer_config(&mut self, data: &[u8], config: &TransferConfig) -> Result<(), Error> {
+    fn set_word_size(&mut self, word_size: word_impl::Config) {
+        if self.current_word_size == word_size {
+            return;
+        }
+
+        self.info.regs.trans_fmt().modify(|w| {
+            w.set_datalen(word_size);
+        });
+
+        self.current_word_size = word_size;
+    }
+
+    fn setup_transfer_config(&mut self, data_len: usize, config: &TransferConfig) -> Result<(), Error> {
         // For spi_v67, the size of data must <= 512
         #[cfg(spi_v67)]
-        if data.len() > 512 {
+        if data_len.len() > 512 {
             return Err(Error::BufferTooLong);
         }
 
@@ -409,11 +425,11 @@ impl<'d, M: Mode> Spi<'d, M> {
                 | TransMode::WRITE_DUMMY_READ
                 | TransMode::READ_WRITE
                 | TransMode::WRITE_READ => {
-                    w.set_wrtrancnt(data.len() as u16 - 1);
-                    w.set_rdtrancnt(data.len() as u16 - 1);
+                    w.set_wrtrancnt(data_len as u16 - 1);
+                    w.set_rdtrancnt(data_len as u16 - 1);
                 }
-                TransMode::WRITE_ONLY | TransMode::DUMMY_WRITE => w.set_wrtrancnt(data.len() as u16 - 1),
-                TransMode::READ_ONLY | TransMode::DUMMY_READ => w.set_rdtrancnt(data.len() as u16 - 1),
+                TransMode::WRITE_ONLY | TransMode::DUMMY_WRITE => w.set_wrtrancnt(data_len as u16 - 1),
+                TransMode::READ_ONLY | TransMode::DUMMY_READ => w.set_rdtrancnt(data_len as u16 - 1),
                 TransMode::NO_DATA => (),
                 _ => (),
             }
@@ -430,14 +446,14 @@ impl<'d, M: Mode> Spi<'d, M> {
             | TransMode::WRITE_DUMMY_READ
             | TransMode::READ_WRITE
             | TransMode::WRITE_READ => {
-                r.wr_trans_cnt().write(|w| w.set_wrtrancnt(data.len() as u32 - 1));
-                r.rd_trans_cnt().write(|w| w.set_rdtrancnt(data.len() as u32 - 1));
+                r.wr_trans_cnt().write(|w| w.set_wrtrancnt(data_len as u32 - 1));
+                r.rd_trans_cnt().write(|w| w.set_rdtrancnt(data_len as u32 - 1));
             }
             TransMode::WRITE_ONLY | TransMode::DUMMY_WRITE => {
-                r.wr_trans_cnt().write(|w| w.set_wrtrancnt(data.len() as u32 - 1))
+                r.wr_trans_cnt().write(|w| w.set_wrtrancnt(data_len as u32 - 1))
             }
             TransMode::READ_ONLY | TransMode::DUMMY_READ => {
-                r.rd_trans_cnt().write(|w| w.set_rdtrancnt(data.len() as u32 - 1))
+                r.rd_trans_cnt().write(|w| w.set_rdtrancnt(data_len as u32 - 1))
             }
             TransMode::NO_DATA => (),
             _ => (),
@@ -453,10 +469,10 @@ impl<'d, M: Mode> Spi<'d, M> {
         });
 
         // Read SPI control mode
-        let mode = r.trans_fmt().read().slvmode();
+        let slave_mode = r.trans_fmt().read().slvmode();
 
         // Write addr and cmd only in master mode
-        if !mode {
+        if !slave_mode {
             if let Some(addr) = config.addr {
                 r.addr().write(|w| w.set_addr(addr));
             }
@@ -467,35 +483,50 @@ impl<'d, M: Mode> Spi<'d, M> {
     }
 
     // Write in master mode
-    pub fn blocking_write(&mut self, data: &[u8], config: &TransferConfig) -> Result<(), Error> {
-        self.setup_transfer_config(data, config)?;
-
+    pub fn blocking_write<W: Word>(&mut self, data: &[W], config: &TransferConfig) -> Result<(), Error> {
         let r = self.info.regs;
+
+        flush_rx_fifo(r);
+        self.setup_transfer_config(data.len(), config)?;
+        self.set_word_size(W::CONFIG);
 
         // Write data byte by byte
         for b in data {
-            // TODO: Add timeout
             while r.status().read().txfull() {}
-            r.data().write(|w| w.set_data(*b as u32));
+            unsafe {
+                ptr::write_volatile(r.data().as_ptr() as *mut W, *b);
+            }
         }
 
         Ok(())
     }
 
-    pub fn blocking_read(&mut self, data: &mut [u8], config: &TransferConfig) -> Result<(), Error> {
-        self.setup_transfer_config(data, config)?;
-
+    pub fn blocking_read<W: Word>(&mut self, data: &mut [W], config: &TransferConfig) -> Result<(), Error> {
         let r = self.info.regs;
 
-        for b in data {
-            // TODO: Add timeout
-            while r.status().read().rxempty() {}
-            *b = r.data().read().0 as u8;
-        }
+        flush_rx_fifo(r);
+        self.setup_transfer_config(data.len(), config)?;
+        self.set_word_size(W::CONFIG);
 
+        for b in data {
+            while r.status().read().rxempty() {}
+            *b = unsafe { ptr::read_volatile(r.data().as_ptr() as *const W) }
+        }
         Ok(())
     }
+
+    // pub fn blocking_transfer_iplace<W: Word>
 }
+
+// ==========
+// Helper functions
+
+fn flush_rx_fifo(r: crate::pac::spi::Spi) {
+    while !r.status().read().rxempty() {
+        let _ = r.data().read();
+    }
+}
+
 // ==========
 // Interrupt handler
 
@@ -570,6 +601,64 @@ foreach_peripheral!(
 );
 
 // ==========
+// Word impl
+trait SealedWord {
+    const CONFIG: word_impl::Config;
+}
+
+/// Word sizes usable for SPI.
+#[allow(private_bounds)]
+pub trait Word: word::Word + SealedWord {}
+
+macro_rules! impl_word {
+    ($T:ty, $config:expr) => {
+        impl SealedWord for $T {
+            const CONFIG: Config = $config;
+        }
+        impl Word for $T {}
+    };
+}
+
+mod word_impl {
+    use super::*;
+
+    pub type Config = u8;
+
+    impl_word!(word::U1, 1 - 1);
+    impl_word!(word::U2, 2 - 1);
+    impl_word!(word::U3, 3 - 1);
+    impl_word!(word::U4, 4 - 1);
+    impl_word!(word::U5, 5 - 1);
+    impl_word!(word::U6, 6 - 1);
+    impl_word!(word::U7, 7 - 1);
+    impl_word!(u8, 8 - 1);
+    impl_word!(word::U9, 9 - 1);
+    impl_word!(word::U10, 10 - 1);
+    impl_word!(word::U11, 11 - 1);
+    impl_word!(word::U12, 12 - 1);
+    impl_word!(word::U13, 13 - 1);
+    impl_word!(word::U14, 14 - 1);
+    impl_word!(word::U15, 15 - 1);
+    impl_word!(u16, 16 - 1);
+    impl_word!(word::U17, 17 - 1);
+    impl_word!(word::U18, 18 - 1);
+    impl_word!(word::U19, 19 - 1);
+    impl_word!(word::U20, 20 - 1);
+    impl_word!(word::U21, 21 - 1);
+    impl_word!(word::U22, 22 - 1);
+    impl_word!(word::U23, 23 - 1);
+    impl_word!(word::U24, 24 - 1);
+    impl_word!(word::U25, 25 - 1);
+    impl_word!(word::U26, 26 - 1);
+    impl_word!(word::U27, 27 - 1);
+    impl_word!(word::U28, 28 - 1);
+    impl_word!(word::U29, 29 - 1);
+    impl_word!(word::U30, 30 - 1);
+    impl_word!(word::U31, 31 - 1);
+    impl_word!(u32, 32 - 1);
+}
+
+// ==========
 // eh traits
 
 impl embedded_hal::spi::Error for Error {
@@ -588,7 +677,21 @@ impl<'d, M: Mode> embedded_hal::spi::ErrorType for Spi<'d, M> {
 }
 
 impl<'d, M: Mode> embedded_hal::spi::SpiDevice for Spi<'d, M> {
+    fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(buf, &TransferConfig::default())
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
+        let config = TransferConfig {
+            transfer_mode: TransMode::READ_ONLY,
+            ..Default::default()
+        };
+        self.blocking_read(buf, &config)
+    }
+
     fn transaction(&mut self, operations: &mut [embedded_hal::spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
+        let mut delay = McycleDelay::new(crate::sysctl::clocks().cpu0.0);
+
         for operation in operations {
             match operation {
                 embedded_hal::spi::Operation::Write(buf) => {
@@ -621,7 +724,6 @@ impl<'d, M: Mode> embedded_hal::spi::SpiDevice for Spi<'d, M> {
                     self.blocking_read(buf, &config)?;
                 }
                 embedded_hal::spi::Operation::DelayNs(ns) => {
-                    let mut delay = McycleDelay::new(crate::sysctl::clocks().cpu0.0);
                     delay.delay_ns(*ns);
                 }
             }
