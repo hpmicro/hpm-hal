@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm5301"] }
+# hpm5301 is a subset of hpm5361, either is ok if you have the 5301 board.
+hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm5361"] }
 
 panic-halt = "0.2.0"
 riscv-rt = "0.12.2"
