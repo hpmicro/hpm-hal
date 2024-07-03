@@ -20,6 +20,7 @@ This crate is a working-in-progress and not ready for use.
   - [x] FEMC
     - [x] SDRAM init
   - [x] SPI blocking
+    - [x] QSPI driver
 - Long term Plans
   - [ ] andes-riscv for specific CSRs
   - [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
@@ -32,7 +33,7 @@ This crate is a working-in-progress and not ready for use.
 | HPM6200    |      |  ✓  |        |      |      |     |     |     |     |     |
 | HPM5300    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ✓  |  ✓  |     |     |  ✓  |
 | HPM6800    |      |  ✓  |        |      |      |     |     |     |     |     |
-| HPM6E00    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ?  |  ?  |     |     |     |
+| HPM6E00    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ?  |  ?  |     |     |  ?  |
 
 - ✓: Implemented
 - ?: Requires demo verification
