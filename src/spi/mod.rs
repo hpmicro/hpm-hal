@@ -10,19 +10,85 @@ use core::ptr;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use embedded_hal::delay::DelayNs;
 // re-export
 pub use embedded_hal::spi::{Mode as SpiMode, MODE_0, MODE_1, MODE_2, MODE_3};
-pub use enums::*;
 pub use hpm_metapac::spi::vals::{AddrLen, AddrPhaseFormat, DataPhaseFormat, TransMode};
-use riscv::delay::McycleDelay;
 
 use crate::dma::word;
 use crate::gpio::AnyPin;
 use crate::mode::{Blocking, Mode};
 use crate::time::Hertz;
 
-mod enums;
+// ==========
+// Helper enums
+
+/// Time between CS active and SCLK edge.
+#[derive(Copy, Clone)]
+pub enum Cs2Sclk {
+    _1HalfSclk,
+    _2HalfSclk,
+    _3HalfSclk,
+    _4HalfSclk,
+}
+
+impl Into<u8> for Cs2Sclk {
+    fn into(self) -> u8 {
+        match self {
+            Cs2Sclk::_1HalfSclk => 0x00,
+            Cs2Sclk::_2HalfSclk => 0x01,
+            Cs2Sclk::_3HalfSclk => 0x02,
+            Cs2Sclk::_4HalfSclk => 0x03,
+        }
+    }
+}
+
+/// Time the Chip Select line stays high.
+#[derive(Copy, Clone)]
+#[repr(u8)]
+pub enum CsHighTime {
+    _1HalfSclk,
+    _2HalfSclk,
+    _3HalfSclk,
+    _4HalfSclk,
+    _5HalfSclk,
+    _6HalfSclk,
+    _7HalfSclk,
+    _8HalfSclk,
+    _9HalfSclk,
+    _10HalfSclk,
+    _11HalfSclk,
+    _12HalfSclk,
+    _13HalfSclk,
+    _14HalfSclk,
+    _15HalfSclk,
+    _16HalfSclk,
+}
+
+impl Into<u8> for CsHighTime {
+    fn into(self) -> u8 {
+        match self {
+            CsHighTime::_1HalfSclk => 0b0000,
+            CsHighTime::_2HalfSclk => 0b0001,
+            CsHighTime::_3HalfSclk => 0b0010,
+            CsHighTime::_4HalfSclk => 0b0011,
+            CsHighTime::_5HalfSclk => 0b0100,
+            CsHighTime::_6HalfSclk => 0b0101,
+            CsHighTime::_7HalfSclk => 0b0110,
+            CsHighTime::_8HalfSclk => 0b0111,
+            CsHighTime::_9HalfSclk => 0b1000,
+            CsHighTime::_10HalfSclk => 0b1001,
+            CsHighTime::_11HalfSclk => 0b1010,
+            CsHighTime::_12HalfSclk => 0b1011,
+            CsHighTime::_13HalfSclk => 0b1100,
+            CsHighTime::_14HalfSclk => 0b1101,
+            CsHighTime::_15HalfSclk => 0b1110,
+            CsHighTime::_16HalfSclk => 0b1111,
+        }
+    }
+}
+
+// ==========
+// Config
 
 #[derive(Clone, Copy)]
 pub struct Timings {
@@ -37,8 +103,8 @@ pub struct Timings {
 impl Default for Timings {
     fn default() -> Self {
         Self {
-            cs2sclk: Cs2Sclk::_1HalfSclk,
-            csht: CsHighTime::_1HalfSclk,
+            cs2sclk: Cs2Sclk::_4HalfSclk,
+            csht: CsHighTime::_12HalfSclk,
         }
     }
 }
@@ -56,10 +122,6 @@ pub enum BitOrder {
 pub struct Config {
     /// Whether to use LSB.
     pub bit_order: BitOrder,
-    /// // Enable slave mode.
-    // pub slave_mode: bool,
-    // /// Default address length.
-    // pub addr_len: AddrLen,
     /// Mode
     pub mode: SpiMode,
     /// SPI frequency.
@@ -72,8 +134,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             bit_order: BitOrder::MsbFirst,
-            // slave_mode: false,
-            // addr_len: AddrLen::_24BIT,
             mode: MODE_0,
             frequency: Hertz(10_000_000),
             timing: Timings::default(),
@@ -127,19 +187,20 @@ pub enum Error {
     FifoFull,
 }
 
+// ==========
+// SPI driver
+
 /// SPI driver.
 #[allow(unused)]
 pub struct Spi<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    cs: Option<PeripheralRef<'d, AnyPin>>,
     sclk: Option<PeripheralRef<'d, AnyPin>>,
     mosi: Option<PeripheralRef<'d, AnyPin>>,
     miso: Option<PeripheralRef<'d, AnyPin>>,
     d2: Option<PeripheralRef<'d, AnyPin>>,
     d3: Option<PeripheralRef<'d, AnyPin>>,
-    cs_index: u8,
     current_word_size: word_impl::Config,
     _phantom: PhantomData<M>,
 }
@@ -148,17 +209,15 @@ impl<'d> Spi<'d, Blocking> {
     /// Create a new blocking SPI driver.
     pub fn new_blocking<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
-        cs: impl Peripheral<P = impl CsPin<T> + CsIndexPin<T>> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(cs, sclk, mosi, miso);
+        into_ref!(sclk, mosi, miso);
 
         T::add_resource_group(0);
 
-        cs.set_as_alt(cs.alt_num());
         mosi.set_as_alt(mosi.alt_num());
         miso.set_as_alt(miso.alt_num());
         sclk.ioc_pad().func_ctl().modify(|w| {
@@ -166,87 +225,73 @@ impl<'d> Spi<'d, Blocking> {
             w.set_loop_back(true);
         });
 
-        let cs_index = cs.cs_index();
         Self::new_inner(
             peri,
-            Some(cs.map_into()),
             Some(sclk.map_into()),
             Some(mosi.map_into()),
             Some(miso.map_into()),
             None,
             None,
             config,
-            cs_index,
         )
     }
 
     pub fn new_blocking_rxonly<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
-        cs: impl Peripheral<P = impl CsPin<T> + CsIndexPin<T>> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(cs, sclk, miso);
+        into_ref!(sclk, miso);
 
         T::add_resource_group(0);
 
-        cs.set_as_alt(cs.alt_num());
         miso.set_as_alt(miso.alt_num());
         sclk.ioc_pad().func_ctl().modify(|w| {
             w.set_alt_select(sclk.alt_num());
             w.set_loop_back(true);
         });
 
-        let cs_index = cs.cs_index();
         Self::new_inner(
             peri,
-            Some(cs.map_into()),
             Some(sclk.map_into()),
             None,
             Some(miso.map_into()),
             None,
             None,
             config,
-            cs_index,
         )
     }
 
     pub fn new_blocking_txonly<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
-        cs: impl Peripheral<P = impl CsPin<T> + CsIndexPin<T>> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(cs, sclk, mosi);
+        into_ref!(sclk, mosi);
 
         T::add_resource_group(0);
 
-        cs.set_as_alt(cs.alt_num());
         mosi.set_as_alt(mosi.alt_num());
         sclk.ioc_pad().func_ctl().modify(|w| {
             w.set_alt_select(sclk.alt_num());
             w.set_loop_back(true);
         });
 
-        let cs_index = cs.cs_index();
         Self::new_inner(
             peri,
-            Some(cs.map_into()),
             Some(sclk.map_into()),
             Some(mosi.map_into()),
             None,
             None,
             None,
             config,
-            cs_index,
         )
     }
 
     pub fn new_blocking_quad<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
-        cs: impl Peripheral<P = impl CsPin<T> + CsIndexPin<T>> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
@@ -254,11 +299,10 @@ impl<'d> Spi<'d, Blocking> {
         d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(cs, sclk, mosi, miso, d2, d3);
+        into_ref!(sclk, mosi, miso, d2, d3);
 
         T::add_resource_group(0);
 
-        cs.set_as_alt(cs.alt_num());
         mosi.set_as_alt(mosi.alt_num());
         miso.set_as_alt(miso.alt_num());
         sclk.ioc_pad().func_ctl().modify(|w| {
@@ -268,17 +312,14 @@ impl<'d> Spi<'d, Blocking> {
         d2.set_as_alt(d2.alt_num());
         d3.set_as_alt(d3.alt_num());
 
-        let cs_index = cs.cs_index();
         Self::new_inner(
             peri,
-            Some(cs.map_into()),
             Some(sclk.map_into()),
             Some(mosi.map_into()),
             Some(miso.map_into()),
             Some(d2.map_into()),
             Some(d3.map_into()),
             config,
-            cs_index,
         )
     }
 }
@@ -286,26 +327,22 @@ impl<'d> Spi<'d, Blocking> {
 impl<'d, M: Mode> Spi<'d, M> {
     fn new_inner<T: Instance>(
         _peri: impl Peripheral<P = T> + 'd,
-        cs: Option<PeripheralRef<'d, AnyPin>>,
         sclk: Option<PeripheralRef<'d, AnyPin>>,
         mosi: Option<PeripheralRef<'d, AnyPin>>,
         miso: Option<PeripheralRef<'d, AnyPin>>,
         d2: Option<PeripheralRef<'d, AnyPin>>,
         d3: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
-        cs_index: u8,
     ) -> Self {
         let mut this = Self {
             info: T::info(),
             state: T::state(),
             kernel_clock: T::frequency(),
-            cs,
             sclk,
             mosi,
             miso,
             d2,
             d3,
-            cs_index,
             current_word_size: <u8 as SealedWord>::CONFIG,
             _phantom: PhantomData,
         };
@@ -356,9 +393,9 @@ impl<'d, M: Mode> Spi<'d, M> {
             // addrlen is set in transfer config, not here
             w.set_addrlen(AddrLen::_8BIT);
             // Use 8bit data length by default
-            // TODO: Use 32bit data length, improve the performance
+            // TODO: Use 32bit data len + datamerge, improve the performance
             // 32 bit data length only works when the data is 32bit aligned
-            w.set_datalen(DataLen::_8Bit.into());
+            w.set_datalen(<u8 as SealedWord>::CONFIG);
             w.set_datamerge(false);
             w.set_mosibidir(false);
             w.set_lsb(config.bit_order == BitOrder::LsbFirst);
@@ -459,13 +496,12 @@ impl<'d, M: Mode> Spi<'d, M> {
             _ => (),
         }
 
+        // reset txfifo, rxfifo and control
         r.ctrl().modify(|w| {
             w.set_txfiforst(true);
             w.set_rxfiforst(true);
             w.set_spirst(true);
-            // spi v67 only has CSN pin
-            #[cfg(any(spi_v53, spi_v68))]
-            w.set_cs_en(self.cs_index);
+            // CS is handled by SpiDevice trait
         });
 
         // Read SPI control mode
@@ -498,7 +534,8 @@ impl<'d, M: Mode> Spi<'d, M> {
             }
         }
 
-        while r.status().read().spiactive() {}
+        // must wait tx finished, then gpio cs can be changed after function return
+        while self.info.regs.status().read().spiactive() {}
 
         Ok(())
     }
@@ -514,10 +551,65 @@ impl<'d, M: Mode> Spi<'d, M> {
             while r.status().read().rxempty() {}
             *b = unsafe { ptr::read_volatile(r.data().as_ptr() as *const W) }
         }
+
+        // no need to wait rx finished, because the data is already read out
         Ok(())
     }
 
-    // pub fn blocking_transfer_iplace<W: Word>
+    /// Blocking bidirectional transfer.
+    pub fn blocking_transfer<W: Word>(
+        &mut self,
+        read: &mut [W],
+        write: &[W],
+        config: &TransferConfig,
+    ) -> Result<(), Error> {
+        let r = self.info.regs;
+
+        flush_rx_fifo(r);
+        let len = read.len().max(write.len());
+        self.setup_transfer_config(len, &config)?;
+        self.set_word_size(W::CONFIG);
+
+        for i in 0..len {
+            while r.status().read().txfull() {}
+            let wb = write.get(i).copied().unwrap_or_default();
+            unsafe { ptr::write_volatile(r.data().as_ptr() as *mut W, wb) };
+
+            while r.status().read().rxempty() {}
+            let rb = unsafe { ptr::read_volatile(r.data().as_ptr() as *const W) };
+            if let Some(r) = read.get_mut(i) {
+                *r = rb;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Blocking in-place bidirectional transfer.
+    pub fn blocking_transfer_iplace<W: Word>(&mut self, words: &mut [W], config: &TransferConfig) -> Result<(), Error> {
+        let r = self.info.regs;
+
+        flush_rx_fifo(r);
+        self.setup_transfer_config(words.len(), &config)?;
+        self.set_word_size(W::CONFIG);
+
+        for i in 0..words.len() {
+            while r.status().read().txfull() {}
+            let wb = words[i];
+            unsafe { ptr::write_volatile(r.data().as_ptr() as *mut W, wb) };
+
+            while r.status().read().rxempty() {}
+            let rb = unsafe { ptr::read_volatile(r.data().as_ptr() as *const W) };
+            words[i] = rb;
+        }
+
+        Ok(())
+    }
+
+    // wait for spi idle
+    pub fn blocking_flush(&mut self) {
+        while self.info.regs.status().read().spiactive() {}
+    }
 }
 
 // ==========
@@ -678,7 +770,7 @@ impl<'d, M: Mode> embedded_hal::spi::ErrorType for Spi<'d, M> {
     type Error = Error;
 }
 
-impl<'d, M: Mode> embedded_hal::spi::SpiDevice for Spi<'d, M> {
+impl<'d, M: Mode> embedded_hal::spi::SpiBus for Spi<'d, M> {
     fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
         self.blocking_write(buf, &TransferConfig::default())
     }
@@ -691,45 +783,24 @@ impl<'d, M: Mode> embedded_hal::spi::SpiDevice for Spi<'d, M> {
         self.blocking_read(buf, &config)
     }
 
-    fn transaction(&mut self, operations: &mut [embedded_hal::spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
-        let mut delay = McycleDelay::new(crate::sysctl::clocks().cpu0.0);
+    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
+        let config = TransferConfig {
+            transfer_mode: TransMode::WRITE_READ,
+            ..Default::default()
+        };
+        self.blocking_transfer(read, write, &config)
+    }
 
-        for operation in operations {
-            match operation {
-                embedded_hal::spi::Operation::Write(buf) => {
-                    let config = TransferConfig::default();
-                    self.blocking_write(buf, &config)?;
-                }
-                embedded_hal::spi::Operation::Read(buf) => {
-                    let config = TransferConfig {
-                        transfer_mode: TransMode::READ_ONLY,
-                        ..Default::default()
-                    };
-                    self.blocking_read(buf, &config)?;
-                }
-                embedded_hal::spi::Operation::Transfer(read, write) => {
-                    let mut config = TransferConfig {
-                        transfer_mode: TransMode::WRITE_ONLY,
-                        ..Default::default()
-                    };
-                    self.blocking_write(write, &config)?;
-                    config.transfer_mode = TransMode::READ_ONLY;
-                    self.blocking_read(read, &config)?;
-                }
-                embedded_hal::spi::Operation::TransferInPlace(buf) => {
-                    let mut config = TransferConfig {
-                        transfer_mode: TransMode::WRITE_ONLY,
-                        ..Default::default()
-                    };
-                    self.blocking_write(buf, &config)?;
-                    config.transfer_mode = TransMode::READ_ONLY;
-                    self.blocking_read(buf, &config)?;
-                }
-                embedded_hal::spi::Operation::DelayNs(ns) => {
-                    delay.delay_ns(*ns);
-                }
-            }
-        }
+    fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
+        let config = TransferConfig {
+            transfer_mode: TransMode::WRITE_READ,
+            ..Default::default()
+        };
+        self.blocking_transfer_iplace(words, &config)
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush();
         Ok(())
     }
 }
