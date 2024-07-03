@@ -283,12 +283,11 @@ fn main() -> ! {
     let mut led = Output::new(p.PA10, Level::Low, Speed::Fast);
 
     let spi_config = Config {
-        addr_len: AddrLen::_24BIT,
         frequency: Hertz(40_000_000),
         mode: MODE_0,
         timing: Timings {
-            cs2sclk: hpm_hal::spi::enums::ChipSelect2SCLK::_3HalfSclk,
-            csht: hpm_hal::spi::enums::ChipSelectHighTime::_11HalfSclk,
+            cs2sclk: hpm_hal::spi::Cs2Sclk::_3HalfSclk,
+            csht: hpm_hal::spi::CsHighTime::_11HalfSclk,
         },
         ..Default::default()
     };
