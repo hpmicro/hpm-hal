@@ -16,6 +16,8 @@ use embedded_graphics::Drawable;
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::SpiDevice;
+use embedded_hal_bus::spi::AtomicDevice;
+use embedded_hal_bus::util::AtomicCell;
 use hpm_hal::gpio::{Level, Output, Speed};
 use hpm_hal::mode::Blocking;
 use hpm_hal::spi::{Config, Spi};
@@ -264,13 +266,18 @@ fn main() -> ! {
     delay.delay_ms(200);
     rst.set_high();
 
+    let cs = Output::new(p.PA26, Level::High, Speed::Fast);
+
     let spi_config = Config {
         frequency: Hertz(80_000_000),
         ..Default::default()
     };
-    let spi: hal::spi::Spi<'_, Blocking> = Spi::new_blocking(p.SPI1, p.PA26, p.PA27, p.PA29, p.PA28, spi_config);
+    let spi: hal::spi::Spi<'_, Blocking> = Spi::new_blocking(p.SPI1, p.PA27, p.PA29, p.PA28, spi_config);
+    let spi = AtomicCell::new(spi);
+    let spi_dev = AtomicDevice::new_no_delay(&spi, cs).unwrap();
+
     let dc = Output::new(p.PB13, Level::High, Speed::Fast);
-    let mut display = ST7789::<_, _, 320, 172, 0, 34>::new(spi, dc);
+    let mut display = ST7789::<_, _, 320, 172, 0, 34>::new(spi_dev, dc);
     display.init(&mut delay);
     display.clear(Rgb565::BLACK).unwrap();
     let raw_image_data = ImageRawLE::new(include_bytes!("./assets/ferris.raw"), 86);
