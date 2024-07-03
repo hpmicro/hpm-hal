@@ -42,6 +42,7 @@ pub(crate) static mut CLOCKS: Clocks = Clocks {
 };
 
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Clocks {
     pub cpu0: Hertz,
     pub cpu1: Hertz,
