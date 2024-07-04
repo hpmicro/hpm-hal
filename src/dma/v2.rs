@@ -1,11 +1,15 @@
-use core::option;
-use core::sync::atomic::AtomicUsize;
+//! DMA v2
+//!
+//! hpm53, hpm68, hpm6e
+
+use core::sync::atomic::{AtomicUsize, Ordering};
+use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use hpm_metapac::dma::vals::{self, AddrCtrl};
 
 use super::word::WordSize;
-use super::{AnyChannel, Request};
+use super::{AnyChannel, Dir, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::InterruptExt;
 
@@ -137,9 +141,15 @@ impl HandshakeMode {
 }
 
 impl AnyChannel {
+    /// Safety: Must be called with a matching set of parameters for a valid dma channel
+    pub(crate) unsafe fn on_irq(&self) {
+        let info = self.info();
+        let state = &STATE[self.id as usize];
+    }
     unsafe fn configure(
         &self,
         request: Request, // DMA request number in DMAMUX
+        dir: Dir,
         src_addr: *const u32,
         src_width: WordSize,
         src_addr_ctrl: AddrCtrl,
@@ -159,9 +169,6 @@ impl AnyChannel {
 
         // follow the impl of dma_setup_channel
 
-        // configure DMAMUX request and output channel
-        super::dmamux::configure_dmamux(info.mux_num, request);
-
         // check alignment
         if !dst_width.aligned(size_in_bytes as u32)
             || !src_width.aligned(src_addr as u32)
@@ -178,10 +185,14 @@ impl AnyChannel {
         // TODO: LLPointer
 
         ch_cr.chan_req_ctrl().write(|w| {
-            w.set_dstreqsel(mux_ch as u8);
-            w.set_srcreqsel(mux_ch as u8); // ? mux_ch or ch?
+            if dir == Dir::MemoryToPeripheral {
+                w.set_dstreqsel(mux_ch as u8);
+            } else {
+                w.set_srcreqsel(mux_ch as u8);
+            }
         });
 
+        ch_cr.llpointer().modify(|w| w.0 = 0x0);
         // TODO: handle SwapTable here
 
         // clear transfer irq status (W1C)
@@ -211,6 +222,9 @@ impl AnyChannel {
 
             w.set_enable(false); // don't start yet
         });
+
+        // configure DMAMUX request and output channel
+        super::dmamux::configure_dmamux(info.mux_num, request);
     }
 
     fn start(&self) {
@@ -219,6 +233,65 @@ impl AnyChannel {
         let r = info.dma.regs();
         let ch = info.num; // channel number in current dma controller
 
+        let ch_cr = r.chctrl(ch);
 
+        ch_cr.ctrl().modify(|w| w.set_enable(true));
+    }
+
+    fn clear_irqs(&self) {
+        let info = self.info();
+
+        let r = info.dma.regs();
+        let ch = info.num; // channel number in current dma controller
+
+        // clear transfer irq status (W1C)
+        // dma_clear_transfer_status
+        r.inthalfsts().modify(|w| w.set_sts(ch, true));
+        r.inttcsts().modify(|w| w.set_sts(ch, true));
+        r.intabortsts().modify(|w| w.set_sts(ch, true));
+        r.interrsts().modify(|w| w.set_sts(ch, true));
+    }
+
+    // requrest stop
+    fn abort(&self) {
+        let r = self.info().dma.regs();
+
+        r.ch_abort().write(|w| w.set_chabort(self.info().num, true));
+    }
+
+    fn is_running(&self) -> bool {
+        // enabled and not completed
+        let r = self.info().dma.regs();
+        let num = self.info().num;
+        let ch_cr = r.chctrl(num);
+
+        ch_cr.ctrl().read().enable() && (r.inttcsts().read().sts(num) || ch_cr.ctrl().read().infiniteloop())
+    }
+
+    fn get_remaining_transfers(&self) -> u32 {
+        let r = self.info().dma.regs();
+        let num = self.info().num;
+        let ch_cr = r.chctrl(num);
+
+        ch_cr.tran_size().read().transize()
+    }
+
+    fn disable_circular_mode(&self) {
+        let r = self.info().dma.regs();
+        let num = self.info().num;
+        let ch_cr = r.chctrl(num);
+
+        ch_cr.ctrl().modify(|w| w.set_infiniteloop(false));
+    }
+
+    fn poll_stop(&self) -> Poll<()> {
+        use core::sync::atomic::compiler_fence;
+        compiler_fence(Ordering::SeqCst);
+
+        if self.is_running() {
+            Poll::Pending
+        } else {
+            Poll::Ready(())
+        }
     }
 }
