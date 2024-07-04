@@ -13,11 +13,19 @@
 mod dmamux;
 pub(crate) use dmamux::*;
 use embassy_hal_internal::{impl_peripheral, Peripheral};
+use v2::ChannelState;
 pub(crate) mod v2;
 
 pub mod word;
 
 use crate::{interrupt, pac};
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+enum Dir {
+    MemoryToPeripheral,
+    PeripheralToMemory,
+}
 
 pub(crate) struct ChannelInfo {
     pub(crate) dma: DmaInfo,
@@ -82,6 +90,9 @@ impl SealedChannel for AnyChannel {
     }
 }
 impl Channel for AnyChannel {}
+
+const CHANNEL_COUNT: usize = crate::_generated::DMA_CHANNELS.len();
+static STATE: [ChannelState; CHANNEL_COUNT] = [ChannelState::NEW; CHANNEL_COUNT];
 
 macro_rules! dma_channel_impl {
     ($channel_peri:ident, $index:expr) => {
