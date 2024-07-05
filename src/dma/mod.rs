@@ -12,11 +12,16 @@
 
 mod dmamux;
 use embassy_hal_internal::{impl_peripheral, Peripheral};
-use v2::ChannelState;
+
+#[cfg(any(hpm53, hpm68, hpm6e))]
 pub(crate) mod v2;
+#[cfg(any(hpm53, hpm68, hpm6e))]
 pub use v2::*;
 
 pub mod word;
+
+mod util;
+pub(crate) use util::*;
 
 use crate::pac;
 
