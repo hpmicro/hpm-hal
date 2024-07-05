@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -114,16 +114,16 @@ fn main() {
         let pname = format_ident!("{}", p.name);
 
         if let Some(sysctl) = &p.sysctl {
-            if let Some(clock_idx) = sysctl.clock_node {
-                let resource_idx = sysctl.resource;
-                g.extend(quote! {
-                    impl crate::sysctl::SealedClockPeripheral for peripherals::#pname {
-                        const SYSCTL_CLOCK: usize = #clock_idx;
-                        const SYSCTL_RESOURCE: usize = #resource_idx;
-                    }
-                    impl crate::sysctl::ClockPeripheral for peripherals::#pname {}
-                });
-            }
+            //            if let Some(clock_idx) = sysctl.clock_node {
+            let resource_idx = sysctl.resource;
+            let clock_idx = sysctl.clock_node.unwrap_or(0xFFFFFFFF);
+            g.extend(quote! {
+                impl crate::sysctl::SealedClockPeripheral for peripherals::#pname {
+                    const SYSCTL_CLOCK: usize = #clock_idx;
+                    const SYSCTL_RESOURCE: usize = #resource_idx;
+                }
+                impl crate::sysctl::ClockPeripheral for peripherals::#pname {}
+            });
         }
     }
 
@@ -319,6 +319,40 @@ fn main() {
             },
         });
     }
+
+    // ========
+    // Generate DMA IRQs.
+    let mut dma_irqs: BTreeMap<&str, &str> = BTreeMap::new();
+
+    for p in METADATA.peripherals {
+        if let Some(r) = &p.registers {
+            if r.kind == "dma" {
+                for irq in p.interrupts {
+                    // only 1 global DMA interrupt per controller
+                    assert_eq!(irq.signal, "GLOBAL");
+                    dma_irqs.insert(irq.interrupt, p.name);
+                }
+            }
+        }
+    }
+
+    let dma_irqs: TokenStream = dma_irqs
+        .iter()
+        .map(|(irq, peri_name)| {
+            let irq = format_ident!("{}", irq);
+            let peri_name = format_ident!("{}", peri_name);
+
+            quote! {
+                #[cfg(feature = "rt")]
+                #[no_mangle]
+                unsafe fn #irq() {
+                    <crate::peripherals::#peri_name as crate::dma::ControllerInterrupt>::on_irq();
+                }
+            }
+        })
+        .collect();
+
+    g.extend(dma_irqs);
 
     g.extend(quote! {
         pub(crate) const DMA_CHANNELS: &[crate::dma::ChannelInfo] = &[#dmas];
