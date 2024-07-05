@@ -11,14 +11,14 @@
 #![macro_use]
 
 mod dmamux;
-pub(crate) use dmamux::*;
 use embassy_hal_internal::{impl_peripheral, Peripheral};
 use v2::ChannelState;
 pub(crate) mod v2;
+pub use v2::*;
 
 pub mod word;
 
-use crate::{interrupt, pac};
+use crate::pac;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -94,6 +94,13 @@ impl Channel for AnyChannel {}
 const CHANNEL_COUNT: usize = crate::_generated::DMA_CHANNELS.len();
 static STATE: [ChannelState; CHANNEL_COUNT] = [ChannelState::NEW; CHANNEL_COUNT];
 
+pub(crate) trait ControllerInterrupt {
+    #[cfg_attr(not(feature = "rt"), allow(unused))]
+    unsafe fn on_irq();
+}
+
+// ==========
+// macros
 macro_rules! dma_channel_impl {
     ($channel_peri:ident, $index:expr) => {
         impl crate::dma::SealedChannel for crate::peripherals::$channel_peri {
@@ -101,11 +108,8 @@ macro_rules! dma_channel_impl {
                 $index
             }
         }
-        /* impl crate::dma::ChannelInterrupt for crate::peripherals::$channel_peri {
-            unsafe fn on_irq() {
-                crate::dma::AnyChannel { id: $index }.on_irq();
-            }
-        } */
+
+        // interrupts are not channel-based, they are controller-based
 
         impl crate::dma::Channel for crate::peripherals::$channel_peri {}
 

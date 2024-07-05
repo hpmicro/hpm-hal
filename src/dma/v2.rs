@@ -2,16 +2,22 @@
 //!
 //! hpm53, hpm68, hpm6e
 
-use core::sync::atomic::{AtomicUsize, Ordering};
-use core::task::Poll;
+use core::future::Future;
+use core::num;
+use core::pin::Pin;
+use core::sync::atomic::{fence, AtomicUsize, Ordering};
+use core::task::{Context, Poll};
 
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use hpm_metapac::dma::vals::{self, AddrCtrl};
 
-use super::word::WordSize;
-use super::{AnyChannel, Dir, Request, STATE};
+use super::word::{Word, WordSize};
+use super::{AnyChannel, Channel, Dir, Request, STATE};
+use crate::internal::BitIter;
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::InterruptExt;
+use crate::pac;
+use crate::pac::dma::vals::{self, AddrCtrl};
 
 /// DMA transfer options.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -29,15 +35,12 @@ pub struct TransferOptions {
     pub half_transfer_irq: bool,
     /// Enable transfer complete interrupt
     pub complete_transfer_irq: bool,
-    /// Transfer handshake mode
-    pub handshake: HandshakeMode,
 }
 
 impl Default for TransferOptions {
     fn default() -> Self {
         Self {
             burst: Burst::Liner(1),
-            handshake: HandshakeMode::Normal,
             priority: false,
             circular: false,
             half_transfer_irq: false,
@@ -97,17 +100,52 @@ impl ChannelState {
 
 pub(crate) unsafe fn init(cs: critical_section::CriticalSection) {
     use crate::interrupt;
+    use crate::sysctl::SealedClockPeripheral;
+
+    crate::peripherals::HDMA::add_resource_group(0);
 
     interrupt::typelevel::HDMA::set_priority_with_cs(cs, interrupt::Priority::P1);
-
-    // TODO: init dma cpu group link
+    interrupt::typelevel::HDMA::enable();
 }
 
-// TODO: on_irq, on DMA handler level
-unsafe fn on_interrupt() {
-    defmt::info!("in irq");
+impl super::ControllerInterrupt for crate::peripherals::HDMA {
+    unsafe fn on_irq() {
+        defmt::info!("in irq");
 
-    crate::interrupt::HDMA.complete(); // notify PLIC
+        let num_base = 0; // for XDMA, it's 32
+
+        for i in BitIter(pac::HDMA.ch_en().read().0) {
+            dma_on_irq(crate::pac::HDMA, i as usize, (i + num_base) as usize);
+        }
+
+        crate::interrupt::HDMA.complete(); // notify PLIC
+    }
+}
+
+/// Safety: Must be called with a matching set of parameters for a valid dma channel
+pub(crate) unsafe fn dma_on_irq(r: crate::pac::dma::Dma, num: usize, id: usize) {
+    let state = &STATE[id];
+
+    defmt::info!("dma_on_irq");
+
+    // DMA error: this is normally a hardware error(memory alignment or access), but we can't do anything about it
+    if r.interrsts().read().sts(num) {
+        panic!("DMA: error on DMA@{:08x} channel {}", r.as_ptr() as u32, num);
+    }
+
+    if r.inthalfsts().read().sts(num) {
+        // ack half transfer
+        r.inthalfsts().modify(|w| w.set_sts(num, true)); // W1C
+    } else if r.inttcsts().read().sts(num) {
+        // ack transfer complete
+        r.inttcsts().modify(|w| w.set_sts(num, true)); // W1C
+
+        state.complete_count.fetch_add(1, Ordering::Relaxed);
+    } else {
+        return; // not this channel
+    }
+
+    state.waker.wake();
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -141,11 +179,6 @@ impl HandshakeMode {
 }
 
 impl AnyChannel {
-    /// Safety: Must be called with a matching set of parameters for a valid dma channel
-    pub(crate) unsafe fn on_irq(&self) {
-        let info = self.info();
-        let state = &STATE[self.id as usize];
-    }
     unsafe fn configure(
         &self,
         request: Request, // DMA request number in DMAMUX
@@ -158,7 +191,7 @@ impl AnyChannel {
         dst_addr_ctrl: AddrCtrl,
         // TRANSIZE
         size_in_bytes: usize,
-        //  handshake: HandshakeMode,
+        handshake: HandshakeMode,
         options: TransferOptions,
     ) {
         let info = self.info();
@@ -204,15 +237,15 @@ impl AnyChannel {
 
         ch_cr.ctrl().modify(|w| {
             w.set_infiniteloop(options.circular);
-            w.set_handshakeopt(options.handshake != HandshakeMode::Normal);
+            w.set_handshakeopt(handshake != HandshakeMode::Normal);
 
             w.set_burstopt(options.burst.burstopt());
             w.set_priority(options.priority);
             w.set_srcburstsize(options.burst.burstsize());
             w.set_srcwidth(src_width.width());
             w.set_dstwidth(dst_width.width());
-            w.set_srcmode(options.handshake.src_mode());
-            w.set_dstmode(options.handshake.dst_mode());
+            w.set_srcmode(handshake.src_mode());
+            w.set_dstmode(handshake.dst_mode());
 
             w.set_srcaddrctrl(src_addr_ctrl);
             w.set_dstaddrctrl(dst_addr_ctrl);
@@ -260,12 +293,14 @@ impl AnyChannel {
     }
 
     fn is_running(&self) -> bool {
-        // enabled and not completed
         let r = self.info().dma.regs();
         let num = self.info().num;
         let ch_cr = r.chctrl(num);
 
-        ch_cr.ctrl().read().enable() && (r.inttcsts().read().sts(num) || ch_cr.ctrl().read().infiniteloop())
+        // enabled, not aborted
+        ch_cr.ctrl().read().enable()
+            && !r.intabortsts().read().sts(num)
+            && (!r.inttcsts().read().sts(num) || ch_cr.ctrl().read().infiniteloop())
     }
 
     fn get_remaining_transfers(&self) -> u32 {
@@ -287,6 +322,234 @@ impl AnyChannel {
     fn poll_stop(&self) -> Poll<()> {
         use core::sync::atomic::compiler_fence;
         compiler_fence(Ordering::SeqCst);
+
+        if self.is_running() {
+            Poll::Pending
+        } else {
+            Poll::Ready(())
+        }
+    }
+}
+
+/// DMA transfer.
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct Transfer<'a> {
+    channel: PeripheralRef<'a, AnyChannel>,
+}
+
+impl<'a> Transfer<'a> {
+    /// Create a new read DMA transfer (peripheral to memory).
+    pub unsafe fn new_read<W: Word>(
+        channel: impl Peripheral<P = impl Channel> + 'a,
+        request: Request,
+        peri_addr: *mut W,
+        buf: &'a mut [W],
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_read_raw(channel, request, peri_addr, buf, options)
+    }
+
+    /// Create a new read DMA transfer (peripheral to memory), using raw pointers.
+    pub unsafe fn new_read_raw<W: Word>(
+        channel: impl Peripheral<P = impl Channel> + 'a,
+        request: Request,
+        peri_addr: *mut W,
+        buf: *mut [W],
+        options: TransferOptions,
+    ) -> Self {
+        into_ref!(channel);
+
+        Self::new_inner(
+            channel.map_into(),
+            request,
+            Dir::PeripheralToMemory,
+            peri_addr as *const u32,
+            buf as *mut W as *mut u32,
+            buf.len(),
+            true,
+            W::size(),
+            options,
+        )
+    }
+
+    /// Create a new write DMA transfer (memory to peripheral).
+    pub unsafe fn new_write<W: Word>(
+        channel: impl Peripheral<P = impl Channel> + 'a,
+        request: Request,
+        buf: &'a [W],
+        peri_addr: *mut W,
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_write_raw(channel, request, buf, peri_addr, options)
+    }
+
+    /// Create a new write DMA transfer (memory to peripheral), using raw pointers.
+    pub unsafe fn new_write_raw<W: Word>(
+        channel: impl Peripheral<P = impl Channel> + 'a,
+        request: Request,
+        buf: *const [W],
+        peri_addr: *mut W,
+        options: TransferOptions,
+    ) -> Self {
+        into_ref!(channel);
+
+        Self::new_inner(
+            channel.map_into(),
+            request,
+            Dir::MemoryToPeripheral,
+            peri_addr as *const u32,
+            buf as *const W as *mut u32,
+            buf.len(),
+            true,
+            W::size(),
+            options,
+        )
+    }
+
+    /// Create a new write DMA transfer (memory to peripheral), writing the same value repeatedly.
+    pub unsafe fn new_write_repeated<W: Word>(
+        channel: impl Peripheral<P = impl Channel> + 'a,
+        request: Request,
+        repeated: &'a W,
+        count: usize,
+        peri_addr: *mut W,
+        options: TransferOptions,
+    ) -> Self {
+        into_ref!(channel);
+
+        Self::new_inner(
+            channel.map_into(),
+            request,
+            Dir::MemoryToPeripheral,
+            peri_addr as *const u32,
+            repeated as *const W as *mut u32,
+            count,
+            false,
+            W::size(),
+            options,
+        )
+    }
+
+    // Restrictions comparing to DMA capabilities:
+    // - No AddrCtrl::DECREMENT
+    unsafe fn new_inner(
+        channel: PeripheralRef<'a, AnyChannel>,
+        request: Request,
+        dir: Dir,
+        peri_addr: *const u32,
+        mem_addr: *mut u32,
+        mem_len: usize,
+        incr_mem: bool,
+        data_size: WordSize,
+        options: TransferOptions,
+    ) -> Self {
+        assert!(mem_len > 0);
+
+        /*
+        request: Request, // DMA request number in DMAMUX
+        dir: Dir,
+        src_addr: *const u32,
+        src_width: WordSize,
+        src_addr_ctrl: AddrCtrl,
+        dst_addr: *mut u32,
+        dst_width: WordSize,
+        dst_addr_ctrl: AddrCtrl,
+        // TRANSIZE
+        size_in_bytes: usize,
+        //  handshake: HandshakeMode,
+        options: TransferOptions,
+         */
+        let src_addr;
+        let dst_addr;
+        let mut src_addr_ctrl = AddrCtrl::FIXED;
+        let mut dst_addr_ctrl = AddrCtrl::FIXED;
+        let handshake;
+        match dir {
+            Dir::MemoryToPeripheral => {
+                src_addr = mem_addr;
+                dst_addr = peri_addr as *mut _;
+                if incr_mem {
+                    src_addr_ctrl = AddrCtrl::INCREMENT;
+                }
+                handshake = HandshakeMode::Destination; // destination trigger
+            }
+            Dir::PeripheralToMemory => {
+                src_addr = peri_addr as *mut _;
+                dst_addr = mem_addr;
+                if incr_mem {
+                    dst_addr_ctrl = AddrCtrl::INCREMENT;
+                }
+                handshake = HandshakeMode::Source; // source trigger
+            }
+        };
+
+        channel.configure(
+            request,
+            dir,
+            src_addr,
+            data_size,
+            src_addr_ctrl,
+            dst_addr,
+            data_size,
+            dst_addr_ctrl,
+            mem_len,
+            handshake,
+            options,
+        );
+        channel.start();
+
+        Self { channel }
+    }
+
+    /// Request the transfer to stop.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
+    pub fn request_stop(&mut self) {
+        self.channel.abort()
+    }
+
+    /// Return whether this transfer is still running.
+    ///
+    /// If this returns `false`, it can be because either the transfer finished, or
+    /// it was requested to stop early with [`request_stop`](Self::request_stop).
+    pub fn is_running(&mut self) -> bool {
+        self.channel.is_running()
+    }
+
+    /// Gets the total remaining transfers for the channel
+    /// Note: this will be zero for transfers that completed without cancellation.
+    pub fn get_remaining_transfers(&self) -> u32 {
+        self.channel.get_remaining_transfers()
+    }
+
+    /// Blocking wait until the transfer finishes.
+    pub fn blocking_wait(mut self) {
+        while self.is_running() {}
+
+        // "Subsequent reads and writes cannot be moved ahead of preceding reads."
+        fence(Ordering::SeqCst);
+
+        core::mem::forget(self);
+    }
+}
+
+impl<'a> Drop for Transfer<'a> {
+    fn drop(&mut self) {
+        self.request_stop();
+        while self.is_running() {}
+
+        // "Subsequent reads and writes cannot be moved ahead of preceding reads."
+        fence(Ordering::SeqCst);
+    }
+}
+
+impl<'a> Unpin for Transfer<'a> {}
+impl<'a> Future for Transfer<'a> {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let state: &ChannelState = &STATE[self.channel.id as usize];
+
+        state.waker.register(cx.waker());
 
         if self.is_running() {
             Poll::Pending

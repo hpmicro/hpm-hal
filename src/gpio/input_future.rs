@@ -6,6 +6,7 @@ use embassy_hal_internal::{Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::{AnyPin, Flex, Input, Pin as GpioPin, SealedPin};
+use crate::internal::BitIter;
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
 
@@ -59,22 +60,6 @@ unsafe fn on_interrupt(port: usize) {
         pac::GPIO0.if_(port).value().write(|w| w.set_irq_flag(1 << pin)); // W1C
         pac::GPIO0.ie(port).clear().write(|w| w.set_irq_en(1 << pin));
         PORT_WAKERS[pin as usize].wake();
-    }
-}
-
-struct BitIter(u32);
-
-impl Iterator for BitIter {
-    type Item = u32;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.0.trailing_zeros() {
-            32 => None,
-            b => {
-                self.0 &= !(1 << b);
-                Some(b)
-            }
-        }
     }
 }
 
