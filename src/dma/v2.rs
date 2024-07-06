@@ -247,7 +247,9 @@ impl AnyChannel {
 
         ch_cr.ctrl().write(|w| {
             w.set_infiniteloop(options.circular);
-            w.set_handshakeopt(handshake != HandshakeMode::Normal);
+            // false: Use burst mode
+            // true:  Send all data at once
+            w.set_handshakeopt(false);
 
             w.set_burstopt(options.burst.burstopt());
             w.set_priority(options.priority);
@@ -264,7 +266,7 @@ impl AnyChannel {
             w.set_inthalfcntmask(!options.half_transfer_irq);
             w.set_inttcmask(!options.complete_transfer_irq);
             w.set_interrmask(false);
-            w.set_intabtmask(false);
+            w.set_intabtmask(true); // handled via blocking
 
             w.set_enable(false); // don't start yet
         });
@@ -499,14 +501,14 @@ impl<'a> Transfer<'a> {
     /// Request the transfer to stop.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
-    pub fn request_stop(&mut self) {
+    pub fn request_abort(&mut self) {
         self.channel.abort()
     }
 
     /// Return whether this transfer is still running.
     ///
     /// If this returns `false`, it can be because either the transfer finished, or
-    /// it was requested to stop early with [`request_stop`](Self::request_stop).
+    /// it was requested to stop early with [`request_abort`](Self::request_abort).
     pub fn is_running(&mut self) -> bool {
         self.channel.is_running()
     }
@@ -530,7 +532,7 @@ impl<'a> Transfer<'a> {
 
 impl<'a> Drop for Transfer<'a> {
     fn drop(&mut self) {
-        self.request_stop();
+        self.request_abort();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
