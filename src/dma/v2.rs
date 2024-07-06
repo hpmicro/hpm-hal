@@ -40,7 +40,7 @@ pub struct TransferOptions {
 impl Default for TransferOptions {
     fn default() -> Self {
         Self {
-            burst: Burst::Liner(1),
+            burst: Burst::Liner(0),
             priority: false,
             circular: false,
             half_transfer_irq: false,
@@ -104,48 +104,54 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection) {
 
     crate::peripherals::HDMA::add_resource_group(0);
 
+    pac::HDMA.dmactrl().modify(|w| w.set_reset(true));
+
     interrupt::typelevel::HDMA::set_priority_with_cs(cs, interrupt::Priority::P1);
     interrupt::typelevel::HDMA::enable();
 }
 
 impl super::ControllerInterrupt for crate::peripherals::HDMA {
     unsafe fn on_irq() {
-        defmt::info!("in irq");
+        let r = pac::HDMA;
 
         let num_base = 0; // for XDMA, it's 32
 
-        for i in BitIter(pac::HDMA.ch_en().read().0) {
-            dma_on_irq(crate::pac::HDMA, i as usize, (i + num_base) as usize);
+        let half = pac::HDMA.inthalfsts().read().0;
+        let tc = pac::HDMA.inttcsts().read().0;
+        let err = pac::HDMA.interrsts().read().0;
+        let abort = pac::HDMA.intabortsts().read().0;
+
+        // possible errors:
+        // - bus error
+        // - memory alignment error
+        // - bit width alignment error
+        // - invalid configuration
+        // DMA error: this is normally a hardware error(memory alignment or access), but we can't do anything about it
+        if err != 0 {
+            panic!(
+                "DMA: error on DMA@{:08x}, errsts=0x{:08x}",
+                r.as_ptr() as u32,
+                pac::HDMA.interrsts().read().0
+            );
+        }
+
+        if half != 0 {
+            r.inthalfsts().modify(|w| w.0 = half); // W1C
+        }
+        if tc != 0 {
+            r.inttcsts().modify(|w| w.0 = tc); // W1C
+        }
+        if abort != 0 {
+            r.intabortsts().modify(|w| w.0 = abort); // W1C
+        }
+
+        for i in BitIter(half | tc | abort) {
+            let id = (i + num_base) as usize;
+            STATE[id].waker.wake();
         }
 
         crate::interrupt::HDMA.complete(); // notify PLIC
     }
-}
-
-/// Safety: Must be called with a matching set of parameters for a valid dma channel
-pub(crate) unsafe fn dma_on_irq(r: crate::pac::dma::Dma, num: usize, id: usize) {
-    let state = &STATE[id];
-
-    defmt::info!("dma_on_irq");
-
-    // DMA error: this is normally a hardware error(memory alignment or access), but we can't do anything about it
-    if r.interrsts().read().sts(num) {
-        panic!("DMA: error on DMA@{:08x} channel {}", r.as_ptr() as u32, num);
-    }
-
-    if r.inthalfsts().read().sts(num) {
-        // ack half transfer
-        r.inthalfsts().modify(|w| w.set_sts(num, true)); // W1C
-    } else if r.inttcsts().read().sts(num) {
-        // ack transfer complete
-        r.inttcsts().modify(|w| w.set_sts(num, true)); // W1C
-
-        state.complete_count.fetch_add(1, Ordering::Relaxed);
-    } else {
-        return; // not this channel
-    }
-
-    state.waker.wake();
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -212,11 +218,15 @@ impl AnyChannel {
 
         let ch_cr = r.chctrl(ch);
 
+        // configure DMAMUX request and output channel
+        super::dmamux::configure_dmamux(info.mux_num, request);
+
         ch_cr.src_addr().write_value(src_addr as u32);
         ch_cr.dst_addr().write_value(dst_addr as u32);
-        ch_cr.tran_size().modify(|w| size_in_bytes / src_width.bytes());
-        // TODO: LLPointer
-
+        ch_cr
+            .tran_size()
+            .modify(|w| w.0 = (size_in_bytes / src_width.bytes()) as u32);
+        ch_cr.llpointer().modify(|w| w.0 = 0x0);
         ch_cr.chan_req_ctrl().write(|w| {
             if dir == Dir::MemoryToPeripheral {
                 w.set_dstreqsel(mux_ch as u8);
@@ -225,8 +235,8 @@ impl AnyChannel {
             }
         });
 
-        ch_cr.llpointer().modify(|w| w.0 = 0x0);
         // TODO: handle SwapTable here
+        // TODO: LLPointer handling
 
         // clear transfer irq status (W1C)
         // dma_clear_transfer_status
@@ -235,7 +245,7 @@ impl AnyChannel {
         r.intabortsts().modify(|w| w.set_sts(ch, true));
         r.interrsts().modify(|w| w.set_sts(ch, true));
 
-        ch_cr.ctrl().modify(|w| {
+        ch_cr.ctrl().write(|w| {
             w.set_infiniteloop(options.circular);
             w.set_handshakeopt(handshake != HandshakeMode::Normal);
 
@@ -250,19 +260,18 @@ impl AnyChannel {
             w.set_srcaddrctrl(src_addr_ctrl);
             w.set_dstaddrctrl(dst_addr_ctrl);
 
-            w.set_inthalfcntmask(options.half_transfer_irq);
-            w.set_inttcmask(options.complete_transfer_irq);
+            // unmask
+            w.set_inthalfcntmask(!options.half_transfer_irq);
+            w.set_inttcmask(!options.complete_transfer_irq);
+            w.set_interrmask(false);
+            w.set_intabtmask(false);
 
             w.set_enable(false); // don't start yet
         });
-
-        // configure DMAMUX request and output channel
-        super::dmamux::configure_dmamux(info.mux_num, request);
     }
 
     fn start(&self) {
         let info = self.info();
-
         let r = info.dma.regs();
         let ch = info.num; // channel number in current dma controller
 
@@ -445,20 +454,6 @@ impl<'a> Transfer<'a> {
     ) -> Self {
         assert!(mem_len > 0);
 
-        /*
-        request: Request, // DMA request number in DMAMUX
-        dir: Dir,
-        src_addr: *const u32,
-        src_width: WordSize,
-        src_addr_ctrl: AddrCtrl,
-        dst_addr: *mut u32,
-        dst_width: WordSize,
-        dst_addr_ctrl: AddrCtrl,
-        // TRANSIZE
-        size_in_bytes: usize,
-        //  handshake: HandshakeMode,
-        options: TransferOptions,
-         */
         let src_addr;
         let dst_addr;
         let mut src_addr_ctrl = AddrCtrl::FIXED;
