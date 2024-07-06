@@ -152,6 +152,12 @@ pub fn init(config: Config) -> Peripherals {
         gpio::input_future::init_gpio0_irq();
     }
 
+    unsafe {
+        critical_section::with(|cs| {
+            dma::init(cs);
+        });
+    }
+
     #[cfg(feature = "embassy")]
     embassy::init();
 

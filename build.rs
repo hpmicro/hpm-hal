@@ -344,8 +344,9 @@ fn main() {
 
             quote! {
                 #[cfg(feature = "rt")]
+                #[allow(non_snake_case)]
                 #[no_mangle]
-                unsafe fn #irq() {
+                unsafe extern "riscv-interrupt-m" fn #irq() {
                     <crate::peripherals::#peri_name as crate::dma::ControllerInterrupt>::on_irq();
                 }
             }

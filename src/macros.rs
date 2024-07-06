@@ -136,3 +136,14 @@ macro_rules! dma_trait_impl {
         }
     };
 }
+
+macro_rules! new_dma {
+    ($name:ident) => {{
+        let dma = $name.into_ref();
+        let request = dma.request();
+        Some(crate::dma::ChannelAndRequest {
+            channel: dma.map_into(),
+            request,
+        })
+    }};
+}

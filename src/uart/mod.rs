@@ -17,10 +17,11 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::dma::ChannelAndRequest;
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::InterruptExt as _;
-use crate::mode::{Blocking, Mode};
+use crate::mode::{Async, Blocking, Mode};
 pub use crate::pac::uart::vals::{RxFifoTrigger, TxFifoTrigger};
 use crate::pac::Interrupt;
 use crate::time::Hertz;
@@ -193,8 +194,71 @@ pub struct UartTx<'d, M: Mode> {
     tx: Option<PeripheralRef<'d, AnyPin>>,
     cts: Option<PeripheralRef<'d, AnyPin>>,
     de: Option<PeripheralRef<'d, AnyPin>>,
-    // tx_dma: Option<ChannelAndRequest<'d>>,
+    tx_dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
+}
+
+impl<'d> UartTx<'d, Async> {
+    /// Useful if you only want Uart Tx. It saves 1 pin and consumes a little less power.
+    pub fn new<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        into_ref!(tx);
+        tx.set_as_alt(tx.alt_num());
+
+        Self::new_inner(peri, Some(tx.map_into()), None, new_dma!(tx_dma), config)
+    }
+
+    /// Create a new tx-only UART with a clear-to-send pin
+    pub fn new_with_cts<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        into_ref!(tx, cts);
+        tx.set_as_alt(tx.alt_num());
+        cts.set_as_alt(cts.alt_num());
+
+        Self::new_inner(
+            peri,
+            Some(tx.map_into()),
+            Some(cts.map_into()),
+            new_dma!(tx_dma),
+            config,
+        )
+    }
+
+    /// Initiate an asynchronous UART write
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        let r = self.info.regs;
+
+        r.fcrr().modify(|w| {
+            w.set_dmae(true);
+        });
+        #[cfg(not(any(hpm53, hpm68, hpm6e)))]
+        r.fcr().modify(|w| w.set_dmae(true));
+
+        let ch = self.tx_dma.as_mut().unwrap();
+
+        // If we don't assign future to a variable, the data register pointer
+        // is held across an await and makes the future non-Send.
+        let transfer = unsafe { ch.write(buffer, r.thr().as_ptr() as *mut u8, Default::default()) };
+        transfer.await;
+
+        // BUG: only a batch of FIFO size is sent, "handshake" not working
+
+        Ok(())
+    }
+
+    /// Wait until transmission complete
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.blocking_flush()
+    }
 }
 
 impl<'d> UartTx<'d, Blocking> {
@@ -209,7 +273,7 @@ impl<'d> UartTx<'d, Blocking> {
         into_ref!(tx);
         tx.set_as_alt(tx.alt_num());
 
-        Self::new_inner(peri, Some(tx.map_into()), None, config)
+        Self::new_inner(peri, Some(tx.map_into()), None, None, config)
     }
 
     /// Create a new blocking tx-only UART with a clear-to-send pin
@@ -223,7 +287,7 @@ impl<'d> UartTx<'d, Blocking> {
         tx.set_as_alt(tx.alt_num());
         cts.set_as_alt(cts.alt_num());
 
-        Self::new_inner(peri, Some(tx.map_into()), Some(cts.map_into()), config)
+        Self::new_inner(peri, Some(tx.map_into()), Some(cts.map_into()), None, config)
     }
 }
 
@@ -232,7 +296,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
         _peri: impl Peripheral<P = T> + 'd,
         tx: Option<PeripheralRef<'d, AnyPin>>,
         cts: Option<PeripheralRef<'d, AnyPin>>,
-        // tx_dma: Option<ChannelAndRequest<'d>>,
+        tx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         let mut this = Self {
@@ -242,7 +306,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
             tx,
             cts,
             de: None,
-            // tx_dma,
+            tx_dma,
             _phantom: PhantomData,
         };
         this.enable_and_configure(&config)?;
@@ -507,7 +571,7 @@ impl<'d, M: Mode> Uart<'d, M> {
         rts: Option<PeripheralRef<'d, AnyPin>>,
         cts: Option<PeripheralRef<'d, AnyPin>>,
         de: Option<PeripheralRef<'d, AnyPin>>,
-        //tx_dma: Option<ChannelAndRequest<'d>>,
+        // tx_dma: Option<ChannelAndRequest<'d>>,
         //rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -528,7 +592,7 @@ impl<'d, M: Mode> Uart<'d, M> {
                 tx,
                 cts,
                 de,
-                // tx_dma,
+                tx_dma: None,
             },
             rx: UartRx {
                 _phantom: PhantomData,
