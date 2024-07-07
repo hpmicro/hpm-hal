@@ -24,12 +24,13 @@ use embassy_sync::waitqueue::AtomicWaker;
 use futures_util::future::{select, Either};
 
 use crate::dma::ChannelAndRequest;
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::InterruptExt as _;
 use crate::mode::{Async, Blocking, Mode};
 pub use crate::pac::uart::vals::{RxFifoTrigger, TxFifoTrigger};
 use crate::pac::Interrupt;
+use crate::sysctl::SealedClockPeripheral;
 use crate::time::Hertz;
 use crate::{interrupt, pac};
 
@@ -252,6 +253,8 @@ impl<'d> UartTx<'d, Async> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         into_ref!(tx);
+
+        T::add_resource_group(0);
         tx.set_as_alt(tx.alt_num());
 
         Self::new_inner(peri, Some(tx.map_into()), None, new_dma!(tx_dma), config)
@@ -266,6 +269,8 @@ impl<'d> UartTx<'d, Async> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         into_ref!(tx, cts);
+
+        T::add_resource_group(0);
         tx.set_as_alt(tx.alt_num());
         cts.set_as_alt(cts.alt_num());
 
@@ -296,8 +301,6 @@ impl<'d> UartTx<'d, Async> {
         let transfer = unsafe { ch.write(buffer, r.thr().as_ptr() as *mut u8, Default::default()) };
         transfer.await;
 
-        // BUG: only a batch of FIFO size is sent, "handshake" not working
-
         Ok(())
     }
 
@@ -317,6 +320,9 @@ impl<'d> UartTx<'d, Blocking> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         into_ref!(tx);
+
+        T::add_resource_group(0);
+
         tx.set_as_alt(tx.alt_num());
 
         Self::new_inner(peri, Some(tx.map_into()), None, None, config)
@@ -330,6 +336,9 @@ impl<'d> UartTx<'d, Blocking> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         into_ref!(tx, cts);
+
+        T::add_resource_group(0);
+
         tx.set_as_alt(tx.alt_num());
         cts.set_as_alt(cts.alt_num());
 
@@ -432,6 +441,8 @@ impl<'d> UartRx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         into_ref!(rx);
 
+        T::add_resource_group(0);
+
         rx.set_as_alt(rx.alt_num());
 
         Self::new_inner(peri, Some(rx.map_into()), None, new_dma!(rx_dma), config)
@@ -447,6 +458,8 @@ impl<'d> UartRx<'d, Async> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         into_ref!(rx, rts);
+
+        T::add_resource_group(0);
 
         rx.set_as_alt(rx.alt_num());
         rts.set_as_alt(rts.alt_num());
@@ -709,6 +722,119 @@ pub struct Uart<'d, M: Mode> {
     rx: UartRx<'d, M>,
 }
 
+impl<'d> Uart<'d, Async> {
+    /// Create a new bidirectional UART
+    pub fn new<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        into_ref!(rx, tx);
+
+        T::add_resource_group(0);
+
+        rx.set_as_alt(rx.alt_num());
+        tx.set_as_alt(tx.alt_num());
+
+        Self::new_inner(
+            peri,
+            Some(rx.map_into()),
+            Some(tx.map_into()),
+            None,
+            None,
+            None,
+            new_dma!(tx_dma),
+            new_dma!(rx_dma),
+            config,
+        )
+    }
+
+    /// Create a new bidirectional UART with request-to-send and clear-to-send pins
+    pub fn new_with_rtscts<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        into_ref!(rx, tx, rts, cts);
+
+        T::add_resource_group(0);
+
+        rx.set_as_alt(rx.alt_num());
+        tx.set_as_alt(tx.alt_num());
+        rts.set_as_alt(rts.alt_num());
+        cts.set_as_alt(cts.alt_num());
+
+        Self::new_inner(
+            peri,
+            Some(rx.map_into()),
+            Some(tx.map_into()),
+            Some(rts.map_into()),
+            Some(cts.map_into()),
+            None,
+            new_dma!(tx_dma),
+            new_dma!(rx_dma),
+            config,
+        )
+    }
+
+    /// Create a new bidirectional UART with a driver-enable pin
+    pub fn new_with_de<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        de: impl Peripheral<P = impl DePin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        into_ref!(rx, tx, de);
+
+        T::add_resource_group(0);
+
+        rx.set_as_alt(rx.alt_num());
+        tx.set_as_alt(tx.alt_num());
+        de.set_as_alt(de.alt_num());
+
+        Self::new_inner(
+            peri,
+            Some(rx.map_into()),
+            Some(tx.map_into()),
+            None,
+            None,
+            Some(de.map_into()),
+            new_dma!(tx_dma),
+            new_dma!(rx_dma),
+            config,
+        )
+    }
+
+    /// Perform an asynchronous write
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.tx.write(buffer).await
+    }
+
+    /// Perform an asynchronous read into `buffer`
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.rx.read(buffer).await
+    }
+
+    /// Perform an an asynchronous read with idle line detection enabled
+    pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.rx.read_until_idle(buffer).await
+    }
+}
+
 impl<'d> Uart<'d, Blocking> {
     /// Create a new blocking bidirectional UART.
     pub fn new_blocking<T: Instance>(
@@ -748,6 +874,8 @@ impl<'d> Uart<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         into_ref!(rx, tx, rts, cts);
 
+        T::add_resource_group(0);
+
         rx.set_as_alt(rx.alt_num());
         tx.set_as_alt(tx.alt_num());
         rts.set_as_alt(rts.alt_num());
@@ -775,6 +903,8 @@ impl<'d> Uart<'d, Blocking> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         into_ref!(rx, tx, de);
+
+        T::add_resource_group(0);
 
         rx.set_as_alt(rx.alt_num());
         tx.set_as_alt(tx.alt_num());
@@ -1059,7 +1189,98 @@ fn calculate_baudrate(freq: u32, baudrate: u32) -> Option<(u16, u8)> {
 }
 
 // ==========
-// traits
+// drop
+
+impl<'d, M: Mode> Drop for UartTx<'d, M> {
+    fn drop(&mut self) {
+        self.tx.as_ref().map(|x| x.set_as_default());
+        self.cts.as_ref().map(|x| x.set_as_default());
+        self.de.as_ref().map(|x| x.set_as_default());
+        drop_tx_rx(self.info, self.state);
+    }
+}
+
+impl<'d, M: Mode> Drop for UartRx<'d, M> {
+    fn drop(&mut self) {
+        self.rx.as_ref().map(|x| x.set_as_default());
+        self.rts.as_ref().map(|x| x.set_as_default());
+        drop_tx_rx(self.info, self.state);
+    }
+}
+
+fn drop_tx_rx(info: &Info, state: &State) {
+    // We cannot use atomic subtraction here, because it's not supported for all targets
+    let is_last_drop = critical_section::with(|_| {
+        let refcount = state.tx_rx_refcount.load(Ordering::Relaxed);
+        assert!(refcount >= 1);
+        state.tx_rx_refcount.store(refcount - 1, Ordering::Relaxed);
+        refcount == 1
+    });
+    if is_last_drop {
+        crate::sysctl::clock_remove_from_group(info.resource, 0);
+    }
+}
+
+// ==========
+// eh traits
+
+impl embedded_hal_nb::serial::Error for Error {
+    fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
+        match *self {
+            Self::Framing => embedded_hal_nb::serial::ErrorKind::FrameFormat,
+            Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
+            Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
+            Self::BufferTooLong => embedded_hal_nb::serial::ErrorKind::Other,
+            Self::Timeout => embedded_hal_nb::serial::ErrorKind::Other,
+            Self::FIFO => embedded_hal_nb::serial::ErrorKind::Overrun,
+            Self::LineBreak => embedded_hal_nb::serial::ErrorKind::Other,
+        }
+    }
+}
+
+impl<'d, M: Mode> embedded_hal_nb::serial::ErrorType for Uart<'d, M> {
+    type Error = Error;
+}
+
+impl<'d, M: Mode> embedded_hal_nb::serial::ErrorType for UartTx<'d, M> {
+    type Error = Error;
+}
+
+impl<'d, M: Mode> embedded_hal_nb::serial::ErrorType for UartRx<'d, M> {
+    type Error = Error;
+}
+
+impl<'d, M: Mode> embedded_hal_nb::serial::Read for UartRx<'d, M> {
+    fn read(&mut self) -> nb::Result<u8, Self::Error> {
+        self.nb_read()
+    }
+}
+
+impl<'d, M: Mode> embedded_hal_nb::serial::Write for UartTx<'d, M> {
+    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
+        self.blocking_write(&[char]).map_err(nb::Error::Other)
+    }
+
+    fn flush(&mut self) -> nb::Result<(), Self::Error> {
+        self.blocking_flush().map_err(nb::Error::Other)
+    }
+}
+
+impl<'d, M: Mode> embedded_hal_nb::serial::Read for Uart<'d, M> {
+    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+        self.nb_read()
+    }
+}
+
+impl<'d, M: Mode> embedded_hal_nb::serial::Write for Uart<'d, M> {
+    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
+        self.blocking_write(&[char]).map_err(nb::Error::Other)
+    }
+
+    fn flush(&mut self) -> nb::Result<(), Self::Error> {
+        self.blocking_flush().map_err(nb::Error::Other)
+    }
+}
 
 impl embedded_io::Error for Error {
     fn kind(&self) -> embedded_io::ErrorKind {
@@ -1095,6 +1316,28 @@ impl<M: Mode> embedded_io::Write for Uart<'_, M> {
     }
 }
 
+impl embedded_io_async::Write for Uart<'_, Async> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.write(buf).await?;
+        Ok(buf.len())
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
+impl embedded_io_async::Write for UartTx<'_, Async> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.write(buf).await?;
+        Ok(buf.len())
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
 // ==========
 // helper types and functions
 
@@ -1116,6 +1359,7 @@ impl State {
 struct Info {
     regs: pac::uart::Uart,
     interrupt: Interrupt,
+    resource: usize,
 }
 
 #[allow(private_interfaces)]
@@ -1148,6 +1392,7 @@ macro_rules! impl_uart {
                 static INFO: Info = Info {
                     regs: pac::$inst,
                     interrupt: crate::interrupt::typelevel::$inst::IRQ,
+                    resource: crate::peripherals::$inst::SYSCTL_RESOURCE,
                 };
                 &INFO
             }
