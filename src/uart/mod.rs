@@ -3,20 +3,25 @@
 //! HPM_IP_FEATURE:
 //! - UART_RX_IDLE_DETECT:  v53, v68, v62
 //! - UART_FCRR:            v53, v68
+//!   - use FCRR to instead of FCR (FIFO and DMA control)
 //! - UART_RX_EN:           v53, v68
 //! - UART_E00018_FIX:      v53
+//!   - the IIR2 register exists, should use IIR2 to get/clear rx idle status
 //! - UART_9BIT_MODE:       v53
 //! - UART_ADDR_MATCH:      v53
 //! - UART_TRIG_MODE:       v53
 //! - UART_FINE_FIFO_THRLD: v53
 //! - UART_IIR2:            v53
 
+use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, AtomicU8, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
+use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
+use futures_util::future::{select, Either};
 
 use crate::dma::ChannelAndRequest;
 use crate::gpio::AnyPin;
@@ -178,13 +183,45 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        on_interrupt(T::info().regs, T::state())
+        on_interrupt(T::info().regs, T::state());
+
+        // PLIC ack is handled by typelevel Handler
     }
 }
 
 unsafe fn on_interrupt(r: pac::uart::Uart, s: &'static State) {
     let _ = (r, s);
-    todo!()
+
+    defmt::info!("uart inq");
+
+    let lsr = r.lsr().read();
+    #[cfg(ip_feature_uart_e00018_fix)]
+    let iir = r.iir2().read();
+    #[cfg(not(ip_feature_uart_e00018_fix))]
+    let iir = r.iir().read();
+
+    defmt::info!("lsr = 0x{:08x}", lsr.0);
+
+    let has_errors = lsr.pe() || lsr.fe() || lsr.oe() || lsr.errf() || lsr.lbreak();
+    if has_errors {
+        // clear all interrupts and DMA RX request
+        r.ier().modify(|w| {
+            w.set_elsi(false); // rx status
+            w.set_erxidle(false); // rx idle
+        });
+        #[cfg(ip_feature_uart_fine_fifo_thrld)]
+        r.fcrr().modify(|w| w.set_dmae(false));
+        #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
+        r.fcr().modify(|w| w.set_dmae(false));
+    } else if r.ier().read().etxidle() && lsr.rxidle() {
+        // disable idle line detection
+        r.ier().modify(|w| w.set_etxidle(false));
+    }
+
+    s.saved_lsr.store(lsr.0, Ordering::Relaxed);
+
+    compiler_fence(Ordering::SeqCst);
+    s.rx_waker.wake();
 }
 
 // ==========
@@ -442,7 +479,7 @@ impl<'d> UartRx<'d, Async> {
     ) -> Result<ReadCompletionEvent, Error> {
         let r = self.info.regs;
 
-        blocking_flush(self.info)?;
+        let _ = r.lsr().read(); // clear error flags
 
         // make sure UART state is restored to neutral state when this future is dropped
         let on_drop = OnDrop::new(move || {
@@ -455,13 +492,9 @@ impl<'d> UartRx<'d, Async> {
 
             // disable dma
             #[cfg(ip_feature_uart_fine_fifo_thrld)]
-            r.fcrr().modify(|w| {
-                w.set_dmae(false);
-            });
+            r.fcrr().modify(|w| w.set_dmae(false));
             #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
-            r.fcr().modify(|w| {
-                w.set_dmae(false);
-            });
+            r.fcr().modify(|w| w.set_dmae(false));
         });
 
         let ch = self.rx_dma.as_mut().unwrap();
@@ -472,16 +505,11 @@ impl<'d> UartRx<'d, Async> {
 
         r.ier().modify(|w| {
             w.set_elsi(true);
-            //   w.set_erxidle(true);
         });
         #[cfg(ip_feature_uart_fine_fifo_thrld)]
-        r.fcrr().modify(|w| {
-            w.set_dmae(true);
-        });
+        r.fcrr().modify(|w| w.set_dmae(true));
         #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
-        r.fcr().modify(|w| {
-            w.set_dmae(true);
-        });
+        r.fcr().modify(|w| w.set_dmae(true));
 
         compiler_fence(Ordering::SeqCst);
 
@@ -493,7 +521,55 @@ impl<'d> UartRx<'d, Async> {
 
         compiler_fence(Ordering::SeqCst);
 
-        todo!()
+        let s = self.state;
+
+        // the `abort` future checks idle and error flags
+        let abort = poll_fn(move |cx| {
+            s.rx_waker.register(cx.waker());
+
+            // R1C
+            let lsr = crate::pac::uart::regs::Lsr(s.saved_lsr.load(Ordering::Relaxed));
+            s.saved_lsr.store(0, Ordering::Relaxed);
+
+            let has_errors = lsr.pe() || lsr.fe() || lsr.oe() || lsr.errf() || lsr.lbreak();
+            if has_errors {
+                // all Rx interrupts and Rx DMA Request have already been cleared in interrupt handler
+
+                if lsr.pe() {
+                    return Poll::Ready(Err(Error::Parity));
+                } else if lsr.fe() {
+                    return Poll::Ready(Err(Error::Framing));
+                } else if lsr.oe() {
+                    return Poll::Ready(Err(Error::Overrun));
+                } else if lsr.errf() {
+                    return Poll::Ready(Err(Error::FIFO));
+                } else if lsr.lbreak() {
+                    return Poll::Ready(Err(Error::LineBreak));
+                }
+            }
+
+            if enable_idle_line_detection && lsr.rxidle() {
+                return Poll::Ready(Ok(()));
+            }
+
+            Poll::Pending
+        });
+
+        let r = match select(transfer, abort).await {
+            // DMA transfer completed first
+            Either::Left(((), _)) => Ok(ReadCompletionEvent::DmaCompleted),
+
+            // Idle line detected first
+            Either::Right((Ok(()), transfer)) => Ok(ReadCompletionEvent::Idle(
+                buffer_len - transfer.get_remaining_transfers() as usize,
+            )),
+
+            // error occurred
+            Either::Right((Err(e), _)) => Err(e),
+        };
+
+        drop(on_drop);
+        r
     }
 
     async fn inner_read(&mut self, buffer: &mut [u8], enable_idle_line_detection: bool) -> Result<usize, Error> {
@@ -1025,12 +1101,14 @@ impl<M: Mode> embedded_io::Write for Uart<'_, M> {
 struct State {
     rx_waker: AtomicWaker,
     tx_rx_refcount: AtomicU8,
+    saved_lsr: AtomicU32,
 }
 impl State {
     const fn new() -> Self {
         Self {
             rx_waker: AtomicWaker::new(),
             tx_rx_refcount: AtomicU8::new(0),
+            saved_lsr: AtomicU32::new(0),
         }
     }
 }
