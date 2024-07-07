@@ -263,6 +263,7 @@ impl<'d> Spi<'d, Blocking> {
         )
     }
 
+    /// Create a new blocking SPI driver, in TX-only mode (only MOSI pin, no MISO).
     pub fn new_blocking_txonly<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
@@ -288,6 +289,21 @@ impl<'d> Spi<'d, Blocking> {
             None,
             config,
         )
+    }
+
+    /// Create a new SPI driver, in TX-only mode, without SCK pin.
+    pub fn new_blocking_txonly_nosck<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(mosi);
+
+        T::add_resource_group(0);
+
+        mosi.set_as_alt(mosi.alt_num());
+
+        Self::new_inner(peri, None, Some(mosi.map_into()), None, None, None, config)
     }
 
     pub fn new_blocking_quad<T: Instance>(
