@@ -483,6 +483,11 @@ pub(crate) trait SealedPin: Sized {
     fn set_as_alt(&self, alt_num: u8) {
         self.ioc_pad().func_ctl().modify(|w| w.set_alt_select(alt_num));
     }
+
+    #[inline]
+    fn set_as_default(&self) {
+        self.ioc_pad().func_ctl().write(|w| w.0 = 0);
+    }
 }
 
 #[allow(private_bounds)]
