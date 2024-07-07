@@ -354,9 +354,10 @@ where
             r.dlycfg().modify(|w| w.set_oe(true));
         }
 
+        // NOTE: In hpm_sdk, the following is used:
+        // r.datsz().write(|w| w.0 = (config.cmd_data_width as u32) & 0x3);
+        // `0x3` is used to mask the value, but it is not necessary, as both 0b100 and 0b000 are valid values.
         r.datsz().write(|w| w.set_datsz(config.cmd_data_width));
-        // SDK-BUG: what's the meaning of 0x3 as mask?
-        // r.datsz().write(|w| w.0 = (config.cmd_data_width as u32) & 0x3); //????
         r.bytemsk().write(|w| w.0 = 0);
 
         self.issue_ip_cmd(config.base_address, SdramCmd::PRECHARGE_ALL, 0)?;

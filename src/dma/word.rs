@@ -2,8 +2,6 @@
 
 use hpm_metapac::dma::vals;
 
-use crate::pac;
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum WordSize {

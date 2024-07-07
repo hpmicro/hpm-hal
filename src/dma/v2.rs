@@ -1,9 +1,9 @@
 //! DMA v2
 //!
 //! hpm53, hpm68, hpm6e
+#![allow(unused)]
 
 use core::future::Future;
-use core::num;
 use core::pin::Pin;
 use core::sync::atomic::{fence, AtomicUsize, Ordering};
 use core::task::{Context, Poll};

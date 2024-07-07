@@ -43,6 +43,7 @@ pub(crate) struct ChannelInfo {
 #[derive(Clone, Copy)]
 pub(crate) enum DmaInfo {
     HDMA(pac::dma::Dma),
+    #[allow(unused)]
     XDMA(pac::dma::Dma),
 }
 
