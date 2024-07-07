@@ -1,7 +1,0 @@
-{
-    "rust-analyzer.check.allTargets": false,
-    "rust-analyzer.linkedProjects": [
-        "examples/hpm5300evk/Cargo.toml",
-        "examples/hpm6e00evk/Cargo.toml"
-    ]
-}
