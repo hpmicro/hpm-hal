@@ -24,7 +24,7 @@ pub fn clocks() -> &'static Clocks {
 /// Add clock resource to a resource group
 pub fn clock_add_to_group(resource: usize, group: usize) {
     const RESOURCE_START: usize = 256;
-    if resource < RESOURCE_START {
+    if resource < RESOURCE_START || resource == usize::MAX {
         return;
     }
     let index = (resource - RESOURCE_START) / 32;
@@ -35,6 +35,24 @@ pub fn clock_add_to_group(resource: usize, group: usize) {
     } else {
         #[cfg(any(hpm6e, hpm67, hpm62))]
         SYSCTL.group1(index).set().write(|w| w.set_link(1 << offset));
+    }
+
+    while SYSCTL.resource(resource).read().loc_busy() {}
+}
+
+pub fn clock_remove_from_group(resource: usize, group: usize) {
+    const RESOURCE_START: usize = 256;
+    if resource < RESOURCE_START || resource == usize::MAX {
+        return;
+    }
+    let index = (resource - RESOURCE_START) / 32;
+    let offset = (resource - RESOURCE_START) % 32;
+
+    if group == 0 {
+        SYSCTL.group0(index).clear().write(|w| w.set_link(1 << offset));
+    } else {
+        #[cfg(any(hpm6e, hpm67, hpm62))]
+        SYSCTL.group1(index).clear().write(|w| w.set_link(1 << offset));
     }
 
     while SYSCTL.resource(resource).read().loc_busy() {}
