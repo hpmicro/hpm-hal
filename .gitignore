@@ -2,3 +2,5 @@
 trash/
 Cargo.lock
 *.bak
+
+.vscode/
