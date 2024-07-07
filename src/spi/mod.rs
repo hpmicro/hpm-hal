@@ -367,6 +367,158 @@ impl<'d> Spi<'d, Blocking> {
     }
 }
 
+impl<'d> Spi<'d, Async> {
+    /// Create a new async SPI driver.
+    pub fn new<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(sclk, mosi, miso);
+
+        T::add_resource_group(0);
+
+        mosi.set_as_alt(mosi.alt_num());
+        miso.set_as_alt(miso.alt_num());
+        sclk.ioc_pad().func_ctl().modify(|w| {
+            w.set_alt_select(sclk.alt_num());
+            w.set_loop_back(true);
+        });
+
+        Self::new_inner(
+            peri,
+            Some(sclk.map_into()),
+            Some(mosi.map_into()),
+            Some(miso.map_into()),
+            None,
+            None,
+            new_dma!(tx_dma),
+            new_dma!(rx_dma),
+            config,
+        )
+    }
+
+    pub fn new_rxonly<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(sclk, miso);
+
+        T::add_resource_group(0);
+
+        miso.set_as_alt(miso.alt_num());
+        sclk.ioc_pad().func_ctl().modify(|w| {
+            w.set_alt_select(sclk.alt_num());
+            w.set_loop_back(true);
+        });
+
+        Self::new_inner(
+            peri,
+            Some(sclk.map_into()),
+            None,
+            Some(miso.map_into()),
+            None,
+            None,
+            None,
+            new_dma!(rx_dma),
+            config,
+        )
+    }
+
+    /// Create a new blocking SPI driver, in TX-only mode (only MOSI pin, no MISO).
+    pub fn new_txonly<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(sclk, mosi);
+
+        T::add_resource_group(0);
+
+        mosi.set_as_alt(mosi.alt_num());
+        sclk.ioc_pad().func_ctl().modify(|w| {
+            w.set_alt_select(sclk.alt_num());
+            w.set_loop_back(true);
+        });
+
+        Self::new_inner(
+            peri,
+            Some(sclk.map_into()),
+            Some(mosi.map_into()),
+            None,
+            None,
+            None,
+            new_dma!(tx_dma),
+            None,
+            config,
+        )
+    }
+
+    /// Create a new SPI driver, in TX-only mode, without SCK pin.
+    pub fn new_txonly_nosck<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(mosi);
+
+        T::add_resource_group(0);
+
+        mosi.set_as_alt(mosi.alt_num());
+
+        Self::new_inner(
+            peri,
+            None,
+            Some(mosi.map_into()),
+            None,
+            None,
+            None,
+            new_dma!(tx_dma),
+            None,
+            config,
+        )
+    }
+
+    /// SPI write, using DMA.
+    pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error> {
+        if data.is_empty() {
+            return Ok(());
+        }
+
+        let r = self.info.regs;
+
+        let config = TransferConfig::default();
+        self.set_word_size(W::CONFIG);
+        self.configure_transfer(data.len(), &config)?;
+
+        r.ctrl().modify(|w| {
+            w.set_txdmaen(true);
+        });
+
+        let tx_dst = r.data().as_ptr() as *mut W;
+        let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, Default::default()) };
+
+        tx_f.await;
+
+        //       finish_dma(self.info.regs);
+        r.ctrl().modify(|w| {
+            w.set_txdmaen(false);
+        });
+
+        Ok(())
+    }
+}
+
 impl<'d, M: PeriMode> Spi<'d, M> {
     fn new_inner<T: Instance>(
         _peri: impl Peripheral<P = T> + 'd,
@@ -496,7 +648,6 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             w.set_slvdataonly(config.slave_data_only_mode);
             w.set_cmden(config.cmd.is_some());
             w.set_addren(config.addr.is_some());
-            // Addr fmt: false: 1 line, true: 2/4 lines(same with data, aka `dualquad` field)
             w.set_addrfmt(config.addr_phase);
             w.set_dualquad(config.data_phase);
             w.set_tokenen(false);
@@ -560,6 +711,40 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             // Write cmd
             r.cmd().write(|w| w.set_cmd(config.cmd.unwrap_or(0xff)));
         }
+        Ok(())
+    }
+
+    // In blocking mode, the final speed is not faster than normal mode
+    pub fn blocking_datamerge_write(&mut self, data: &[u8], config: &TransferConfig) -> Result<(), Error> {
+        let r = self.info.regs;
+
+        flush_rx_fifo(r);
+
+        r.trans_fmt().modify(|w| {
+            w.set_datamerge(true);
+        });
+        self.set_word_size(<u8 as SealedWord>::CONFIG);
+        self.configure_transfer(data.len(), config)?;
+        for chunk in data.chunks(4) {
+            let word = match chunk.len() {
+                4 => u32::from_le_bytes(chunk.try_into().unwrap()), // LSB send first
+                3 => u32::from_be_bytes([0, chunk[2], chunk[1], chunk[0]]),
+                2 => u32::from_be_bytes([0, 0, chunk[1], chunk[0]]),
+                1 => u32::from_be_bytes([0, 0, 0, chunk[0]]),
+                _ => unreachable!(),
+            };
+
+            while r.status().read().txfull() {}
+            unsafe {
+                ptr::write_volatile(r.data().as_ptr() as *mut u32, word);
+            }
+        }
+
+        while self.info.regs.status().read().spiactive() {}
+        r.trans_fmt().modify(|w| {
+            w.set_datamerge(false);
+        });
+
         Ok(())
     }
 
@@ -716,6 +901,9 @@ pin_trait!(MosiPin, Instance);
 pin_trait!(MisoPin, Instance);
 pin_trait!(D2Pin, Instance);
 pin_trait!(D3Pin, Instance);
+
+dma_trait!(TxDma, Instance);
+dma_trait!(RxDma, Instance);
 
 foreach_peripheral!(
     (spi, $inst:ident) => {
