@@ -11,13 +11,25 @@ use core::ptr;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 // re-export
-pub use embedded_hal::spi::{Mode as SpiMode, MODE_0, MODE_1, MODE_2, MODE_3};
+pub use embedded_hal::spi::{Mode, MODE_0, MODE_1, MODE_2, MODE_3};
 pub use hpm_metapac::spi::vals::{AddrLen, AddrPhaseFormat, DataPhaseFormat, TransMode};
 
-use crate::dma::word;
+use self::consts::*;
+use crate::dma::{word, ChannelAndRequest};
 use crate::gpio::AnyPin;
-use crate::mode::{Blocking, Mode};
+use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::time::Hertz;
+
+#[cfg(any(hpm53, hpm68, hpm6e))]
+mod consts {
+    pub const TRANSFER_COUNT_MAX: usize = 0xFFFFFFFF;
+    pub const FIFO_SIZE: usize = 8;
+}
+#[cfg(any(hpm67, hpm63, hpm62))]
+mod consts {
+    pub const TRANSFER_COUNT_MAX: usize = 512;
+    pub const FIFO_SIZE: usize = 4;
+}
 
 // ==========
 // Helper enums
@@ -123,7 +135,7 @@ pub struct Config {
     /// Whether to use LSB.
     pub bit_order: BitOrder,
     /// Mode
-    pub mode: SpiMode,
+    pub mode: Mode,
     /// SPI frequency.
     pub frequency: Hertz,
     /// Timings
@@ -192,7 +204,7 @@ pub enum Error {
 
 /// SPI driver.
 #[allow(unused)]
-pub struct Spi<'d, M: Mode> {
+pub struct Spi<'d, M: PeriMode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
@@ -201,8 +213,10 @@ pub struct Spi<'d, M: Mode> {
     miso: Option<PeripheralRef<'d, AnyPin>>,
     d2: Option<PeripheralRef<'d, AnyPin>>,
     d3: Option<PeripheralRef<'d, AnyPin>>,
-    current_word_size: word_impl::Config,
+    tx_dma: Option<ChannelAndRequest<'d>>,
+    rx_dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
+    current_word_size: word_impl::Config,
 }
 
 impl<'d> Spi<'d, Blocking> {
@@ -232,6 +246,8 @@ impl<'d> Spi<'d, Blocking> {
             Some(miso.map_into()),
             None,
             None,
+            None,
+            None,
             config,
         )
     }
@@ -257,6 +273,8 @@ impl<'d> Spi<'d, Blocking> {
             Some(sclk.map_into()),
             None,
             Some(miso.map_into()),
+            None,
+            None,
             None,
             None,
             config,
@@ -287,6 +305,8 @@ impl<'d> Spi<'d, Blocking> {
             None,
             None,
             None,
+            None,
+            None,
             config,
         )
     }
@@ -303,7 +323,7 @@ impl<'d> Spi<'d, Blocking> {
 
         mosi.set_as_alt(mosi.alt_num());
 
-        Self::new_inner(peri, None, Some(mosi.map_into()), None, None, None, config)
+        Self::new_inner(peri, None, Some(mosi.map_into()), None, None, None, None, None, config)
     }
 
     pub fn new_blocking_quad<T: Instance>(
@@ -340,12 +360,14 @@ impl<'d> Spi<'d, Blocking> {
             Some(miso.map_into()),
             Some(d2.map_into()),
             Some(d3.map_into()),
+            None,
+            None,
             config,
         )
     }
 }
 
-impl<'d, M: Mode> Spi<'d, M> {
+impl<'d, M: PeriMode> Spi<'d, M> {
     fn new_inner<T: Instance>(
         _peri: impl Peripheral<P = T> + 'd,
         sclk: Option<PeripheralRef<'d, AnyPin>>,
@@ -353,6 +375,8 @@ impl<'d, M: Mode> Spi<'d, M> {
         miso: Option<PeripheralRef<'d, AnyPin>>,
         d2: Option<PeripheralRef<'d, AnyPin>>,
         d3: Option<PeripheralRef<'d, AnyPin>>,
+        tx_dma: Option<ChannelAndRequest<'d>>,
+        rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Self {
         let mut this = Self {
@@ -364,6 +388,8 @@ impl<'d, M: Mode> Spi<'d, M> {
             miso,
             d2,
             d3,
+            tx_dma,
+            rx_dma,
             current_word_size: <u8 as SealedWord>::CONFIG,
             _phantom: PhantomData,
         };
@@ -440,10 +466,8 @@ impl<'d, M: Mode> Spi<'d, M> {
         self.current_word_size = word_size;
     }
 
-    fn setup_transfer_config(&mut self, data_len: usize, config: &TransferConfig) -> Result<(), Error> {
-        // For spi_v67, the size of data must <= 512
-        #[cfg(spi_v67)]
-        if data_len.len() > 512 {
+    fn configure_transfer(&mut self, data_len: usize, config: &TransferConfig) -> Result<(), Error> {
+        if data_len > TRANSFER_COUNT_MAX {
             return Err(Error::BufferTooLong);
         }
 
@@ -476,7 +500,7 @@ impl<'d, M: Mode> Spi<'d, M> {
             w.set_addrfmt(config.addr_phase);
             w.set_dualquad(config.data_phase);
             w.set_tokenen(false);
-            #[cfg(spi_v67)]
+            #[cfg(not(ip_feature_spi_new_trans_count))]
             match config.transfer_mode {
                 TransMode::WRITE_READ_TOGETHER
                 | TransMode::READ_DUMMY_WRITE
@@ -497,7 +521,7 @@ impl<'d, M: Mode> Spi<'d, M> {
             w.set_transmode(config.transfer_mode);
         });
 
-        #[cfg(any(spi_v53, spi_v68))]
+        #[cfg(ip_feature_spi_new_trans_count)]
         match config.transfer_mode {
             TransMode::WRITE_READ_TOGETHER
             | TransMode::READ_DUMMY_WRITE
@@ -544,7 +568,7 @@ impl<'d, M: Mode> Spi<'d, M> {
         let r = self.info.regs;
 
         flush_rx_fifo(r);
-        self.setup_transfer_config(data.len(), config)?;
+        self.configure_transfer(data.len(), config)?;
         self.set_word_size(W::CONFIG);
 
         // Write data byte by byte
@@ -565,7 +589,7 @@ impl<'d, M: Mode> Spi<'d, M> {
         let r = self.info.regs;
 
         flush_rx_fifo(r);
-        self.setup_transfer_config(data.len(), config)?;
+        self.configure_transfer(data.len(), config)?;
         self.set_word_size(W::CONFIG);
 
         for b in data {
@@ -588,7 +612,7 @@ impl<'d, M: Mode> Spi<'d, M> {
 
         flush_rx_fifo(r);
         let len = read.len().max(write.len());
-        self.setup_transfer_config(len, &config)?;
+        self.configure_transfer(len, &config)?;
         self.set_word_size(W::CONFIG);
 
         for i in 0..len {
@@ -611,7 +635,7 @@ impl<'d, M: Mode> Spi<'d, M> {
         let r = self.info.regs;
 
         flush_rx_fifo(r);
-        self.setup_transfer_config(words.len(), &config)?;
+        self.configure_transfer(words.len(), &config)?;
         self.set_word_size(W::CONFIG);
 
         for i in 0..words.len() {
@@ -787,11 +811,11 @@ impl embedded_hal::spi::Error for Error {
     }
 }
 
-impl<'d, M: Mode> embedded_hal::spi::ErrorType for Spi<'d, M> {
+impl<'d, M: PeriMode> embedded_hal::spi::ErrorType for Spi<'d, M> {
     type Error = Error;
 }
 
-impl<'d, M: Mode> embedded_hal::spi::SpiBus for Spi<'d, M> {
+impl<'d, M: PeriMode> embedded_hal::spi::SpiBus for Spi<'d, M> {
     fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
         self.blocking_write(buf, &TransferConfig::default())
     }
