@@ -11,7 +11,7 @@ use {defmt_rtt as _, hpm_hal as hal};
 
 const BOARD_NAME: &str = "HPM5300EVK";
 
-#[embassy_executor::task]
+#[embassy_executor::task(pool_size = 2)]
 async fn blink(pin: AnyPin) {
     let mut led = Flex::new(pin);
     led.set_as_output(Default::default());
@@ -45,6 +45,7 @@ async fn main(spawner: Spawner) -> ! {
     //println!("mie: {:?}", mie);
 
     spawner.spawn(blink(p.PA23.degrade())).unwrap();
+    spawner.spawn(blink(p.PA10.degrade())).unwrap();
 
     loop {
         Timer::after_millis(1000).await;
