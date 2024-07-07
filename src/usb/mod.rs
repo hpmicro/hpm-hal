@@ -1,9 +1,13 @@
 use bitfield_struct::bitfield;
 use embedded_hal::delay::DelayNs;
 use riscv::delay::McycleDelay;
-use xhci;
 
 use crate::pac::usb::regs::*;
+
+mod dcd;
+mod device;
+mod endpoint;
+mod hcd;
 
 #[cfg(usb_v67)]
 const ENDPOINT_COUNT: u8 = 8;
@@ -14,6 +18,141 @@ const ENDPOINT_COUNT: u8 = 16;
 pub struct Usb {
     info: &'static Info,
     delay: McycleDelay,
+    dcd_data: DcdData,
+}
+
+pub struct DcdData {
+    /// Queue head
+    pub(crate) qhd: [QueueHead; ENDPOINT_COUNT as usize * 2],
+    /// Queue element transfer descriptor
+    pub(crate) qtd: [QueueTransferDescriptor; ENDPOINT_COUNT as usize * 2 * 8],
+}
+
+impl Default for DcdData {
+    fn default() -> Self {
+        Self {
+            qhd: [QueueHead::default(); ENDPOINT_COUNT as usize * 2],
+            qtd: [QueueTransferDescriptor::default(); ENDPOINT_COUNT as usize * 2 * 8],
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct QueueHead {
+    // Capabilities and characteristics
+    pub(crate) cap: CapabilityAndCharacteristics,
+    // Current qTD pointer
+    // TODO: use index?
+    pub(crate) qtd_addr: u32,
+
+    // Transfer overlay
+    pub(crate) qtd_overlay: QueueTransferDescriptor,
+
+    pub(crate) setup_request: ControlRequest,
+
+    // Due to the fact QHD is 64 bytes aligned but occupies only 48 bytes
+    // thus there are 16 bytes padding free that we can make use of.
+    // TODO: Check memory layout
+    _reserved: [u8; 16],
+}
+
+#[bitfield(u64)]
+pub(crate) struct ControlRequest {
+    #[bits(8)]
+    request_type: u8,
+    #[bits(8)]
+    request: u8,
+    #[bits(16)]
+    value: u16,
+    #[bits(16)]
+    index: u16,
+    #[bits(16)]
+    length: u16,
+}
+
+#[bitfield(u32)]
+pub(crate) struct CapabilityAndCharacteristics {
+    #[bits(15)]
+    /// Number of packets executed per transaction descriptor.
+    ///
+    /// - 00: Execute N transactions as demonstrated by the
+    /// USB variable length protocol where N is computed using
+    /// Max_packet_length and the Total_bytes field in the dTD
+    /// - 01: Execute one transaction
+    /// - 10: Execute two transactions
+    /// - 11: Execute three transactions
+    ///
+    /// Remark: Non-isochronous endpoints must set MULT = 00.
+    ///
+    /// Remark: Isochronous endpoints must set MULT = 01, 10, or 11 as needed.
+    num_packets_per_td: u16,
+
+    /// Interrupt on setup.
+    ///
+    /// This bit is used on control type endpoints to indicate if
+    /// USBINT is set in response to a setup being received.
+    #[bits(1)]
+    int_on_step: bool,
+
+    #[bits(11)]
+    max_packet_size: u16,
+
+    #[bits(2)]
+    _reserved: u8,
+
+    #[bits(1)]
+    zero_length_termination: bool,
+
+    #[bits(2)]
+    iso_mult: u8,
+}
+#[derive(Clone, Copy, Default)]
+struct QueueTransferDescriptor {
+    // Next point
+    // TODO: use index?
+    next: u32,
+
+    token: QueueTransferDescriptorToken,
+
+    /// Buffer Page Pointer List
+    ///
+    /// Each element in the list is a 4K page aligned, physical memory address.
+    /// The lower 12 bits in each pointer are reserved (except for the first one)
+    /// as each memory pointer must reference the start of a 4K page
+    buffer: [u32; 5],
+
+    /// DCD Area
+    expected_bytes: u16,
+
+    _reserved: [u8; 2],
+}
+
+#[bitfield(u32)]
+struct QueueTransferDescriptorToken {
+    #[bits(3)]
+    _r1: u8,
+    #[bits(1)]
+    xact_err: bool,
+    #[bits(1)]
+    _r2: bool,
+    #[bits(1)]
+    buffer_err: bool,
+    #[bits(1)]
+    halted: bool,
+    #[bits(1)]
+    active: bool,
+    #[bits(2)]
+    _r3: u8,
+    #[bits(2)]
+    iso_mult_override: u8,
+    #[bits(3)]
+    _r4: u8,
+    #[bits(1)]
+    int_on_complete: bool,
+    #[bits(15)]
+    total_bytes: u16,
+    #[bits(1)]
+    _r5: bool,
 }
 
 pub struct EpConfig {
@@ -99,178 +238,6 @@ impl Usb {
         r.phy_ctrl1().modify(|w| {
             w.set_utmi_cfg_rst_n(false);
             w.set_utmi_otg_suspendm(false);
-        });
-    }
-
-    fn dcd_bus_reset(&mut self) {
-        let r = &self.info.regs;
-
-        // For each endpoint, first set the transfer type to ANY type other than control.
-        // This is because the default transfer type is control, according to hpm_sdk,
-        // leaving an un-configured endpoint control will cause undefined behavior
-        // for the data PID tracking on the active endpoint.
-        for i in 0..ENDPOINT_COUNT {
-            r.endptctrl(i as usize).write(|w| {
-                w.set_txt(TransferType::Bulk as u8);
-                w.set_rxt(TransferType::Bulk as u8);
-            });
-        }
-
-        // Clear all registers
-        // TODO: CHECK: In hpm_sdk, are those registers REALLY cleared?
-        r.endptnak().write_value(Endptnak::default());
-        r.endptnaken().write_value(Endptnaken(0));
-        r.usbsts().write_value(Usbsts::default());
-        r.endptsetupstat().write_value(Endptsetupstat::default());
-        r.endptcomplete().write_value(Endptcomplete::default());
-
-        while r.endptprime().read().0 != 0 {}
-
-        r.endptflush().write_value(Endptflush(0xFFFFFFFF));
-
-        while r.endptflush().read().0 != 0 {}
-    }
-
-    /// Initialize USB device controller driver
-    fn dcd_init(&mut self) {
-        // Initialize phy first
-        self.phy_init();
-
-        let r = &self.info.regs;
-
-        // Reset controller
-        r.usbcmd().modify(|w| w.set_rst(true));
-        while r.usbcmd().read().rst() {}
-
-        // Set mode to device IMMEDIATELY after reset
-        r.usbmode().modify(|w| w.set_cm(0b10));
-
-        r.usbmode().modify(|w| {
-            // Set little endian
-            w.set_es(false);
-            // Disable setup lockout, please refer to "Control Endpoint Operation" section in RM
-            w.set_slom(false);
-        });
-
-        r.portsc1().modify(|w| {
-            // Parallel interface signal
-            w.set_sts(false);
-            // Parallel transceiver width
-            w.set_ptw(false);
-            // TODO: Set fullspeed mode
-            // w.set_pfsc(true);
-        });
-
-        // Do not use interrupt threshold
-        r.usbcmd().modify(|w| {
-            w.set_itc(0);
-        });
-
-        // Enable VBUS discharge
-        r.otgsc().modify(|w| {
-            w.set_vd(true);
-        });
-    }
-
-    /// Deinitialize USB device controller driver
-    fn dcd_deinit(&mut self) {
-        let r = &self.info.regs;
-
-        // Stop first
-        r.usbcmd().modify(|w| w.set_rs(false));
-
-        // Reset controller
-        r.usbcmd().modify(|w| w.set_rst(true));
-        while r.usbcmd().read().rst() {}
-
-        // Disable phy
-        self.phy_deinit();
-
-        // Reset endpoint list address register, status register and interrupt enable register
-        r.endptlistaddr().write_value(Endptlistaddr(0));
-        r.usbsts().write_value(Usbsts::default());
-        r.usbintr().write_value(Usbintr(0));
-    }
-
-    /// Connect by enabling internal pull-up resistor on D+/D-
-    fn dcd_connect(&mut self) {
-        let r = &self.info.regs;
-
-        r.usbcmd().modify(|w| {
-            w.set_rs(true);
-        });
-    }
-
-    /// Disconnect by disabling internal pull-up resistor on D+/D-
-    fn dcd_disconnect(&mut self) {
-        let r = &self.info.regs;
-
-        // Stop
-        r.usbcmd().modify(|w| {
-            w.set_rs(false);
-        });
-
-        // Pullup DP to make the phy switch into full speed mode
-        r.usbcmd().modify(|w| {
-            w.set_rs(true);
-        });
-
-        // Clear sof flag and wait
-        r.usbsts().modify(|w| {
-            w.set_sri(true);
-        });
-        while r.usbsts().read().sri() == false {}
-
-        // Disconnect
-        r.usbcmd().modify(|w| {
-            w.set_rs(false);
-        });
-    }
-}
-
-impl Usb {
-    fn endpoint_open(&mut self, ep_config: EpConfig) {
-        let r = &self.info.regs;
-
-        let ep_num = ep_config.ep_addr.ep_num();
-        let dir = ep_config.ep_addr.dir();
-        let ep_idx = 2 * ep_num + dir as u8;
-
-        // Max EP count: 16
-        if ep_num >= ENDPOINT_COUNT {
-            // TODO: return false
-        }
-
-        // Prepare queue head
-        // TODO
-        let link = xhci::ring::trb::Link::new();
-
-        // Open endpoint
-        self.dcd_endpoint_open(ep_config);
-    }
-
-    fn dcd_endpoint_open(&mut self, ep_config: EpConfig) {
-        let r = &self.info.regs;
-
-        let ep_num = ep_config.ep_addr.ep_num();
-        let dir = ep_config.ep_addr.dir();
-        let ep_idx = 2 * ep_num + dir as u8;
-
-        // Enable EP control
-        r.endptctrl(ep_num as usize).modify(|w| {
-            // Clear the RXT or TXT bits
-            if dir {
-                w.set_txt(0);
-                w.set_txe(true);
-                w.set_txr(true);
-                // TODO: Better impl? For example, make transfer a bitfield struct
-                w.0 |= (ep_config.transfer as u32) << 18;
-            } else {
-                w.set_rxt(0);
-                w.set_rxe(true);
-                w.set_rxr(true);
-                w.0 |= (ep_config.transfer as u32) << 2;
-            }
         });
     }
 }
