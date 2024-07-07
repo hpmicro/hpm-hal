@@ -285,6 +285,8 @@ fn main() {
         (("uart", "RX"), quote!(crate::uart::RxDma)),
         (("uart", "TX"), quote!(crate::uart::TxDma)),
         (("i2c", "GLOBAL"), quote!(crate::i2c::I2cDma)),
+        (("spi", "RX"), quote!(crate::spi::RxDma)),
+        (("spi", "TX"), quote!(crate::spi::TxDma)),
         // FEMC
         (("femc", "A00"), quote!(crate::femc::A00Pin)),
         (("femc", "A01"), quote!(crate::femc::A01Pin)),
