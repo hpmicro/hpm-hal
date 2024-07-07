@@ -112,45 +112,56 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection) {
 
 impl super::ControllerInterrupt for crate::peripherals::HDMA {
     unsafe fn on_irq() {
-        let r = pac::HDMA;
-
-        let num_base = 0; // for XDMA, it's 32
-
-        let half = pac::HDMA.inthalfsts().read().0;
-        let tc = pac::HDMA.inttcsts().read().0;
-        let err = pac::HDMA.interrsts().read().0;
-        let abort = pac::HDMA.intabortsts().read().0;
-
-        // possible errors:
-        // - bus error
-        // - memory alignment error
-        // - bit width alignment error
-        // - invalid configuration
-        // DMA error: this is normally a hardware error(memory alignment or access), but we can't do anything about it
-        if err != 0 {
-            panic!(
-                "DMA: error on DMA@{:08x}, errsts=0x{:08x}",
-                r.as_ptr() as u32,
-                pac::HDMA.interrsts().read().0
-            );
-        }
-
-        if half != 0 {
-            r.inthalfsts().modify(|w| w.0 = half); // W1C
-        }
-        if tc != 0 {
-            r.inttcsts().modify(|w| w.0 = tc); // W1C
-        }
-        if abort != 0 {
-            r.intabortsts().modify(|w| w.0 = abort); // W1C
-        }
-
-        for i in BitIter(half | tc | abort) {
-            let id = (i + num_base) as usize;
-            STATE[id].waker.wake();
-        }
+        dma_on_irq(pac::HDMA, 0);
 
         crate::interrupt::HDMA.complete(); // notify PLIC
+    }
+}
+
+#[cfg(hpm6e)]
+impl super::ControllerInterrupt for crate::peripherals::XDMA {
+    unsafe fn on_irq() {
+        dma_on_irq(pac::XDMA, 32);
+
+        crate::interrupt::XDMA.complete(); // notify PLIC
+    }
+}
+
+unsafe fn dma_on_irq(r: pac::dma::Dma, mux_num_base: u32) {
+    let r = pac::HDMA;
+
+    let half = r.inthalfsts().read().0;
+    let tc = r.inttcsts().read().0;
+    let err = r.interrsts().read().0;
+    let abort = r.intabortsts().read().0;
+
+    // possible errors:
+    // - bus error
+    // - memory alignment error
+    // - bit width alignment error
+    // - invalid configuration
+    // DMA error: this is normally a hardware error(memory alignment or access), but we can't do anything about it
+    if err != 0 {
+        panic!(
+            "DMA: error on DMA@{:08x}, errsts=0x{:08x}",
+            r.as_ptr() as u32,
+            r.interrsts().read().0
+        );
+    }
+
+    if half != 0 {
+        r.inthalfsts().modify(|w| w.0 = half); // W1C
+    }
+    if tc != 0 {
+        r.inttcsts().modify(|w| w.0 = tc); // W1C
+    }
+    if abort != 0 {
+        r.intabortsts().modify(|w| w.0 = abort); // W1C
+    }
+
+    for i in BitIter(half | tc | abort) {
+        let id = (i + mux_num_base) as usize;
+        STATE[id].waker.wake();
     }
 }
 
