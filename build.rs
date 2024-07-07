@@ -10,6 +10,84 @@ use hpm_metapac::metadata::METADATA;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
+// HPM_SOC_IP_FEATURE
+fn get_ip_features(chip_family: &str) -> &[&str] {
+    match chip_family {
+        "hpm67" | "hpm64" => &["ADC16_HAS_TEMPSNS"],
+        "hpm63" => &["PWM_COUNTER_RESET"],
+        "hpm62" => &["UART_RX_IDLE_DETECT", "PWM_COUNTER_RESET", "PWM_HRPWM"],
+        "hpm53" => &[
+            "GPTMR_MONITOR",
+            "GPTMR_OP_MODE",
+            "UART_RX_IDLE_DETECT",
+            "UART_FCRR",
+            "UART_RX_EN",
+            "UART_E00018_FIX",
+            "UART_9BIT_MODE",
+            "UART_ADDR_MATCH",
+            "UART_TRIG_MODE",
+            "UART_FINE_FIFO_THRLD",
+            "UART_IIR2",
+            "I2C_SUPPORT_RESET",
+            "SPI_NEW_TRANS_COUNT",
+            "SPI_CS_SELECT",
+            "SPI_SUPPORT_DIRECTIO",
+            "PWM_COUNTER_RESET",
+            "ADC16_HAS_MOT_EN",
+        ],
+        "hpm68" => &[
+            "UART_RX_IDLE_DETECT",
+            "UART_FCRR",
+            "UART_RX_EN",
+            "I2C_SUPPORT_RESET",
+            "SPI_NEW_TRANS_COUNT",
+            "SPI_CS_SELECT",
+            "SPI_SUPPORT_DIRECTIO",
+            "GPTMR_MONITOR",
+            "GPTMR_OP_MODE",
+            "DAO_DATA_FORMAT_CONFIG",
+            "CAM_INV_DEN",
+        ],
+        "hpm6e" => &[
+            "GPTMR_MONITOR",
+            "GPTMR_OP_MODE",
+            "GPTMR_CNT_MODE",
+            "UART_RX_IDLE_DETECT",
+            "UART_FCRR",
+            "UART_RX_EN",
+            "UART_E00018_FIX",
+            "UART_9BIT_MODE",
+            "UART_ADDR_MATCH",
+            "UART_TRIG_MODE",
+            "UART_FINE_FIFO_THRLD",
+            "UART_IIR2",
+            "I2C_SUPPORT_RESET",
+            "SPI_NEW_TRANS_COUNT",
+            "SPI_CS_SELECT",
+            "SPI_SUPPORT_DIRECTIO",
+            "DMAV2_BURST_IN_FIXED_TRANS",
+            "DMAV2_BYTE_ORDER_SWAP",
+            "ADC16_HAS_MOT_EN",
+            "DAO_DATA_FORMAT_CONFIG",
+            "QEIV2_ONESHOT_MODE",
+            "QEIV2_SW_RESTART_TRG",
+            "QEIV2_TIMESTAMP",
+            "QEIV2_ADC_THRESHOLD",
+            "RDC_IIR",
+            "SEI_RX_LATCH_FEATURE",
+            "SEI_ASYNCHRONOUS_MODE_V2",
+            "SEI_TIMEOUT_REWIND_FEATURE",
+            "SEI_HAVE_DAT10_31",
+            "SEI_HAVE_INTR64_255",
+            "SEI_HAVE_CTRL2_12",
+            "SEI_HAVE_PTCD",
+            "ENET_HAS_MII_MODE",
+            "FFA_FP32",
+        ],
+        _ => panic!("Unknown chip family: {}", chip_family),
+    }
+}
+
 fn main() {
     let mut cfgs = CfgSet::new();
 
@@ -30,7 +108,12 @@ fn main() {
 
     // hpm53, hpm67, etc
     let family_name = chip_name[0..5].to_ascii_lowercase();
-    cfgs.enable(family_name);
+    cfgs.enable(&family_name);
+
+    // IP feature gates, usesage: #[cfg(ip_feature_adc16_has_tempsns)]
+    for feature in get_ip_features(&family_name) {
+        cfgs.enable(&format!("ip_feature_{}", feature.to_ascii_lowercase()));
+    }
 
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
