@@ -47,7 +47,7 @@ This crate is a working-in-progress and not ready for use.
 
 - [probe-rs]
   - [x] [HPM5300 series flash algorithm support](https://github.com/probe-rs/probe-rs/pull/2575)
-  - [ ] [JTag support for DAPLink](https://github.com/probe-rs/probe-rs/pull/2578)
+  - [ ] [#2578 JTag support for DAPLink](https://github.com/probe-rs/probe-rs/pull/2578)
 
 ## Usage
 
@@ -77,8 +77,9 @@ The best reference is the examples in the `examples` directory and Github action
 - Download HPM SDK: <https://github.com/hpmicro/hpm_sdk>
 - Choose one debugger:
   - OpenOCD: HPM's fork <https://github.com/hpmicro/riscv-openocd>
-  - [probe-rs]: <https://github.com/probe-rs/probe-rs>
+  - probe-rs: <https://github.com/probe-rs/probe-rs>
     - The `HPMicro.yaml` flash algorithm is provided in top level of this repo
+    - If you are using DAPLink probe, you need to use the version from PR [#2578 JTag support for DAPLink](https://github.com/probe-rs/probe-rs/pull/2578)
 
 #### Step 1. Prepare Rust Toolchain
 
@@ -87,14 +88,18 @@ rustup default nightly-2024-06-12
 rustup target add riscv32imafc-unknown-none-elf
 ```
 
-#### Step 2. Prepare `metapac`
+#### Step 2. Clone this repo
 
-Use the [hpm-metapac] snapshot repo or build from [hpm-data].
+```bash
+git clone https://github.com/hpmicro-rs/hpm-hal.git
 
-Update `Cargo.toml` with the git-based dependency:
+# Or if you are using SSH
 
-```toml
-hpm-metapac = { version = "0.0.3", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag="hpm-data-d9f90671e5b8ebd51c9565484919b4b880b6a23a" }
+git clone git@github.com:hpmicro-rs/hpm-hal.git
+
+# Or if you are using GitHub CLI
+
+gh repo clone hpmicro-rs/hpm-hal
 ```
 
 #### Step 3. Run Examples
@@ -127,5 +132,4 @@ at your option.
 This crate is under active development. Before starting your work, it's better to create a "Work in Progress" (WIP) pull request describing your work to avoid conflicts.
 
 [hpm-data]: https://github.com/andelf/hpm-data
-[hpm-metapac]: https://github.com/hpmicro-rs/hpm-metapac
 [HPM OpenOCD]: https://github.com/hpmicro/riscv-openocd
