@@ -132,6 +132,11 @@ pub struct Config {
     /// FIFO4 mode, tx_fifo_level, rx_fifo_level, actual bytes = value + 1
     #[cfg(ip_feature_uart_fine_fifo_thrld)]
     pub fifo_level: Option<(FifoTriggerLevel, FifoTriggerLevel)>,
+    /// If true: on a read-like method, if there is a latent error pending,
+    /// the read will abort and the error will be reported and cleared
+    ///
+    /// If false: the error is ignored and cleared
+    pub detect_previous_overrun: bool,
 }
 
 impl Default for Config {
@@ -145,6 +150,8 @@ impl Default for Config {
             fifo_level: Some((TxFifoTrigger::NOT_FULL, RxFifoTrigger::NOT_EMPTY)),
             #[cfg(ip_feature_uart_fine_fifo_thrld)]
             fifo_level: Some((FifoTriggerLevel::Byte16, FifoTriggerLevel::Byte1)),
+            // no detect
+            detect_previous_overrun: false,
         }
     }
 }
@@ -191,32 +198,44 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 unsafe fn on_interrupt(r: pac::uart::Uart, s: &'static State) {
-    let _ = (r, s);
-
-    defmt::info!("uart inq");
-
     let lsr = r.lsr().read();
     #[cfg(ip_feature_uart_e00018_fix)]
     let iir = r.iir2().read();
     #[cfg(not(ip_feature_uart_e00018_fix))]
     let iir = r.iir().read();
 
-    defmt::info!("lsr = 0x{:08x}", lsr.0);
-
     let has_errors = lsr.pe() || lsr.fe() || lsr.oe() || lsr.errf() || lsr.lbreak();
+    // clear flags and disable interrupts
     if has_errors {
-        // clear all interrupts and DMA RX request
         r.ier().modify(|w| {
             w.set_elsi(false); // rx status
             w.set_erxidle(false); // rx idle
         });
+
+        #[cfg(ip_feature_uart_rx_idle_detect)]
+        r.idle_cfg().modify(|w| w.set_rx_idle_en(false)); // rx idle for new ip cores
+
         #[cfg(ip_feature_uart_fine_fifo_thrld)]
-        r.fcrr().modify(|w| w.set_dmae(false));
+        r.fcrr().write(|w| w.set_dmae(false));
         #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
-        r.fcr().modify(|w| w.set_dmae(false));
-    } else if r.ier().read().etxidle() && lsr.rxidle() {
-        // disable idle line detection
-        r.ier().modify(|w| w.set_etxidle(false));
+        {
+            let mut fcr = pac::uart::regs::Fcr(r.gpr().read().data() as _);
+            fcr.set_dmae(false);
+            r.fcr().write_value(fcr);
+        }
+    } else {
+        #[cfg(ip_feature_uart_rx_idle_detect)]
+        if iir.rxidle_flag() && r.idle_cfg().read().rx_idle_en() {
+            r.ier().modify(|w| w.set_etxidle(false));
+            r.idle_cfg().modify(|w| w.set_rx_idle_en(false)); // disable idle line detection
+
+            r.iir2().modify(|w| w.set_rxidle_flag(true)); // W1C
+        }
+
+        #[cfg(not(ip_feature_uart_rx_idle_detect))]
+        if r.ier().read().erxidle() && lsr.rxidle() {
+            r.ier().modify(|w| w.set_etxidle(false)); // disable idle line detection
+        }
     }
 
     s.saved_lsr.store(lsr.0, Ordering::Relaxed);
@@ -292,7 +311,11 @@ impl<'d> UartTx<'d, Async> {
             w.set_dmae(true);
         });
         #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
-        r.fcr().modify(|w| w.set_dmae(true));
+        {
+            let mut fcr = pac::uart::regs::Fcr(r.gpr().read().data() as _);
+            fcr.set_dmae(true);
+            r.fcr().write_value(fcr);
+        }
 
         let ch = self.tx_dma.as_mut().unwrap();
 
@@ -300,6 +323,17 @@ impl<'d> UartTx<'d, Async> {
         // is held across an await and makes the future non-Send.
         let transfer = unsafe { ch.write(buffer, r.thr().as_ptr() as *mut u8, Default::default()) };
         transfer.await;
+
+        #[cfg(ip_feature_uart_fine_fifo_thrld)]
+        r.fcrr().modify(|w| {
+            w.set_dmae(false);
+        });
+        #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
+        {
+            let mut fcr = pac::uart::regs::Fcr(r.gpr().read().data() as _);
+            fcr.set_dmae(false);
+            r.fcr().write_value(fcr);
+        }
 
         Ok(())
     }
@@ -373,8 +407,6 @@ impl<'d, M: Mode> UartTx<'d, M> {
         let state = self.state;
         state.tx_rx_refcount.store(1, Ordering::Relaxed);
 
-        // TODO: all peripherals are enabled by default for now
-
         // info.regs.cr3().modify(|w| {
         //     w.set_ctse(self.cts.is_some());
         //});
@@ -425,6 +457,7 @@ pub struct UartRx<'d, M: Mode> {
     rx: Option<PeripheralRef<'d, AnyPin>>,
     rts: Option<PeripheralRef<'d, AnyPin>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
+    detect_previous_overrun: bool,
     _phantom: PhantomData<M>,
 }
 
@@ -434,8 +467,8 @@ impl<'d> UartRx<'d, Async> {
     /// Useful if you only want Uart Rx. It saves 1 pin and consumes a little less power.
     pub fn new<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -503,11 +536,18 @@ impl<'d> UartRx<'d, Async> {
                 w.set_etxidle(false);
             });
 
+            #[cfg(ip_feature_uart_rx_idle_detect)]
+            r.idle_cfg().modify(|w| w.set_rx_idle_en(false));
+
             // disable dma
             #[cfg(ip_feature_uart_fine_fifo_thrld)]
             r.fcrr().modify(|w| w.set_dmae(false));
             #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
-            r.fcr().modify(|w| w.set_dmae(false));
+            {
+                let mut fcr = pac::uart::regs::Fcr(r.gpr().read().data() as _);
+                fcr.set_dmae(false);
+                r.fcr().write_value(fcr);
+            }
         });
 
         let ch = self.rx_dma.as_mut().unwrap();
@@ -516,13 +556,24 @@ impl<'d> UartRx<'d, Async> {
 
         let transfer = unsafe { ch.read(r.rbr().as_ptr() as *mut u8, buffer, Default::default()) };
 
+        if !self.detect_previous_overrun {
+            // clear overrun flag
+            let _ = r.lsr().read();
+
+            // self.state.saved_lsr.store(0, Ordering::Relaxed);
+        }
+
         r.ier().modify(|w| {
             w.set_elsi(true);
         });
         #[cfg(ip_feature_uart_fine_fifo_thrld)]
         r.fcrr().modify(|w| w.set_dmae(true));
         #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
-        r.fcr().modify(|w| w.set_dmae(true));
+        {
+            let mut fcr = pac::uart::regs::Fcr(r.gpr().read().data() as _);
+            fcr.set_dmae(true);
+            r.fcr().write_value(fcr);
+        }
 
         compiler_fence(Ordering::SeqCst);
 
@@ -530,6 +581,9 @@ impl<'d> UartRx<'d, Async> {
             r.ier().modify(|w| {
                 w.set_erxidle(true);
             });
+
+            #[cfg(ip_feature_uart_rx_idle_detect)]
+            r.idle_cfg().modify(|w| w.set_rx_idle_en(true));
         }
 
         compiler_fence(Ordering::SeqCst);
@@ -563,6 +617,13 @@ impl<'d> UartRx<'d, Async> {
 
             if enable_idle_line_detection && lsr.rxidle() {
                 return Poll::Ready(Ok(()));
+            }
+            #[cfg(ip_feature_uart_e00018_fix)]
+            {
+                let iir = r.iir2().read();
+                if enable_idle_line_detection && iir.rxidle_flag() {
+                    return Poll::Ready(Ok(()));
+                }
             }
 
             Poll::Pending
@@ -653,6 +714,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
             rx,
             rts,
             rx_dma,
+            detect_previous_overrun: config.detect_previous_overrun,
         };
         this.enable_and_configure(&config)?;
         Ok(this)
@@ -953,7 +1015,7 @@ impl<'d, M: Mode> Uart<'d, M> {
                 tx,
                 cts,
                 de,
-                tx_dma: None,
+                tx_dma,
             },
             rx: UartRx {
                 _phantom: PhantomData,
@@ -962,8 +1024,8 @@ impl<'d, M: Mode> Uart<'d, M> {
                 kernel_clock,
                 rx,
                 rts,
-                rx_dma: None,
-                //detect_previous_overrun: config.detect_previous_overrun,
+                rx_dma,
+                detect_previous_overrun: config.detect_previous_overrun,
             },
         };
         this.enable_and_configure(&config)?;
@@ -1097,27 +1159,28 @@ fn configure(
     // FIFO setting
     #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
     {
+        // CAUTION: FCR and IIR shares the same register, use GPR to store FCR value
+        let mut fcr = crate::pac::uart::regs::Fcr(0);
+
         // reset TX and RX fifo
-        r.fcr().write(|w| {
-            w.set_tfiforst(true);
-            w.set_rfiforst(true);
-        });
+        fcr.set_tfiforst(true);
+        fcr.set_rfiforst(true);
 
         // enable FIFO
         if let Some((tx_fifo_level, rx_fifo_level)) = config.fifo_level {
-            r.fcr().write(|w| {
-                w.set_fifoe(true);
-                w.set_tfifot(tx_fifo_level);
-                w.set_rfifot(rx_fifo_level);
-            });
+            fcr.set_fifoe(true);
+            fcr.set_tfifot(tx_fifo_level);
+            fcr.set_rfifot(rx_fifo_level);
         }
+
+        r.fcr().write_value(fcr);
+
         // store FCR register value
-        r.gpr().write(|w| w.0 = r.fcr().read().0);
+        r.gpr().write(|w| w.0 = fcr.0);
     }
 
     #[cfg(ip_feature_uart_fine_fifo_thrld)]
     {
-        // reset TX and RX fifo
         r.fcrr().write(|w| {
             w.set_tfiforst(true);
             w.set_rfiforst(true);
@@ -1134,6 +1197,7 @@ fn configure(
         }
     }
 
+    #[cfg(ip_feature_uart_rx_en)]
     if enable_rx {
         r.idle_cfg().modify(|w| {
             w.set_rxen(true);
