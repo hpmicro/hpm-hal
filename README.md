@@ -14,7 +14,11 @@ This crate is a working-in-progress and not ready for use.
   - [x] PLL setting
   - [x] GPIO, Flex, Input, Output, Async
   - [x] RTT support (defmt, defmt-rtt)
-  - [x] UART blocking TX, RX
+  - [x] DMA
+    - DMA v2
+  - [x] UART
+    - blocking driver
+    - async driver using DMA
   - [x] I2C blocking
   - [x] MBX, blocking and async
   - [x] FEMC
@@ -26,14 +30,14 @@ This crate is a working-in-progress and not ready for use.
   - [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
   - [ ] CPU1 support - how to?
 
-| MCU Family | Demo | PAC | SYSCTL | GPIO | UART | I2C | MBX | ADC | DMA | SPI |
-|------------|:----:|:---:|:------:|:----:|:----:|:---:|:---:|:---:|:---:|:---:|
-| HPM6700    |  ✓   |  ✓  |        |      |      |     |     |     |     |     |
-| HPM6300    |  ✓   |  ✓  |        |      |      |     |     |     |     |     |
-| HPM6200    |      |  ✓  |        |      |      |     |     |     |     |     |
-| HPM5300    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ✓  |  ✓  |     |     |  ✓  |
-| HPM6800    |      |  ✓  |        |      |      |     |     |     |     |     |
-| HPM6E00    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ?  |  ?  |     |     |  ?  |
+| MCU Family | Demo | PAC | SYSCTL | GPIO | UART | I2C | MBX | ADC | DMA | SPI | DMA |
+|------------|:----:|:---:|:------:|:----:|:----:|:---:|:---:|:---:|:---:|:---:|:---:|
+| HPM6700    |  ✓   |  ✓  |        |      |      |     |     |     |     |     |     |
+| HPM6300    |  ✓   |  ✓  |        |      |      |     |     |     |     |     |     |
+| HPM6200    |      |  ✓  |        |      |      |     |     |     |     |     |     |
+| HPM5300    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ✓  |  ✓  |     |     |  ✓  |  ✓  |
+| HPM6800    |      |  ✓  |        |      |      |     |     |     |     |     |  ?  |
+| HPM6E00    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ?  |  ?  |     |     |  ?  |  ?  |
 
 - ✓: Implemented
 - ?: Requires demo verification
@@ -74,6 +78,7 @@ The best reference is the examples in the `examples` directory and Github action
 - Choose one debugger:
   - OpenOCD: HPM's fork <https://github.com/hpmicro/riscv-openocd>
   - [probe-rs]: <https://github.com/probe-rs/probe-rs>
+    - The `HPMicro.yaml` flash algorithm is provided in top level of this repo
 
 #### Step 1. Prepare Rust Toolchain
 
