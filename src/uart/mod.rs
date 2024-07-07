@@ -12,8 +12,9 @@
 //! - UART_IIR2:            v53
 
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicU8, Ordering};
 
+use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -120,10 +121,10 @@ pub struct Config {
     /// Parity type
     pub parity: Parity,
     /// FIFO level
-    #[cfg(not(any(uart_v53, uart_v68)))]
+    #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
     pub fifo_level: Option<(TxFifoTrigger, RxFifoTrigger)>,
     /// FIFO4 mode, tx_fifo_level, rx_fifo_level, actual bytes = value + 1
-    #[cfg(any(uart_v53, uart_v68))]
+    #[cfg(ip_feature_uart_fine_fifo_thrld)]
     pub fifo_level: Option<(FifoTriggerLevel, FifoTriggerLevel)>,
 }
 
@@ -134,9 +135,9 @@ impl Default for Config {
             data_bits: DataBits::DataBits8,
             stop_bits: StopBits::STOP1,
             parity: Parity::ParityNone,
-            #[cfg(not(any(uart_v53, uart_v68)))]
+            #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
             fifo_level: Some((TxFifoTrigger::NOT_FULL, RxFifoTrigger::NOT_EMPTY)),
-            #[cfg(any(uart_v53, uart_v68))]
+            #[cfg(ip_feature_uart_fine_fifo_thrld)]
             fifo_level: Some((FifoTriggerLevel::Byte16, FifoTriggerLevel::Byte1)),
         }
     }
@@ -161,6 +162,13 @@ pub enum Error {
     Timeout,
     /// Line break
     LineBreak,
+}
+
+enum ReadCompletionEvent {
+    // DMA Read transfer completed first
+    DmaCompleted,
+    // Idle line detected first
+    Idle(usize),
 }
 
 /// Interrupt handler.
@@ -237,10 +245,11 @@ impl<'d> UartTx<'d, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
 
+        #[cfg(ip_feature_uart_fine_fifo_thrld)]
         r.fcrr().modify(|w| {
             w.set_dmae(true);
         });
-        #[cfg(not(any(hpm53, hpm68, hpm6e)))]
+        #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
         r.fcr().modify(|w| w.set_dmae(true));
 
         let ch = self.tx_dma.as_mut().unwrap();
@@ -369,8 +378,142 @@ pub struct UartRx<'d, M: Mode> {
     kernel_clock: Hertz,
     rx: Option<PeripheralRef<'d, AnyPin>>,
     rts: Option<PeripheralRef<'d, AnyPin>>,
-    // rx_dma: Option<ChannelAndRequest<'d>>,
+    rx_dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
+}
+
+impl<'d> UartRx<'d, Async> {
+    /// Create a new rx-only UART with no hardware flow control.
+    ///
+    /// Useful if you only want Uart Rx. It saves 1 pin and consumes a little less power.
+    pub fn new<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        into_ref!(rx);
+
+        rx.set_as_alt(rx.alt_num());
+
+        Self::new_inner(peri, Some(rx.map_into()), None, new_dma!(rx_dma), config)
+    }
+
+    /// Create a new rx-only UART with a request-to-send pin
+    pub fn new_with_rts<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        into_ref!(rx, rts);
+
+        rx.set_as_alt(rx.alt_num());
+        rts.set_as_alt(rts.alt_num());
+
+        Self::new_inner(
+            peri,
+            Some(rx.map_into()),
+            Some(rts.map_into()),
+            new_dma!(rx_dma),
+            config,
+        )
+    }
+
+    /// Initiate an asynchronous UART read
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.inner_read(buffer, false).await?;
+
+        Ok(())
+    }
+
+    /// Initiate an asynchronous read with idle line detection enabled
+    pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.inner_read(buffer, true).await
+    }
+
+    async fn inner_read_run(
+        &mut self,
+        buffer: &mut [u8],
+        enable_idle_line_detection: bool,
+    ) -> Result<ReadCompletionEvent, Error> {
+        let r = self.info.regs;
+
+        blocking_flush(self.info)?;
+
+        // make sure UART state is restored to neutral state when this future is dropped
+        let on_drop = OnDrop::new(move || {
+            r.ier().modify(|w| {
+                w.set_elsi(false); // rx status
+                w.set_ethei(false); // tx status
+                w.set_erxidle(false);
+                w.set_etxidle(false);
+            });
+
+            // disable dma
+            #[cfg(ip_feature_uart_fine_fifo_thrld)]
+            r.fcrr().modify(|w| {
+                w.set_dmae(false);
+            });
+            #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
+            r.fcr().modify(|w| {
+                w.set_dmae(false);
+            });
+        });
+
+        let ch = self.rx_dma.as_mut().unwrap();
+
+        let buffer_len = buffer.len();
+
+        let transfer = unsafe { ch.read(r.rbr().as_ptr() as *mut u8, buffer, Default::default()) };
+
+        r.ier().modify(|w| {
+            w.set_elsi(true);
+            //   w.set_erxidle(true);
+        });
+        #[cfg(ip_feature_uart_fine_fifo_thrld)]
+        r.fcrr().modify(|w| {
+            w.set_dmae(true);
+        });
+        #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
+        r.fcr().modify(|w| {
+            w.set_dmae(true);
+        });
+
+        compiler_fence(Ordering::SeqCst);
+
+        if enable_idle_line_detection {
+            r.ier().modify(|w| {
+                w.set_erxidle(true);
+            });
+        }
+
+        compiler_fence(Ordering::SeqCst);
+
+        todo!()
+    }
+
+    async fn inner_read(&mut self, buffer: &mut [u8], enable_idle_line_detection: bool) -> Result<usize, Error> {
+        if buffer.is_empty() {
+            return Ok(0);
+        } else if buffer.len() > 0xFFFF {
+            return Err(Error::BufferTooLong);
+        }
+
+        let buffer_len = buffer.len();
+
+        // wait for DMA to complete or IDLE line detection if requested
+        let res = self.inner_read_run(buffer, enable_idle_line_detection).await;
+
+        match res {
+            Ok(ReadCompletionEvent::DmaCompleted) => Ok(buffer_len),
+            Ok(ReadCompletionEvent::Idle(n)) => Ok(n),
+            Err(e) => Err(e),
+        }
+    }
 }
 
 impl<'d> UartRx<'d, Blocking> {
@@ -386,7 +529,7 @@ impl<'d> UartRx<'d, Blocking> {
 
         rx.set_as_alt(rx.alt_num());
 
-        Self::new_inner(peri, Some(rx.map_into()), None, config)
+        Self::new_inner(peri, Some(rx.map_into()), None, None, config)
     }
 
     /// Create a new rx-only UART with a request-to-send pin
@@ -401,7 +544,7 @@ impl<'d> UartRx<'d, Blocking> {
         rx.set_as_alt(rx.alt_num());
         rts.set_as_alt(rts.alt_num());
 
-        Self::new_inner(peri, Some(rx.map_into()), Some(rts.map_into()), config)
+        Self::new_inner(peri, Some(rx.map_into()), Some(rts.map_into()), None, config)
     }
 }
 
@@ -410,7 +553,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
         _peri: impl Peripheral<P = T> + 'd,
         rx: Option<PeripheralRef<'d, AnyPin>>,
         rts: Option<PeripheralRef<'d, AnyPin>>,
-        // rx_dma: Option<ChannelAndRequest<'d>>,
+        rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         let mut this = Self {
@@ -420,7 +563,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
             kernel_clock: T::frequency(),
             rx,
             rts,
-            // rx_dma,
+            rx_dma,
         };
         this.enable_and_configure(&config)?;
         Ok(this)
@@ -505,7 +648,17 @@ impl<'d> Uart<'d, Blocking> {
         rx.set_as_alt(rx.alt_num());
         tx.set_as_alt(tx.alt_num());
 
-        Self::new_inner(peri, Some(rx.map_into()), Some(tx.map_into()), None, None, None, config)
+        Self::new_inner(
+            peri,
+            Some(rx.map_into()),
+            Some(tx.map_into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            config,
+        )
     }
 
     /// Create a new bidirectional UART with request-to-send and clear-to-send pins
@@ -531,8 +684,8 @@ impl<'d> Uart<'d, Blocking> {
             Some(rts.map_into()),
             Some(cts.map_into()),
             None,
-            //            None,
-            //          None,
+            None,
+            None,
             config,
         )
     }
@@ -558,6 +711,8 @@ impl<'d> Uart<'d, Blocking> {
             None,
             None,
             Some(de.map_into()),
+            None,
+            None,
             config,
         )
     }
@@ -571,8 +726,8 @@ impl<'d, M: Mode> Uart<'d, M> {
         rts: Option<PeripheralRef<'d, AnyPin>>,
         cts: Option<PeripheralRef<'d, AnyPin>>,
         de: Option<PeripheralRef<'d, AnyPin>>,
-        // tx_dma: Option<ChannelAndRequest<'d>>,
-        //rx_dma: Option<ChannelAndRequest<'d>>,
+        tx_dma: Option<ChannelAndRequest<'d>>,
+        rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         let info = T::info();
@@ -601,7 +756,7 @@ impl<'d, M: Mode> Uart<'d, M> {
                 kernel_clock,
                 rx,
                 rts,
-                //rx_dma,
+                rx_dma: None,
                 //detect_previous_overrun: config.detect_previous_overrun,
             },
         };
@@ -734,7 +889,7 @@ fn configure(
     });
 
     // FIFO setting
-    #[cfg(not(any(uart_v53, uart_v68)))]
+    #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
     {
         // reset TX and RX fifo
         r.fcr().write(|w| {
@@ -754,7 +909,7 @@ fn configure(
         r.gpr().write(|w| w.0 = r.fcr().read().0);
     }
 
-    #[cfg(any(uart_v53, uart_v68))]
+    #[cfg(ip_feature_uart_fine_fifo_thrld)]
     {
         // reset TX and RX fifo
         r.fcrr().write(|w| {
