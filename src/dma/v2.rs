@@ -72,6 +72,27 @@ pub enum Burst {
 }
 
 impl Burst {
+    pub fn from_size(n: usize) -> Self {
+        if n <= 16 {
+            return Self::Liner(n as u8 - 1);
+        } else {
+            let mut i = 0;
+            let mut n = n;
+            while n > 1 {
+                n >>= 1;
+                i += 1;
+            }
+            return Self::Exponential(i as u8);
+        }
+    }
+
+    pub fn to_size(&self) -> usize {
+        match self {
+            Self::Liner(n) => *n as usize + 1,
+            Self::Exponential(n) => 1 << *n,
+        }
+    }
+
     fn burstopt(&self) -> bool {
         match self {
             Self::Liner(_) => true,

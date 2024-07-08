@@ -15,7 +15,7 @@ pub use embedded_hal::spi::{Mode, MODE_0, MODE_1, MODE_2, MODE_3};
 pub use hpm_metapac::spi::vals::{AddrLen, AddrPhaseFormat, DataPhaseFormat, TransMode};
 
 use self::consts::*;
-use crate::dma::{word, ChannelAndRequest};
+use crate::dma::{self, word, ChannelAndRequest};
 use crate::gpio::AnyPin;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::time::Hertz;
@@ -506,7 +506,9 @@ impl<'d> Spi<'d, Async> {
         });
 
         let tx_dst = r.data().as_ptr() as *mut W;
-        let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, Default::default()) };
+        let mut opts = dma::TransferOptions::default();
+        opts.burst = dma::Burst::from_size(FIFO_SIZE / 2);
+        let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, opts) };
 
         tx_f.await;
 
@@ -514,6 +516,8 @@ impl<'d> Spi<'d, Async> {
         r.ctrl().modify(|w| {
             w.set_txdmaen(false);
         });
+
+        // TODO: should wait tx done via INTRST
 
         Ok(())
     }
