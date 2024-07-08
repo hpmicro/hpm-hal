@@ -10,9 +10,12 @@ mod endpoint;
 mod hcd;
 
 #[cfg(usb_v67)]
-const ENDPOINT_COUNT: u8 = 8;
+const ENDPOINT_COUNT: usize = 8;
 #[cfg(usb_v53)]
-const ENDPOINT_COUNT: u8 = 16;
+const ENDPOINT_COUNT: usize = 16;
+
+const QTD_COUNT_EACH_ENDPOINT: usize = 8;
+const QHD_BUFFER_COUNT: usize = 5;
 
 #[allow(unused)]
 pub struct Usb {
@@ -25,7 +28,7 @@ pub struct DcdData {
     /// Queue head
     pub(crate) qhd: [QueueHead; ENDPOINT_COUNT as usize * 2],
     /// Queue element transfer descriptor
-    pub(crate) qtd: [QueueTransferDescriptor; ENDPOINT_COUNT as usize * 2 * 8],
+    pub(crate) qtd: [QueueTransferDescriptor; ENDPOINT_COUNT as usize * 2 * QTD_COUNT_EACH_ENDPOINT as usize],
 }
 
 impl Default for DcdData {
@@ -119,7 +122,7 @@ struct QueueTransferDescriptor {
     /// Each element in the list is a 4K page aligned, physical memory address.
     /// The lower 12 bits in each pointer are reserved (except for the first one)
     /// as each memory pointer must reference the start of a 4K page
-    buffer: [u32; 5],
+    buffer: [u32; QHD_BUFFER_COUNT],
 
     /// DCD Area
     expected_bytes: u16,
@@ -240,6 +243,10 @@ impl Usb {
             w.set_utmi_otg_suspendm(false);
         });
     }
+}
+
+pub enum Error {
+    InvalidQtdNum,
 }
 
 struct Info {
