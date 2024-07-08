@@ -388,6 +388,10 @@ impl<'d, M: Mode> UartTx<'d, M> {
         tx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
+        {
+            use crate::sysctl::*;
+            T::set_clock(ClockConfig::new(ClockMux::CLK_24M, 1));
+        }
         let mut this = Self {
             info: T::info(),
             state: T::state(),
@@ -706,6 +710,10 @@ impl<'d, M: Mode> UartRx<'d, M> {
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
+        {
+            use crate::sysctl::*;
+            T::set_clock(ClockConfig::new(ClockMux::CLK_24M, 1));
+        }
         let mut this = Self {
             _phantom: PhantomData,
             info: T::info(),
