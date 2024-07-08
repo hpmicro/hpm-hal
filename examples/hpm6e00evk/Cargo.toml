@@ -23,6 +23,9 @@ embassy-executor = { version = "0.5.0", features = [
     "executor-thread",
 ] }
 embedded-io = "0.6.1"
+embedded-graphics = "0.8.1"
+futures-util = { version = "0.3.30", default-features = false }
+tinygif = "0.0.4"
 
 [profile.release]
 strip = false   # symbols are not flashed to the microcontroller, so don't strip them.
