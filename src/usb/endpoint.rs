@@ -11,7 +11,7 @@ impl Usb {
         let ep_idx = 2 * ep_num + dir as u8;
 
         // Max EP count: 16
-        if ep_num >= ENDPOINT_COUNT {
+        if ep_num >= ENDPOINT_COUNT as u8 {
             // TODO: return false
         }
 
@@ -66,7 +66,7 @@ impl Usb {
         }
     }
 
-    fn endpoint_transfer(&mut self, ep_idx: u8) {
+    pub(crate) fn endpoint_transfer(&mut self, ep_idx: u8) {
         let offset = if ep_idx % 2 == 1 { ep_idx / 2 + 16 } else { ep_idx / 2 };
 
         let r = &self.info.regs;

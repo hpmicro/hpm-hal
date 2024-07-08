@@ -1,14 +1,16 @@
 //! Usb device API
 //!
 
-use super::{DcdData, QueueHead, QueueTransferDescriptor, Usb};
+use super::{
+    DcdData, EpAddr, Error, QueueHead, QueueTransferDescriptor, Usb, QHD_BUFFER_COUNT, QTD_COUNT_EACH_ENDPOINT,
+};
 
 impl Usb {
     fn device_qhd_get(&self, ep_idx: u8) -> &QueueHead {
         &self.dcd_data.qhd[ep_idx as usize]
     }
 
-    fn device_qtd_get4(&self, ep_idx: u8) -> &QueueTransferDescriptor {
+    fn device_qtd_get(&self, ep_idx: u8) -> &QueueTransferDescriptor {
         &self.dcd_data.qtd[ep_idx as usize * 8]
     }
 
@@ -54,5 +56,88 @@ impl Usb {
 
         // Connect
         r.usbcmd().modify(|w| w.set_rs(true));
+    }
+
+    fn device_endpoint_transfer(&mut self, ep_addr: EpAddr, data: &[u8]) -> Result<(), Error> {
+        let r = &self.info.regs;
+
+        let ep_num = ep_addr.ep_num();
+        let dir = ep_addr.dir();
+        let ep_idx = (2 * ep_num + dir as u8) as usize;
+
+        //  Setup packet handling using setup lockout mechanism
+        //  wait until ENDPTSETUPSTAT before priming data/status in response
+        if ep_num == 0 {
+            while (r.endptsetupstat().read().endptsetupstat() & 0b1) == 1 {}
+        }
+
+        //
+        let qtd_num = (data.len() + 0x3FFF) / 0x4000;
+        if qtd_num > 8 {
+            return Err(Error::InvalidQtdNum);
+        }
+
+        // Add all data to the circular queue
+        let ptr_qhd = &self.dcd_data.qhd[ep_idx];
+        let mut i = 0;
+        let mut data_offset = 0;
+        let mut remaining_bytes = data.len();
+        loop {
+            let mut ptr_qtd = self.dcd_data.qtd[ep_idx * QTD_COUNT_EACH_ENDPOINT + i];
+            i += 1;
+
+            let transfer_bytes = if remaining_bytes > 0x4000 {
+                remaining_bytes -= 0x4000;
+                0x4000
+            } else {
+                remaining_bytes = 0;
+                data.len()
+            };
+
+            // TODO: qtd init
+            ptr_qtd = QueueTransferDescriptor::default();
+            ptr_qtd.token.set_active(true);
+            ptr_qtd.token.set_total_bytes(transfer_bytes as u16);
+            ptr_qtd.expected_bytes = transfer_bytes as u16;
+            // Fill data into qtd
+            ptr_qtd.buffer[0] = data[data_offset] as u32;
+            for i in 1..QHD_BUFFER_COUNT {
+                // TODO: WHY the buffer is filled in this way?
+                ptr_qtd.buffer[i] |= (ptr_qtd.buffer[i - 1] & 0xFFFFF000) + 4096;
+            }
+
+            if remaining_bytes == 0 {
+                ptr_qtd.token.set_int_on_complete(true);
+            }
+
+            data_offset += transfer_bytes;
+
+            // Linked list operations
+            // Set circular link
+            if i == 1 {
+                // Set the FIRST qtd
+                // first_ptr_qtd = ptr_qtd;
+            } else {
+                // Set prev_ptr's next to current
+                // prev_ptr_qtd.next = &ptr_qtd as *const _ as u32;
+            }
+
+            // Update prev_ptr_qtd to current
+            // prev_ptr_qtd = &ptr_qtd;
+
+
+            // Check the remaining_bytes
+            if remaining_bytes == 0 {
+                break;
+            }
+        }
+
+        // Set current qhd's overlay to the first qtd of linked list
+        // ptr_qhd.qtd_overlay.next = first_ptr_qtd as u32;
+
+        // Then call dcd_endpoint_transfer
+        self.endpoint_transfer(ep_idx as u8);
+
+        Ok(())
     }
 }
