@@ -171,6 +171,10 @@ pub(crate) unsafe fn init(config: Config) {
     clock_add_to_group(pac::resources::XDMA, 0);
     clock_add_to_group(pac::resources::USB0, 0);
 
+    // MBX clock resource is shared
+    clock_add_to_group(pac::resources::MBX0, 0);
+    clock_add_to_group(pac::resources::MBX1, 0);
+
     // Connect Group0 to CPU0
     SYSCTL.affiliate(0).set().write(|w| w.set_link(1 << 0));
 

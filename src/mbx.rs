@@ -250,6 +250,7 @@ struct Info {
     interrupt: crate::pac::Interrupt,
 }
 
+// FIXME: MBX resource is shared between A and B, enable by default in sysctl
 peri_trait_without_sysclk!(
     irqs: [Interrupt],
 );

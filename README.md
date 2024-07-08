@@ -29,6 +29,7 @@ This crate is a working-in-progress and not ready for use.
   - [ ] andes-riscv for specific CSRs
   - [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
   - [ ] CPU1 support - how to?
+  - [ ] PMP for noncacheable memory
 
 | MCU Family | Demo | PAC | SYSCTL | GPIO | UART | I2C | MBX | ADC | DMA | SPI | DMA |
 |------------|:----:|:---:|:------:|:----:|:----:|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -37,7 +38,7 @@ This crate is a working-in-progress and not ready for use.
 | HPM6200    |      |  ✓  |        |      |      |     |     |     |     |     |     |
 | HPM5300    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ✓  |  ✓  |     |     |  ✓  |  ✓  |
 | HPM6800    |      |  ✓  |        |      |      |     |     |     |     |     |  ?  |
-| HPM6E00    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ?  |  ?  |     |     |  ?  |  ?  |
+| HPM6E00    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ?  |  ✓  |     |     |  ✓  |  ?  |
 
 - ✓: Implemented
 - ?: Requires demo verification
@@ -75,6 +76,7 @@ The best reference is the examples in the `examples` directory and Github action
 
 - Install Rust: <https://rustup.rs/>
 - Download HPM SDK: <https://github.com/hpmicro/hpm_sdk>
+  - Set `HPM_SDK_BASE` environment variable to the SDK path
 - Choose one debugger:
   - OpenOCD: HPM's fork <https://github.com/hpmicro/riscv-openocd>
   - probe-rs: <https://github.com/probe-rs/probe-rs>
