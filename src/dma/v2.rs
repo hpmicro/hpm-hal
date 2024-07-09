@@ -149,8 +149,6 @@ impl super::ControllerInterrupt for crate::peripherals::XDMA {
 }
 
 unsafe fn dma_on_irq(r: pac::dma::Dma, mux_num_base: u32) {
-    let r = pac::HDMA;
-
     let half = r.inthalfsts().read().0;
     let tc = r.inttcsts().read().0;
     let err = r.interrsts().read().0;
