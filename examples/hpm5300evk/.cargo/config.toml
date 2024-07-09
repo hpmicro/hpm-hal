@@ -15,7 +15,7 @@ rustflags = [
     "-C",
     "link-arg=-Tmemory.x",
     "-C",
-    "link-arg=-Tdevice.x", # __VECTORED_INTERRUPTS
+    "link-arg=-Tdevice.x",     # __VECTORED_INTERRUPTS
     "-C",
     "link-arg=-Tlink-fixed.x",
     "-C",

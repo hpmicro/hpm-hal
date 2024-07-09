@@ -11,7 +11,7 @@ hpm-metapac = { version = "0.0.3", features = [
     "hpm6360",
     "memory-x",
     "rt",
-], git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-5b2231d5dd85a5f13ac3aeb4bb199a1791230947" }
+], git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-0242a9b99bd0c0db1941fb5f4f3d434e14a90d57" }
 panic-halt = "0.2.0"
 riscv = { version = "0.11.1", features = ["critical-section-single-hart"] }
 riscv-rt = { version = "0.12.2", features = ["single-hart"] }
