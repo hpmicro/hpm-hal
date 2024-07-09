@@ -4,10 +4,13 @@
 use core::fmt::Write as _;
 
 use embedded_hal::delay::DelayNs;
+use hal::pac;
+// use hpm_metapac as pac,
+use hpm_hal as hal;
 use pac::gpiom::vals;
 use riscv::delay::McycleDelay;
 use riscv_semihosting::{dbg, hio};
-use {hpm_metapac as pac, panic_halt as _};
+use {defmt_rtt as _, panic_halt as _};
 
 macro_rules! println {
     ($($arg:tt)*) => {
