@@ -9,8 +9,8 @@ use embassy_time_driver::AlarmHandle;
 use hpm_metapac::sysctl::vals;
 use hpm_metapac::{MCHTMR, SYSCTL};
 
-use crate::pac;
 use crate::sysctl::ClockConfig;
+use crate::{pac, peripherals};
 
 pub const ALARM_COUNT: usize = 1;
 
@@ -50,6 +50,10 @@ embassy_time_driver::time_driver_impl!(static DRIVER: MachineTimerDriver = Machi
 
 impl MachineTimerDriver {
     fn init(&'static self) {
+        // FIXME: The name in SDK is MCHTMR0
+        #[cfg(hpm67)]
+        let regs = SYSCTL.clock(pac::clocks::MCHTMR0).read();
+        #[cfg(not(hpm67))]
         let regs = SYSCTL.clock(pac::clocks::MCT0).read();
 
         let mchtmr_cfg = ClockConfig {

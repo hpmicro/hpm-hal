@@ -6,6 +6,10 @@ mod sysctl_impl;
 #[path = "v6e.rs"]
 mod sysctl_impl;
 
+#[cfg(hpm67)]
+#[path = "v67.rs"]
+mod sysctl_impl;
+
 mod pll;
 
 use core::ptr::addr_of;
