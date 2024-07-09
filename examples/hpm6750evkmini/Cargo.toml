@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-defmt = "0.3.8"
-defmt-rtt = "0.4.1"
+# defmt = "0.3.8"
+# defmt-rtt = "0.4.1"
 embedded-hal = "1.0.0"
 hpm-metapac = { version = "0.0.3", features = [
     "hpm6750",
@@ -15,6 +15,7 @@ hpm-metapac = { version = "0.0.3", features = [
 panic-halt = "0.2.0"
 riscv = { version = "0.11.1", features = ["critical-section-single-hart"] }
 riscv-rt = { version = "0.12.2", features = ["single-hart"] }
+riscv-semihosting = "0.1.0"
 
 
 [profile.release]

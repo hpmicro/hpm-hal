@@ -2,7 +2,8 @@
 target = "riscv32imafc-unknown-none-elf"
 
 [target.riscv32imafc-unknown-none-elf]
-runner = 'riscv64-unknown-elf-gdb -x ../../openocd.gdb'
+# Using modified openocd.gdb
+runner = 'riscv64-unknown-elf-gdb -x ./openocd-semihosting.gdb'
 # not available
 # runner = "probe-rs run --chip HPM6750 --protocol jtag --chip-description-path ../../HPMicro.yaml"
 
@@ -15,10 +16,10 @@ rustflags = [
     "link-arg=-Tdevice.x", # __VECTORED_INTERRUPTS
     "-C",
     "link-arg=-Tlink-fixed.x",
-    "-C",
-    "link-arg=-Tdefmt.x",
-    "-C",
-    "link-arg=-nmagic",
+    #"-C",
+    #"link-arg=-Tdefmt.x",
+    #"-C",
+    #"link-arg=-nmagic",
 
     # "--emit", "obj",
     # "--emit", "asm",
