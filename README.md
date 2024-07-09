@@ -16,7 +16,7 @@ This crate is a working-in-progress and not ready for use.
   - [x] RTT support (defmt, defmt-rtt)
   - [x] DMA
     - [x] DMA v2
-    - [ ] DMA v1
+    - [x] DMA v1
   - [x] UART
     - blocking driver
     - async driver using DMA
@@ -34,7 +34,7 @@ This crate is a working-in-progress and not ready for use.
 
 | MCU Family | Demo | PAC | SYSCTL | GPIO | UART | I2C | MBX | ADC | TMR | SPI | DMA |
 |------------|:----:|:---:|:------:|:----:|:----:|:---:|:---:|:---:|:---:|:---:|:---:|
-| HPM6700    |  ✓   |  ✓  |        |      |      |     |     |     |     |     |     |
+| HPM6700    |  ✓   |  ✓  |   !    |  ✓   |  ?   |  ?  |  ?  |     |     |  ?  |  ?  |
 | HPM6300    |  ✓   |  ✓  |        |      |      |     |     |     |     |     |     |
 | HPM6200    |      |  ✓  |        |      |      |     |     |     |     |     |     |
 | HPM5300    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ✓  |  ✓  |     |     |  ✓  |  ✓  |
@@ -43,6 +43,7 @@ This crate is a working-in-progress and not ready for use.
 
 - ✓: Implemented
 - ?: Requires demo verification
+- !: Partially implemented
 - Blank: Not implemented
 
 ### Toolchain Support
