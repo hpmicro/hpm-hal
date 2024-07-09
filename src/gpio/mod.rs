@@ -52,6 +52,7 @@ impl<'d> Flex<'d> {
                 .set()
                 .write(|r| r.set_direction(1 << self.pin.pin()));
 
+            #[cfg(not(hpm67))]
             self.pin.ioc_pad().pad_ctl().modify(|w| {
                 w.set_spd(speed as u8); // speed
             });
@@ -71,7 +72,10 @@ impl<'d> Flex<'d> {
     // PAD_CTL related functions
     #[inline]
     pub fn set_schmitt_trigger(&mut self, enable: bool) {
+        #[cfg(not(hpm67))]
         self.pin.ioc_pad().pad_ctl().modify(|w| w.set_hys(enable));
+        #[cfg(hpm67)]
+        self.pin.ioc_pad().pad_ctl().modify(|w| w.set_smt(enable));
     }
 
     #[inline]
@@ -82,6 +86,7 @@ impl<'d> Flex<'d> {
         });
     }
 
+    #[cfg(not(hpm67))]
     #[inline]
     pub fn set_pull_up_strength(&mut self, strength: PullStrength) {
         self.pin.ioc_pad().pad_ctl().modify(|w| w.set_prs(strength as u8));
@@ -271,6 +276,7 @@ impl<'d> Input<'d> {
     }
 
     // Only available to PullUp, for PullDown, the only option is 100kOhm
+    #[cfg(not(hpm67))]
     #[inline]
     pub fn set_pull_strength(&mut self, strength: PullStrength) {
         self.pin.set_pull_up_strength(strength);

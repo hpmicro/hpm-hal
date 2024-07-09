@@ -123,6 +123,7 @@ impl<'d> Input<'d> {
         self.pin.wait_for_falling_edge().await
     }
 
+    #[cfg(not(hpm67))]
     pub async fn wait_for_any_edge(&mut self) {
         self.pin.wait_for_any_edge().await
     }
@@ -173,6 +174,7 @@ impl<'d> Flex<'d> {
             .pl(self.pin._port())
             .clear()
             .write(|w| w.set_irq_pol(1 << self.pin._pin()));
+        #[cfg(not(hpm67))]
         self.pin
             .gpio()
             .pd(self.pin._port())
@@ -197,6 +199,8 @@ impl<'d> Flex<'d> {
             .pl(self.pin._port())
             .set()
             .write(|w| w.set_irq_pol(1 << self.pin._pin()));
+
+        #[cfg(not(hpm67))]
         self.pin
             .gpio()
             .pd(self.pin._port())
@@ -217,6 +221,7 @@ impl<'d> Flex<'d> {
     }
 
     /// Affects whole port
+    #[cfg(not(hpm67))]
     pub async fn wait_for_any_edge(&mut self) {
         self.pin
             .gpio()
