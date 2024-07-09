@@ -1,7 +1,6 @@
-//! DMA v2
+//! DMA v1, 8 input channels
 //!
-//! hpm53, hpm68, hpm6e
-#![allow(unused)]
+//! hpm67
 
 use core::future::Future;
 use core::pin::Pin;
@@ -31,8 +30,9 @@ pub struct TransferOptions {
     pub priority: bool,
     /// Circular transfer mode, aka. loop mode(INFINITELOOP)
     pub circular: bool,
-    /// Enable half transfer interrupt
-    pub half_transfer_irq: bool,
+    // No half transfer interrupt
+    // /// Enable half transfer interrupt
+    // pub half_transfer_irq: bool,
     /// Enable transfer complete interrupt
     pub complete_transfer_irq: bool,
 }
@@ -40,10 +40,10 @@ pub struct TransferOptions {
 impl Default for TransferOptions {
     fn default() -> Self {
         Self {
-            burst: Burst::Liner(0),
+            burst: Burst::Exponential(0),
             priority: false,
             circular: false,
-            half_transfer_irq: false,
+            // half_transfer_irq: false,
             complete_transfer_irq: true,
         }
     }
@@ -53,8 +53,6 @@ impl Default for TransferOptions {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Burst {
-    // 0:1transfer; 0xf: 16 transfer
-    Liner(u8),
     /*
     0x0: 1 transfer
     0x1: 2 transfers
@@ -73,35 +71,24 @@ pub enum Burst {
 
 impl Burst {
     pub fn from_size(n: usize) -> Self {
-        if n <= 16 {
-            return Self::Liner(n as u8 - 1);
-        } else {
-            let mut i = 0;
-            let mut n = n;
-            while n > 1 {
-                n >>= 1;
-                i += 1;
-            }
-            return Self::Exponential(i as u8);
+        let mut i = 0;
+        let mut n = n;
+        while n > 1 {
+            n >>= 1;
+            i += 1;
         }
+        Self::Exponential(i as u8)
     }
 
     pub fn to_size(&self) -> usize {
         match self {
-            Self::Liner(n) => *n as usize + 1,
             Self::Exponential(n) => 1 << *n,
         }
     }
 
-    fn burstopt(&self) -> bool {
-        match self {
-            Self::Liner(_) => true,
-            Self::Exponential(_) => false,
-        }
-    }
+    // srcburstsize
     fn burstsize(&self) -> u8 {
         match self {
-            Self::Liner(n) => *n,
             Self::Exponential(n) => *n,
         }
     }
@@ -139,46 +126,38 @@ impl super::ControllerInterrupt for crate::peripherals::HDMA {
     }
 }
 
-#[cfg(hpm6e)]
 impl super::ControllerInterrupt for crate::peripherals::XDMA {
     unsafe fn on_irq() {
-        dma_on_irq(pac::XDMA, 32);
+        dma_on_irq(pac::XDMA, 8);
 
         crate::interrupt::XDMA.complete(); // notify PLIC
     }
 }
 
 unsafe fn dma_on_irq(r: pac::dma::Dma, mux_num_base: u32) {
-    let half = r.inthalfsts().read().0;
-    let tc = r.inttcsts().read().0;
-    let err = r.interrsts().read().0;
-    let abort = r.intabortsts().read().0;
+    let intstatus = r.int_status().read().0;
+
+    let err = intstatus & 0xFF;
+    let abort = (intstatus >> 8) & 0xFF;
+    let tc = (intstatus >> 16) & 0xFF;
 
     // possible errors:
     // - bus error
-    // - memory alignment error
+    // - address alignment error
     // - bit width alignment error
-    // - invalid configuration
     // DMA error: this is normally a hardware error(memory alignment or access), but we can't do anything about it
     if err != 0 {
-        panic!(
-            "DMA: error on DMA@{:08x}, errsts=0x{:08x}",
-            r.as_ptr() as u32,
-            r.interrsts().read().0
-        );
+        panic!("DMA: error on DMA@{:08x}, errsts=0{:08b}", r.as_ptr() as u32, err);
     }
 
-    if half != 0 {
-        r.inthalfsts().write(|w| w.0 = half); // W1C
-    }
     if tc != 0 {
-        r.inttcsts().write(|w| w.0 = tc); // W1C
+        r.int_status().write(|w| w.0 = tc << 16); // W1C
     }
     if abort != 0 {
-        r.intabortsts().write(|w| w.0 = abort); // W1C
+        r.int_status().write(|w| w.0 = abort << 8); // W1C
     }
 
-    for i in BitIter(half | tc | abort) {
+    for i in BitIter(tc | abort) {
         let id = (i + mux_num_base) as usize;
         STATE[id].waker.wake();
     }
@@ -234,7 +213,7 @@ impl AnyChannel {
 
         let r = info.dma.regs();
         let ch = info.num; // channel number in current dma controller
-        let mux_ch = info.mux_num; // channel number in dma mux, (XDMA_CH0 = HDMA_CH31+1 = 32)
+        let mux_ch = info.mux_num; // channel number in dma mux, (XDMA_CH0 = HDMA_CH7+1 = 8)
 
         // follow the impl of dma_setup_channel
 
@@ -257,27 +236,22 @@ impl AnyChannel {
             .tran_size()
             .modify(|w| w.0 = (size_in_bytes / src_width.bytes()) as u32);
         ch_cr.llpointer().modify(|w| w.0 = 0x0);
-        ch_cr.chan_req_ctrl().write(|w| {
+
+        // TODO: LLPointer handling
+
+        self.clear_irqs();
+
+        ch_cr.ctrl().write(|w| {
             if dir == Dir::MemoryToPeripheral {
                 w.set_dstreqsel(mux_ch as u8);
             } else {
                 w.set_srcreqsel(mux_ch as u8);
             }
-        });
 
-        // TODO: handle SwapTable here
-        // TODO: LLPointer handling
+            if options.circular {
+                todo!("circular mode");
+            }
 
-        // clear transfer irq status (W1C)
-        self.clear_irqs();
-
-        ch_cr.ctrl().write(|w| {
-            w.set_infiniteloop(options.circular);
-            // false: Use burst mode
-            // true:  Send all data at once
-            w.set_handshakeopt(false);
-
-            w.set_burstopt(options.burst.burstopt());
             w.set_priority(options.priority);
             w.set_srcburstsize(options.burst.burstsize());
             w.set_srcwidth(src_width.width());
@@ -289,7 +263,6 @@ impl AnyChannel {
             w.set_dstaddrctrl(dst_addr_ctrl);
 
             // unmask
-            w.set_inthalfcntmask(!options.half_transfer_irq);
             w.set_inttcmask(!options.complete_transfer_irq);
             w.set_interrmask(false);
             w.set_intabtmask(true); // handled via blocking
@@ -315,11 +288,11 @@ impl AnyChannel {
         let ch = info.num; // channel number in current dma controller
 
         // clear transfer irq status (W1C)
-        // dma_clear_transfer_status
-        r.inthalfsts().modify(|w| w.set_sts(ch, true));
-        r.inttcsts().modify(|w| w.set_sts(ch, true));
-        r.intabortsts().modify(|w| w.set_sts(ch, true));
-        r.interrsts().modify(|w| w.set_sts(ch, true));
+        r.int_status().write(|w| {
+            w.set_abort(ch, true);
+            w.set_tc(ch, true);
+            w.set_error(ch, true);
+        });
     }
 
     // requrest stop
@@ -335,9 +308,7 @@ impl AnyChannel {
         let ch_cr = r.chctrl(num);
 
         // enabled, not aborted
-        ch_cr.ctrl().read().enable()
-            && !r.intabortsts().read().sts(num)
-            && (!r.inttcsts().read().sts(num) || ch_cr.ctrl().read().infiniteloop())
+        ch_cr.ctrl().read().enable() && !r.int_status().read().abort(num) && (!r.int_status().read().tc(num))
     }
 
     fn get_remaining_transfers(&self) -> u32 {
@@ -351,9 +322,9 @@ impl AnyChannel {
     fn disable_circular_mode(&self) {
         let r = self.info().dma.regs();
         let num = self.info().num;
-        let ch_cr = r.chctrl(num);
+        let _ch_cr = r.chctrl(num);
 
-        ch_cr.ctrl().modify(|w| w.set_infiniteloop(false));
+        todo!("disable circular mode");
     }
 
     fn poll_stop(&self) -> Poll<()> {
