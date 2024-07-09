@@ -18,6 +18,11 @@ pub(crate) mod v2;
 #[cfg(any(hpm53, hpm68, hpm6e))]
 pub use v2::*;
 
+#[cfg(any(hpm67))]
+pub(crate) mod v1;
+#[cfg(any(hpm67))]
+pub use v1::*;
+
 pub mod word;
 
 mod util;
