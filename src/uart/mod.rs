@@ -199,16 +199,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 unsafe fn on_interrupt(r: pac::uart::Uart, s: &'static State) {
     let lsr = r.lsr().read();
-    #[cfg(ip_feature_uart_e00018_fix)]
-    let iir = r.iir2().read();
-    #[cfg(not(ip_feature_uart_e00018_fix))]
-    let iir = r.iir().read();
 
     let has_errors = lsr.pe() || lsr.fe() || lsr.oe() || lsr.errf() || lsr.lbreak();
     // clear flags and disable interrupts
     if has_errors {
         r.ier().modify(|w| {
             w.set_elsi(false); // rx status
+            #[cfg(ip_feature_uart_rx_idle_detect)]
             w.set_erxidle(false); // rx idle
         });
 
@@ -224,15 +221,19 @@ unsafe fn on_interrupt(r: pac::uart::Uart, s: &'static State) {
             r.fcr().write_value(fcr);
         }
     } else {
-        #[cfg(ip_feature_uart_rx_idle_detect)]
-        if iir.rxidle_flag() && r.idle_cfg().read().rx_idle_en() {
-            r.ier().modify(|w| w.set_etxidle(false));
-            r.idle_cfg().modify(|w| w.set_rx_idle_en(false)); // disable idle line detection
+        #[cfg(all(ip_feature_uart_e00018_fix, ip_feature_uart_rx_idle_detect))]
+        {
+            let iir = r.iir2().read();
 
-            r.iir2().modify(|w| w.set_rxidle_flag(true)); // W1C
+            if iir.rxidle_flag() && r.idle_cfg().read().rx_idle_en() {
+                r.ier().modify(|w| w.set_etxidle(false));
+                r.idle_cfg().modify(|w| w.set_rx_idle_en(false)); // disable idle line detection
+
+                r.iir2().modify(|w| w.set_rxidle_flag(true)); // W1C
+            }
         }
 
-        #[cfg(not(ip_feature_uart_rx_idle_detect))]
+        #[cfg(all(not(ip_feature_uart_e00018_fix), ip_feature_uart_rx_idle_detect))]
         if r.ier().read().erxidle() && lsr.rxidle() {
             r.ier().modify(|w| w.set_etxidle(false)); // disable idle line detection
         }
@@ -536,7 +537,9 @@ impl<'d> UartRx<'d, Async> {
             r.ier().modify(|w| {
                 w.set_elsi(false); // rx status
                 w.set_ethei(false); // tx status
+                #[cfg(ip_feature_uart_rx_idle_detect)]
                 w.set_erxidle(false);
+                #[cfg(ip_feature_uart_rx_idle_detect)]
                 w.set_etxidle(false);
             });
 
@@ -581,12 +584,12 @@ impl<'d> UartRx<'d, Async> {
 
         compiler_fence(Ordering::SeqCst);
 
+        #[cfg(ip_feature_uart_rx_idle_detect)]
         if enable_idle_line_detection {
             r.ier().modify(|w| {
                 w.set_erxidle(true);
             });
 
-            #[cfg(ip_feature_uart_rx_idle_detect)]
             r.idle_cfg().modify(|w| w.set_rx_idle_en(true));
         }
 
@@ -619,6 +622,7 @@ impl<'d> UartRx<'d, Async> {
                 }
             }
 
+            #[cfg(ip_feature_uart_rx_idle_detect)]
             if enable_idle_line_detection && lsr.rxidle() {
                 return Poll::Ready(Ok(()));
             }

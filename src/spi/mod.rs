@@ -351,6 +351,8 @@ impl<'d> Spi<'d, Blocking> {
         d3.set_as_alt(d3.alt_num());
 
         let cs_index = cs.cs_index();
+        // SPI_CS_SELECT
+        #[cfg(ip_feature_spi_cs_select)]
         T::info().regs.ctrl().modify(|w| w.set_cs_en(cs_index));
 
         Self::new_inner(
@@ -497,13 +499,11 @@ impl<'d> Spi<'d, Async> {
 
         let r = self.info.regs;
 
-        let config = TransferConfig::default();
         self.set_word_size(W::CONFIG);
+        let config = TransferConfig::default();
         self.configure_transfer(data.len(), &config)?;
 
-        r.ctrl().modify(|w| {
-            w.set_txdmaen(true);
-        });
+        r.ctrl().modify(|w| w.set_txdmaen(true));
 
         let tx_dst = r.data().as_ptr() as *mut W;
         let mut opts = dma::TransferOptions::default();
@@ -512,12 +512,26 @@ impl<'d> Spi<'d, Async> {
 
         tx_f.await;
 
-        //       finish_dma(self.info.regs);
-        r.ctrl().modify(|w| {
-            w.set_txdmaen(false);
-        });
+        r.ctrl().modify(|w| w.set_txdmaen(false));
 
         // TODO: should wait tx done via INTRST
+        // In embassy-stm32 this is a busy wait
+
+        Ok(())
+    }
+
+    pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        if data.is_empty() {
+            return Ok(());
+        }
+
+        let r = self.info.regs;
+
+        self.set_word_size(W::CONFIG);
+        let mut config = TransferConfig::default();
+        self.configure_transfer(data.len(), &config)?;
+
+        r.ctrl().modify(|w| w.set_txdmaen(true));
 
         Ok(())
     }

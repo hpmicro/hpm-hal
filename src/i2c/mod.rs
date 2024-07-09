@@ -5,10 +5,8 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use embedded_hal::delay::DelayNs;
 use embedded_hal::i2c::Operation;
 use hpm_metapac::i2c::vals;
-use riscv::delay::McycleDelay;
 
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::Interrupt as _;
@@ -19,9 +17,11 @@ use crate::time::Hertz;
 const HPM_I2C_DRV_DEFAULT_TPM: i32 = 0;
 
 // family specific features
-#[cfg(any(hpm53, hpm68, hpm6e))]
+// #[cfg(any(hpm53, hpm68, hpm6e))]
+#[cfg(ip_feature_i2c_transfer_count_max_4096)]
 const I2C_SOC_TRANSFER_COUNT_MAX: usize = 4096;
-#[cfg(any(hpm67, hpm62, hpm63, hpm64))]
+// #[cfg(any(hpm67, hpm62, hpm63, hpm64))]
+#[cfg(not(ip_feature_i2c_transfer_count_max_4096))]
 const I2C_SOC_TRANSFER_COUNT_MAX: usize = 256;
 
 // const HPM_I2C_DRV_DEFAULT_RETRY_COUNT: u32 = 5000;
@@ -230,7 +230,11 @@ impl<'d, M: Mode> I2c<'d, M> {
             loop {}
         }
 
+        #[cfg(ip_feature_i2c_support_reset)]
         if r.status().read().linesda() == false {
+            use embedded_hal::delay::DelayNs;
+            use riscv::delay::McycleDelay;
+
             defmt::info!("SDA is low, reset bus");
             // i2s_gen_reset_signal
             // generate SCL clock as reset signal
@@ -271,6 +275,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_phase_addr(true);
             w.set_phase_data(true);
             w.set_dir(vals::Dir::MASTER_WRITE_SLAVE_READ);
+            #[cfg(ip_feature_i2c_transfer_count_max_4096)]
             w.set_datacnt_high((reg.len() >> 8) as _);
             w.set_datacnt(reg.len() as _);
         });
@@ -310,6 +315,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_phase_addr(true);
             w.set_phase_data(true);
             w.set_dir(vals::Dir::MASTER_READ_SLAVE_WRITE);
+            #[cfg(ip_feature_i2c_transfer_count_max_4096)]
             w.set_datacnt_high((read.len() >> 8) as _);
             w.set_datacnt(read.len() as _);
         });
@@ -366,6 +372,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_dir(dir);
 
             if size > 0 {
+                #[cfg(ip_feature_i2c_transfer_count_max_4096)]
                 w.set_datacnt_high((size >> 8) as _);
                 w.set_datacnt(size as u8);
                 w.set_phase_data(true);
@@ -449,6 +456,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_dir(vals::Dir::MASTER_READ_SLAVE_WRITE);
 
             if size > 0 {
+                #[cfg(ip_feature_i2c_transfer_count_max_4096)]
                 w.set_datacnt_high((size >> 8) as _);
                 w.set_datacnt(size as u8);
                 w.set_phase_data(true);
@@ -522,6 +530,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_dir(vals::Dir::MASTER_WRITE_SLAVE_READ); // diffs
 
             if size > 0 {
+                #[cfg(ip_feature_i2c_transfer_count_max_4096)]
                 w.set_datacnt_high((size >> 8) as _);
                 w.set_datacnt(size as u8);
                 w.set_phase_data(true);
@@ -795,7 +804,10 @@ fn operation_frames<'a, 'b: 'a>(
 #[inline]
 fn get_data_count(r: crate::pac::i2c::I2c) -> u16 {
     let ctrl = r.ctrl().read();
-    ((ctrl.datacnt_high() as u16) << 8) + (ctrl.datacnt() as u16)
+    #[cfg(ip_feature_i2c_transfer_count_max_4096)]
+    return ((ctrl.datacnt_high() as u16) << 8) + (ctrl.datacnt() as u16);
+    #[cfg(not(ip_feature_i2c_transfer_count_max_4096))]
+    return ctrl.datacnt() as u16;
 }
 
 #[inline]
