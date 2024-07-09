@@ -15,7 +15,13 @@ fn get_ip_features(chip_family: &str) -> &[&str] {
     match chip_family {
         "hpm67" | "hpm64" => &["ADC16_HAS_TEMPSNS"],
         "hpm63" => &["PWM_COUNTER_RESET"],
-        "hpm62" => &["UART_RX_IDLE_DETECT", "PWM_COUNTER_RESET", "PWM_HRPWM"],
+        "hpm62" => &[
+            "UART_RX_IDLE_DETECT",
+            "PWM_COUNTER_RESET",
+            "PWM_HRPWM",
+            // custom
+            "DMA_IDMISC",
+        ],
         "hpm53" => &[
             "GPTMR_MONITOR",
             "GPTMR_OP_MODE",
@@ -34,6 +40,9 @@ fn get_ip_features(chip_family: &str) -> &[&str] {
             "SPI_SUPPORT_DIRECTIO",
             "PWM_COUNTER_RESET",
             "ADC16_HAS_MOT_EN",
+            // custom
+            "DMA_V2",
+            "I2C_TRANSFER_COUNT_MAX_4096",
         ],
         "hpm68" => &[
             "UART_RX_IDLE_DETECT",
@@ -47,6 +56,9 @@ fn get_ip_features(chip_family: &str) -> &[&str] {
             "GPTMR_OP_MODE",
             "DAO_DATA_FORMAT_CONFIG",
             "CAM_INV_DEN",
+            // custom
+            "DMA_V2",
+            "I2C_TRANSFER_COUNT_MAX_4096",
         ],
         "hpm6e" => &[
             "GPTMR_MONITOR",
@@ -83,6 +95,10 @@ fn get_ip_features(chip_family: &str) -> &[&str] {
             "SEI_HAVE_PTCD",
             "ENET_HAS_MII_MODE",
             "FFA_FP32",
+            // custom
+            "DMA_V2",
+            "DMA_V2_SWAP_TABLE",
+            "I2C_TRANSFER_COUNT_MAX_4096",
         ],
         _ => panic!("Unknown chip family: {}", chip_family),
     }
