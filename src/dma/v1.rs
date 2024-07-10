@@ -235,6 +235,8 @@ impl AnyChannel {
             panic!("DMA address not aligned");
         }
 
+        // TODO: check transfer width against DMA controller
+
         let ch_cr = r.chctrl(ch);
 
         let mut src_addr = src_addr as u32;
@@ -262,15 +264,8 @@ impl AnyChannel {
         self.clear_irqs();
 
         ch_cr.ctrl().write(|w| {
-            if dir == Dir::MemoryToPeripheral {
-                w.set_dstreqsel(mux_ch as u8);
-            } else {
-                w.set_srcreqsel(mux_ch as u8);
-            }
-
-            if options.circular {
-                todo!("circular mode");
-            }
+            w.set_srcbusinfidx(false);
+            w.set_dstbusinfidx(false);
 
             w.set_priority(options.priority);
             w.set_srcburstsize(options.burst.burstsize());
@@ -278,11 +273,15 @@ impl AnyChannel {
             w.set_dstwidth(dst_width.width());
             w.set_srcmode(handshake.src_mode());
             w.set_dstmode(handshake.dst_mode());
-
             w.set_srcaddrctrl(src_addr_ctrl);
             w.set_dstaddrctrl(dst_addr_ctrl);
 
-            // unmask
+            if dir == Dir::MemoryToPeripheral {
+                w.set_dstreqsel(mux_ch as u8);
+            } else {
+                w.set_srcreqsel(mux_ch as u8);
+            }
+            // unmask interrupts
             w.set_inttcmask(!options.complete_transfer_irq);
             w.set_interrmask(false);
             w.set_intabtmask(true); // handled via blocking
@@ -575,14 +574,14 @@ impl<'a> Future for Transfer<'a> {
 
 #[cfg(hpm67)]
 fn core_local_mem_to_sys_address(core_id: u8, addr: u32) -> u32 {
-    const ILM_LOCAL_BASE: u32 = 0x0;
+    // const ILM_LOCAL_BASE: u32 = 0x0;
     const ILM_SIZE_IN_BYTE: u32 = 0x40000;
     const DLM_LOCAL_BASE: u32 = 0x80000;
     const DLM_SIZE_IN_BYTE: u32 = 0x40000;
     const CORE0_ILM_SYSTEM_BASE: u32 = 0x1000000;
     const CORE0_DLM_SYSTEM_BASE: u32 = 0x1040000;
     const CORE1_ILM_SYSTEM_BASE: u32 = 0x1180000;
-    const CORE1_DLM_SYSTEM_BASE: u32 = 0x11C0000;
+    // const CORE1_DLM_SYSTEM_BASE: u32 = 0x11C0000;
 
     let sys_addr = if addr < ILM_SIZE_IN_BYTE {
         // Address in ILM

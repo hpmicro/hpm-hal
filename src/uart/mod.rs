@@ -304,6 +304,7 @@ impl<'d> UartTx<'d, Async> {
     }
 
     /// Initiate an asynchronous UART write
+    /// Ref: HPM6700_6400_Errata_V2_0.pdf "E00018：UART DMA 请求使用限制"
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
 
@@ -538,9 +539,10 @@ impl<'d> UartRx<'d, Async> {
                 w.set_elsi(false); // rx status
                 w.set_ethei(false); // tx status
                 #[cfg(ip_feature_uart_rx_idle_detect)]
-                w.set_erxidle(false);
-                #[cfg(ip_feature_uart_rx_idle_detect)]
-                w.set_etxidle(false);
+                {
+                    w.set_erxidle(false);
+                    w.set_etxidle(false);
+                }
             });
 
             #[cfg(ip_feature_uart_rx_idle_detect)]
@@ -570,9 +572,9 @@ impl<'d> UartRx<'d, Async> {
             // self.state.saved_lsr.store(0, Ordering::Relaxed);
         }
 
-        r.ier().modify(|w| {
-            w.set_elsi(true);
-        });
+        // recv status change
+        r.ier().modify(|w| w.set_elsi(true));
+
         #[cfg(ip_feature_uart_fine_fifo_thrld)]
         r.fcrr().modify(|w| w.set_dmae(true));
         #[cfg(not(ip_feature_uart_fine_fifo_thrld))]
@@ -586,9 +588,7 @@ impl<'d> UartRx<'d, Async> {
 
         #[cfg(ip_feature_uart_rx_idle_detect)]
         if enable_idle_line_detection {
-            r.ier().modify(|w| {
-                w.set_erxidle(true);
-            });
+            r.ier().modify(|w| w.set_erxidle(true));
 
             r.idle_cfg().modify(|w| w.set_rx_idle_en(true));
         }
@@ -1186,6 +1186,9 @@ fn configure(
         }
 
         r.fcr().write_value(fcr);
+
+        fcr.set_tfiforst(false);
+        fcr.set_rfiforst(false);
 
         // store FCR register value
         r.gpr().write(|w| w.0 = fcr.0);
