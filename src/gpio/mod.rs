@@ -488,26 +488,7 @@ pub(crate) trait SealedPin: Sized {
     }
 
     #[inline]
-    #[allow(unused)]
     fn set_as_alt(&self, alt_num: u8) {
-        const PY: usize = 14; // power domain
-        const PZ: usize = 15; // battery domain
-
-        const FUNC_CTL_SOC_IO: u8 = 3;
-
-        // set PY, PZ pins to SOC_IO
-        match self._port() {
-            PY => pac::PIOC
-                .pad(self.pin_pad() as usize)
-                .func_ctl()
-                .modify(|w| w.set_alt_select(FUNC_CTL_SOC_IO)),
-            #[cfg(peri_bioc)]
-            PZ => pac::BIOC
-                .pad(self.pin_pad() as usize)
-                .func_ctl()
-                .modify(|w| w.set_alt_select(FUNC_CTL_SOC_IO)),
-            _ => (),
-        }
         self.ioc_pad().func_ctl().modify(|w| w.set_alt_select(alt_num));
     }
 
@@ -534,6 +515,46 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static
         AnyPin {
             pin_pad: self.pin_pad(),
         }
+    }
+
+    /// Set pin as IOC-controlled gpio, input, pulling down
+    #[allow(unused)]
+    fn set_as_ioc_gpio(&self) {
+        const PY: usize = 14; // power domain
+        const PZ: usize = 15; // battery domain
+
+        const PIOC_FUNC_CTL_SOC_IO: u8 = 3;
+        const BIOC_FUNC_CTL_SOC_IO: u8 = 3;
+        const IOC_FUNC_CTL_GPIO: u8 = 0;
+
+        if self._port() == PY {
+            pac::PIOC
+                .pad(self.pin_pad() as _)
+                .func_ctl()
+                .modify(|w| w.set_alt_select(PIOC_FUNC_CTL_SOC_IO));
+        } else {
+            #[cfg(peri_bioc)]
+            if self._port() == PZ {
+                pac::BIOC
+                    .pad(self.pin_pad() as _)
+                    .func_ctl()
+                    .modify(|w| w.set_alt_select(BIOC_FUNC_CTL_SOC_IO));
+            }
+        }
+
+        // input, inner pull down
+        self.gpio()
+            .oe(self._port())
+            .clear()
+            .modify(|w| w.set_direction(1 << self.pin()));
+        self.ioc_pad().pad_ctl().modify(|w| {
+            w.set_pe(true); // pull enable
+            w.set_ps(false);
+        });
+
+        self.ioc_pad()
+            .func_ctl()
+            .modify(|w| w.set_alt_select(IOC_FUNC_CTL_GPIO));
     }
 }
 
