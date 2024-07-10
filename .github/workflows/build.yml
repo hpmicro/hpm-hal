@@ -24,6 +24,9 @@ jobs:
           rustup component add rust-src
           rustup target add riscv32imafc-unknown-none-elf
       - name: Build Only
-        run: for d in $(ls -1 ./examples); do
-          (cd ./examples/$d && cargo build --release)
+        run: |
+          for d in $(ls -1 ./examples); do
+            if [ -f "./examples/$d/Cargo.toml" ]; then
+              (cd ./examples/$d && cargo build --release)
+            fi
           done

@@ -13,7 +13,7 @@ bind_interrupts!(struct Irqs {
     UART0 => hal::uart::InterruptHandler<peripherals::UART0>;
 });
 
-const BANNER: &str = include_str!("./BANNER");
+const BANNER: &str = include_str!("../../../assets/BANNER");
 
 #[embassy_executor::task(pool_size = 3)]
 async fn blink(pin: AnyPin, interval_ms: u32) {

@@ -8,7 +8,7 @@ use hpm_hal::uart::UartTx;
 use riscv::delay::McycleDelay;
 use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
 
-const BANNER: &str = include_str!("./BANNER");
+const BANNER: &str = include_str!("../../../assets/BANNER");
 
 #[hal::entry]
 fn main() -> ! {

@@ -12,7 +12,7 @@ use hal::mode::Blocking;
 use hal::pac;
 use {defmt_rtt as _, hpm_hal as hal};
 
-const BANNER: &str = include_str!("./BANNER");
+const BANNER: &str = include_str!("../../../assets/BANNER");
 
 static mut UART: Option<hal::uart::Uart<'static, Blocking>> = None;
 
