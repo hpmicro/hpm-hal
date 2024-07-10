@@ -116,6 +116,16 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection) {
 
     interrupt::typelevel::HDMA::set_priority_with_cs(cs, interrupt::Priority::P1);
     interrupt::typelevel::HDMA::enable();
+
+    #[cfg(peri_xdma)]
+    {
+        crate::peripherals::XDMA::add_resource_group(0);
+
+        pac::XDMA.dmactrl().modify(|w| w.set_reset(true));
+
+        interrupt::typelevel::XDMA::set_priority_with_cs(cs, interrupt::Priority::P1);
+        interrupt::typelevel::XDMA::enable();
+    }
 }
 
 impl super::ControllerInterrupt for crate::peripherals::HDMA {
@@ -147,7 +157,7 @@ unsafe fn dma_on_irq(r: pac::dma::Dma, mux_num_base: u32) {
     // - bit width alignment error
     // DMA error: this is normally a hardware error(memory alignment or access), but we can't do anything about it
     if err != 0 {
-        panic!("DMA: error on DMA@{:08x}, errsts=0{:08b}", r.as_ptr() as u32, err);
+        panic!("DMA: error on DMA@{:08x}, errsts=0b{:08b}", r.as_ptr() as u32, err);
     }
 
     if tc != 0 {
@@ -227,11 +237,21 @@ impl AnyChannel {
 
         let ch_cr = r.chctrl(ch);
 
+        let mut src_addr = src_addr as u32;
+        let mut dst_addr = dst_addr as u32;
+
+        #[cfg(hpm67)]
+        {
+            let core_id = 0;
+            src_addr = core_local_mem_to_sys_address(core_id, src_addr);
+            dst_addr = core_local_mem_to_sys_address(core_id, dst_addr);
+        }
+
         // configure DMAMUX request and output channel
         super::dmamux::configure_dmamux(info.mux_num, request);
 
-        ch_cr.src_addr().write_value(src_addr as u32);
-        ch_cr.dst_addr().write_value(dst_addr as u32);
+        ch_cr.src_addr().write_value(src_addr);
+        ch_cr.dst_addr().write_value(dst_addr);
         ch_cr
             .tran_size()
             .modify(|w| w.0 = (size_in_bytes / src_width.bytes()) as u32);
@@ -550,5 +570,33 @@ impl<'a> Future for Transfer<'a> {
         } else {
             Poll::Ready(())
         }
+    }
+}
+
+#[cfg(hpm67)]
+fn core_local_mem_to_sys_address(core_id: u8, addr: u32) -> u32 {
+    const ILM_LOCAL_BASE: u32 = 0x0;
+    const ILM_SIZE_IN_BYTE: u32 = 0x40000;
+    const DLM_LOCAL_BASE: u32 = 0x80000;
+    const DLM_SIZE_IN_BYTE: u32 = 0x40000;
+    const CORE0_ILM_SYSTEM_BASE: u32 = 0x1000000;
+    const CORE0_DLM_SYSTEM_BASE: u32 = 0x1040000;
+    const CORE1_ILM_SYSTEM_BASE: u32 = 0x1180000;
+    const CORE1_DLM_SYSTEM_BASE: u32 = 0x11C0000;
+
+    let sys_addr = if addr < ILM_SIZE_IN_BYTE {
+        // Address in ILM
+        addr | CORE0_ILM_SYSTEM_BASE
+    } else if (addr >= DLM_LOCAL_BASE) && (addr < DLM_LOCAL_BASE + DLM_SIZE_IN_BYTE) {
+        // Address in DLM
+        (addr - DLM_LOCAL_BASE) | CORE0_DLM_SYSTEM_BASE
+    } else {
+        return addr;
+    };
+
+    if core_id == 1 {
+        sys_addr - CORE0_ILM_SYSTEM_BASE + CORE1_ILM_SYSTEM_BASE
+    } else {
+        sys_addr
     }
 }
