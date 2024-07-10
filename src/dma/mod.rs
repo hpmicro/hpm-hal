@@ -112,6 +112,7 @@ pub(crate) trait ControllerInterrupt {
 
 // ==========
 // macros
+// interrupts are not channel-based, they are controller-based
 macro_rules! dma_channel_impl {
     ($channel_peri:ident, $index:expr) => {
         impl crate::dma::SealedChannel for crate::peripherals::$channel_peri {
@@ -119,8 +120,6 @@ macro_rules! dma_channel_impl {
                 $index
             }
         }
-
-        // interrupts are not channel-based, they are controller-based
 
         impl crate::dma::Channel for crate::peripherals::$channel_peri {}
 

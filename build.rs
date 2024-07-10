@@ -403,10 +403,11 @@ fn main() {
     let mut dmas = TokenStream::new();
     for ch in METADATA.dma_channels.iter() {
         let name = format_ident!("{}", ch.name);
-        let idx = ch.channel as u8;
 
         let ch_num = ch.channel as usize;
         let mux_num = ch.dmamux_channel as usize;
+
+        let idx = ch.dmamux_channel as u8; // index in DMAMUX and Channel Info
 
         // HDMA or XDMA
         let dma_name = format_ident!("{}", ch.name.split_once('_').expect("DMA channel name format").0);
