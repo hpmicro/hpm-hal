@@ -76,6 +76,21 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(blink(r.leds.g.degrade(), 200)).unwrap();
     spawner.spawn(blink(r.leds.b.degrade(), 300)).unwrap();
 
+    writeln!(uart, "Type something:").unwrap();
+
+    for _ in 0..10 {
+        let mut buf = [0u8; 1];
+        uart.blocking_read(&mut buf).unwrap();
+
+        if buf[0] == b'\r' {
+            break;
+        }
+
+        uart.blocking_write(&buf).unwrap();
+    }
+
+    writeln!(uart, "\r\nGoodbye!").unwrap();
+
     let mut curr = riscv::register::mcycle::read64();
     loop {
         Timer::after_millis(1000).await;
