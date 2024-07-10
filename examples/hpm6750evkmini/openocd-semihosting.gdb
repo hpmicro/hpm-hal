@@ -11,6 +11,7 @@ set print asm-demangle on
 
 set confirm off
 
+# enable semihosting
 monitor arm semihosting enable
 
 load
