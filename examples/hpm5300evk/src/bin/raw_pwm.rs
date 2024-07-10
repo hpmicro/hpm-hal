@@ -14,7 +14,7 @@ use hpm_hal::pac::{iomux, pins};
 use {defmt_rtt as _, hpm_hal as hal};
 
 const BOARD_NAME: &str = "HPM5300EVK";
-const BANNER: &str = include_str!("./BANNER");
+const BANNER: &str = include_str!("../../../assets/BANNER");
 
 macro_rules! println {
     ($($arg:tt)*) => {

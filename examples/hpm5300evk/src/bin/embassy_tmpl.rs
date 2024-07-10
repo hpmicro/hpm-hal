@@ -13,7 +13,7 @@ use hpm_hal::mode::Blocking;
 use {defmt_rtt as _, hpm_hal as hal};
 
 const BOARD_NAME: &str = "HPM5300EVK";
-const BANNER: &str = include_str!("./BANNER");
+const BANNER: &str = include_str!("../../../assets/BANNER");
 
 #[embassy_executor::task]
 async fn blink(pin: AnyPin) {

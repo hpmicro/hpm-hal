@@ -15,7 +15,7 @@ use hal::mode::Blocking;
 use riscv::delay::McycleDelay;
 use {defmt_rtt as _, hpm_hal as hal, riscv_rt as _};
 
-const BANNER: &str = include_str!("./BANNER");
+const BANNER: &str = include_str!("../../../assets/BANNER");
 
 pub mod consts {
     pub const PRIMARY_ADDRESS: u8 = 0x3C;
