@@ -1,5 +1,3 @@
-use core::ops;
-
 use super::{clock_add_to_group, Pll};
 use crate::pac;
 pub use crate::pac::sysctl::vals::ClockMux;
@@ -10,7 +8,6 @@ pub const CLK_32K: Hertz = Hertz(32_768);
 pub const CLK_24M: Hertz = Hertz(24_000_000);
 
 // default clock sources
-
 const PLL0CLK0: Hertz = Hertz(648_000_000);
 
 const PLL1CLK0: Hertz = Hertz(266_666_667);
@@ -19,7 +16,7 @@ const PLL1CLK1: Hertz = Hertz(400_000_000);
 const PLL2CLK0: Hertz = Hertz(333_333_333);
 const PLL2CLK1: Hertz = Hertz(250_000_000);
 
-const PLL3CLK0: Hertz = Hertz(614_000_000);
+const PLL3CLK0: Hertz = Hertz(614_400_000);
 const PLL4CLK0: Hertz = Hertz(594_000_000);
 
 const CLK_CPU0: Hertz = Hertz(324_000_000); // PLL0CLK0 / 2
@@ -110,7 +107,7 @@ impl ClockConfig {
     }
 }
 
-pub(crate) unsafe fn init(config: Config) {
+pub(crate) unsafe fn init(_config: Config) {
     const PLLCTL_SOC_PLL_REFCLK_FREQ: u32 = 24 * 1_000_000;
 
     if CLOCKS.get_clock_freq(pac::clocks::CPU0).0 == PLLCTL_SOC_PLL_REFCLK_FREQ {
@@ -139,7 +136,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     clock_add_to_group(pac::resources::GPIO, 0);
 
-    clock_add_to_group(pac::resources::MBX0, 1);
+    clock_add_to_group(pac::resources::MBX0, 0);
 
     // Connect Group0 to CPU0
     SYSCTL.affiliate(0).set().write(|w| w.set_link(1 << 0));
