@@ -26,6 +26,10 @@ embassy-executor = { version = "0.5.0", features = [
     "arch-riscv32",
     "executor-thread",
 ] }
+heapless = "0.8.0"
+embedded-io = "0.6.1"
+futures-util = { version = "0.3.30", default-features = false }
+assign-resources = "0.4.1"
 
 [profile.release]
 strip = false   # symbols are not flashed to the microcontroller, so don't strip them.

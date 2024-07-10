@@ -7,6 +7,25 @@ This crate is a working-in-progress and not ready for use.
 
 ## Project status
 
+### MCU Family Support
+
+| MCU Family | PAC | Demo | Embassy | SYSCTL | GPIO | UART | I2C | SPI | DMA | MBX | TMR | ADC | USB |
+|------------|-----|------|---------|--------|------|------|-----|-----|-----|-----|-----|-----|-----|
+| HPM6700    | ✓   | ✓    | ✓       | !      | ✓+   | ✓    | ?   | ?   | ?   | ?   |     |     |     |
+| HPM6300    | ✓   | ✓    |         |        |      |      |     |     |     |     |     |     |     |
+| HPM6200    | ✓   |      |         |        |      |      |     |     |     |     |     |     |     |
+| HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓   | ✓   | ✓+  | ✓+  |     |     |     |
+| HPM6800    | ✓   |      |         |        |      |      |     |     |     |     |     |     |     |
+| HPM6E00    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ?   | ✓   | ✓+  | ✓+  |     |     |     |
+
+- ✓: Implemented
+- ?: Requires demo verification
+- !: Partially implemented
+- Blank: Not implemented
+- +: Async support
+
+### TODO
+
 - Peripherals:
   - [x] basic start up code: linker, startup
   - [x] Embassy time driver using MCHTMR
@@ -32,25 +51,12 @@ This crate is a working-in-progress and not ready for use.
   - [ ] CPU1 support - how to?
   - [ ] PMP for noncacheable memory
 
-| MCU Family | Demo | PAC | SYSCTL | GPIO | UART | I2C | MBX | ADC | TMR | SPI | DMA |
-|------------|:----:|:---:|:------:|:----:|:----:|:---:|:---:|:---:|:---:|:---:|:---:|
-| HPM6700    |  ✓   |  ✓  |   !    |  ✓   |  ?   |  ?  |  ?  |     |     |  ?  |  ?  |
-| HPM6300    |  ✓   |  ✓  |        |      |      |     |     |     |     |     |     |
-| HPM6200    |      |  ✓  |        |      |      |     |     |     |     |     |     |
-| HPM5300    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ✓  |  ✓  |     |     |  ✓  |  ✓  |
-| HPM6800    |      |  ✓  |        |      |      |     |     |     |     |     |  ?  |
-| HPM6E00    |  ✓   |  ✓  |   ✓    |  ✓   |  ✓   |  ?  |  ✓  |     |     |  ✓  |  ?  |
-
-- ✓: Implemented
-- ?: Requires demo verification
-- !: Partially implemented
-- Blank: Not implemented
-
 ### Toolchain Support
 
 - [probe-rs]
   - [x] [HPM5300 series flash algorithm support](https://github.com/probe-rs/probe-rs/pull/2575)
   - [ ] [#2578 JTag support for DAPLink](https://github.com/probe-rs/probe-rs/pull/2578)
+- [ ] probe-rs for HPM6750 is not working, use OpenOCD instead
 
 ## Usage
 

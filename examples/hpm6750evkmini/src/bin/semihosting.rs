@@ -26,9 +26,7 @@ static mut STDOUT: Option<hio::HostStream> = None;
 #[riscv_rt::entry]
 fn main() -> ! {
     let stdout = hio::hstdout().map_err(|_| core::fmt::Error).unwrap();
-    unsafe {
-        STDOUT = Some(stdout);
-    }
+    unsafe { STDOUT = Some(stdout) };
 
     println!("Hello, world from semihosting!");
 
