@@ -9,8 +9,8 @@ use embassy_time_driver::AlarmHandle;
 use hpm_metapac::sysctl::vals;
 use hpm_metapac::{MCHTMR, SYSCTL};
 
+use crate::pac;
 use crate::sysctl::ClockConfig;
-use crate::{pac, peripherals};
 
 pub const ALARM_COUNT: usize = 1;
 
@@ -69,12 +69,20 @@ impl MachineTimerDriver {
         // make sure mchtmr will not be gated on "wfi"
         // Design consideration: use WAIT is also useful to enter low-power mode
         SYSCTL.cpu(0).lp().modify(|w| w.set_mode(vals::LpMode::RUN));
+
         // 4 * 32 = 128 bits
         // enable wake up from all interrupts
         SYSCTL.cpu(0).wakeup_enable(0).write(|w| w.set_enable(0xFFFFFFFF));
         SYSCTL.cpu(0).wakeup_enable(1).write(|w| w.set_enable(0xFFFFFFFF));
         SYSCTL.cpu(0).wakeup_enable(2).write(|w| w.set_enable(0xFFFFFFFF));
         SYSCTL.cpu(0).wakeup_enable(3).write(|w| w.set_enable(0xFFFFFFFF));
+        #[cfg(hpm67)]
+        {
+            SYSCTL.cpu(0).wakeup_enable(4).write(|w| w.set_enable(0xFFFFFFFF));
+            SYSCTL.cpu(0).wakeup_enable(5).write(|w| w.set_enable(0xFFFFFFFF));
+            SYSCTL.cpu(0).wakeup_enable(6).write(|w| w.set_enable(0xFFFFFFFF));
+            SYSCTL.cpu(0).wakeup_enable(7).write(|w| w.set_enable(0xFFFFFFFF));
+        }
 
         MCHTMR.mtimecmp().write_value(u64::MAX - 1);
     }
