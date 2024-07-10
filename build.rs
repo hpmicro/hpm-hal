@@ -136,7 +136,8 @@ fn main() {
             cfgs.enable(r.kind);
             cfgs.enable(format!("{}_{}", r.kind, r.version));
 
-            // cfgs.enable(format!("peri_{}", p.name.to_ascii_lowercase()));
+            // name based: peri_uart10
+            cfgs.enable(format!("peri_{}", p.name.to_ascii_lowercase()));
         }
     }
 
