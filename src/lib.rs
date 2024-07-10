@@ -140,9 +140,6 @@ pub struct Config {
 }
 
 pub fn init(config: Config) -> Peripherals {
-    #[cfg(hpm53)]
-    gpio::init_py_pins_as_gpio();
-
     // board_init_clock
     unsafe {
         sysctl::init(config.sysctl);

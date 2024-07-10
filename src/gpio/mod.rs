@@ -1,4 +1,6 @@
 //! General Purpose Input/Output
+//!
+//! - [ ] handle FGPIO, PGPIO, and BGPIO
 #![macro_use]
 use core::convert::Infallible;
 
@@ -486,7 +488,26 @@ pub(crate) trait SealedPin: Sized {
     }
 
     #[inline]
+    #[allow(unused)]
     fn set_as_alt(&self, alt_num: u8) {
+        const PY: usize = 14; // power domain
+        const PZ: usize = 15; // battery domain
+
+        const FUNC_CTL_SOC_IO: u8 = 3;
+
+        // set PY, PZ pins to SOC_IO
+        match self._port() {
+            PY => pac::PIOC
+                .pad(self.pin_pad() as usize)
+                .func_ctl()
+                .modify(|w| w.set_alt_select(FUNC_CTL_SOC_IO)),
+            #[cfg(peri_bioc)]
+            PZ => pac::BIOC
+                .pad(self.pin_pad() as usize)
+                .func_ctl()
+                .modify(|w| w.set_alt_select(FUNC_CTL_SOC_IO)),
+            _ => (),
+        }
         self.ioc_pad().func_ctl().modify(|w| w.set_alt_select(alt_num));
     }
 
@@ -675,28 +696,5 @@ impl<'d> embedded_hal::digital::StatefulOutputPin for Flex<'d> {
     #[inline]
     fn is_set_low(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_set_low())
-    }
-}
-
-/// Use power domain PY as GPIO
-#[cfg(hpm53)]
-pub(crate) fn init_py_pins_as_gpio() {
-    // Set PY00-PY07 default function from PGPIO to GPIO0
-    const IOC_PYXX_FUNC_CTL_SOC_GPIO_Y_XX: u8 = 3;
-
-    for pin_pad in [
-        pac::pins::PY00,
-        pac::pins::PY01,
-        pac::pins::PY02,
-        pac::pins::PY03,
-        pac::pins::PY04,
-        pac::pins::PY05,
-        pac::pins::PY06,
-        pac::pins::PY07,
-    ] {
-        pac::PIOC
-            .pad(pin_pad)
-            .func_ctl()
-            .modify(|w| w.set_alt_select(IOC_PYXX_FUNC_CTL_SOC_GPIO_Y_XX));
     }
 }
