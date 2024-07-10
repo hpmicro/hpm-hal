@@ -168,7 +168,10 @@ impl embassy_time_driver::Driver for MachineTimerDriver {
                 return false;
             }
 
-            let safe_timestamp = timestamp.saturating_add(1) * (self.period.load(Ordering::Relaxed) as u64);
+            let safe_timestamp = timestamp
+                .saturating_add(1)
+                .overflowing_mul(self.period.load(Ordering::Relaxed) as u64)
+                .0;
 
             MCHTMR.mtimecmp().write_value(safe_timestamp);
             unsafe {
