@@ -43,8 +43,10 @@ This crate is a working-in-progress and not ready for use.
   - [x] MBX, blocking and async
   - [x] FEMC
     - [x] SDRAM init
-  - [x] SPI blocking
+  - [x] SPI driver
     - [x] QSPI driver
+    - [x] blocking
+    - [x] async using DMA
 - Long term Plans
   - [ ] andes-riscv for specific CSRs
   - [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
