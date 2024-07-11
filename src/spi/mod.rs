@@ -8,6 +8,7 @@
 use core::marker::PhantomData;
 use core::ptr;
 
+use embassy_futures::join::join;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 // re-export
@@ -528,12 +529,13 @@ impl<'d> Spi<'d, Async> {
         self.set_word_size(W::CONFIG);
         let mut config = TransferConfig::default();
         config.transfer_mode = TransMode::READ_ONLY;
+        config.dummy_cnt = data.len() as u8;
         self.configure_transfer(0, data.len(), &config)?;
-
-        r.ctrl().modify(|w| w.set_rxdmaen(true));
 
         let rx_src = r.data().as_ptr() as *mut W;
         let rx_f = unsafe { self.rx_dma.as_mut().unwrap().read(rx_src, data, Default::default()) };
+
+        r.ctrl().modify(|w| w.set_rxdmaen(true));
 
         rx_f.await;
 
@@ -551,10 +553,49 @@ impl<'d> Spi<'d, Async> {
         // in dma mode,
         assert_eq!(read.len(), write.len());
 
+        let r = self.info.regs;
+
         self.set_word_size(W::CONFIG);
         self.configure_transfer(write.len(), read.len(), config)?;
 
+        r.ctrl().modify(|w| {
+            w.set_rxdmaen(true);
+            w.set_txdmaen(true);
+        });
+
+        let tx_dst = r.data().as_ptr() as *mut W;
+        let mut opts = dma::TransferOptions::default();
+        opts.burst = dma::Burst::from_size(FIFO_SIZE / 2);
+        let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write_raw(write, tx_dst, opts) };
+
+        let rx_src = r.data().as_ptr() as *mut W;
+        let rx_f = unsafe { self.rx_dma.as_mut().unwrap().read_raw(rx_src, read, Default::default()) };
+
+        join(tx_f, rx_f).await;
+
+        r.ctrl().modify(|w| {
+            w.set_rxdmaen(false);
+            w.set_txdmaen(false);
+        });
+
         Ok(())
+    }
+
+    /// Bidirectional transfer, using DMA.
+    pub async fn transfer<W: Word>(
+        &mut self,
+        read: &mut [W],
+        write: &[W],
+        config: &TransferConfig,
+    ) -> Result<(), Error> {
+        self.transfer_inner(read, write, config).await
+    }
+
+    /// In-place bidirectional transfer, using DMA.
+    ///
+    /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
+    pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W], config: &TransferConfig) -> Result<(), Error> {
+        self.transfer_inner(data, data, config).await
     }
 }
 
@@ -791,7 +832,6 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         let r = self.info.regs;
         let config = TransferConfig::default();
 
-        flush_rx_fifo(r);
         self.configure_transfer(data.len(), 0, &config)?;
         self.set_word_size(W::CONFIG);
 
@@ -814,7 +854,6 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         let mut config = TransferConfig::default();
         config.transfer_mode = TransMode::READ_ONLY;
 
-        flush_rx_fifo(r);
         self.configure_transfer(0, data.len(), &config)?;
         self.set_word_size(W::CONFIG);
 
@@ -836,7 +875,6 @@ impl<'d, M: PeriMode> Spi<'d, M> {
     ) -> Result<(), Error> {
         let r = self.info.regs;
 
-        flush_rx_fifo(r);
         let len = read.len().max(write.len());
         self.configure_transfer(write.len(), read.len(), &config)?;
         self.set_word_size(W::CONFIG);
@@ -864,7 +902,6 @@ impl<'d, M: PeriMode> Spi<'d, M> {
     ) -> Result<(), Error> {
         let r = self.info.regs;
 
-        flush_rx_fifo(r);
         self.configure_transfer(words.len(), words.len(), &config)?;
         self.set_word_size(W::CONFIG);
 
