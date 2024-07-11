@@ -351,7 +351,6 @@ impl<'d> Spi<'d, Blocking> {
         d3.set_as_alt(d3.alt_num());
 
         let cs_index = cs.cs_index();
-        // SPI_CS_SELECT
         #[cfg(ip_feature_spi_cs_select)]
         T::info().regs.ctrl().modify(|w| w.set_cs_en(cs_index));
 
@@ -500,8 +499,7 @@ impl<'d> Spi<'d, Async> {
         let r = self.info.regs;
 
         self.set_word_size(W::CONFIG);
-        let config = TransferConfig::default();
-        self.configure_transfer(data.len(), &config)?;
+        self.configure_transfer(data.len(), 0, &TransferConfig::default())?;
 
         r.ctrl().modify(|w| w.set_txdmaen(true));
 
@@ -529,9 +527,32 @@ impl<'d> Spi<'d, Async> {
 
         self.set_word_size(W::CONFIG);
         let mut config = TransferConfig::default();
-        self.configure_transfer(data.len(), &config)?;
+        config.transfer_mode = TransMode::READ_ONLY;
+        self.configure_transfer(0, data.len(), &config)?;
 
-        r.ctrl().modify(|w| w.set_txdmaen(true));
+        r.ctrl().modify(|w| w.set_rxdmaen(true));
+
+        let rx_src = r.data().as_ptr() as *mut W;
+        let rx_f = unsafe { self.rx_dma.as_mut().unwrap().read(rx_src, data, Default::default()) };
+
+        rx_f.await;
+
+        r.ctrl().modify(|w| w.set_rxdmaen(false));
+
+        Ok(())
+    }
+
+    async fn transfer_inner<W: Word>(
+        &mut self,
+        read: *mut [W],
+        write: *const [W],
+        config: &TransferConfig,
+    ) -> Result<(), Error> {
+        // in dma mode,
+        assert_eq!(read.len(), write.len());
+
+        self.set_word_size(W::CONFIG);
+        self.configure_transfer(write.len(), read.len(), config)?;
 
         Ok(())
     }
@@ -636,8 +657,8 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         self.current_word_size = word_size;
     }
 
-    fn configure_transfer(&mut self, data_len: usize, config: &TransferConfig) -> Result<(), Error> {
-        if data_len > TRANSFER_COUNT_MAX {
+    fn configure_transfer(&mut self, write_len: usize, read_len: usize, config: &TransferConfig) -> Result<(), Error> {
+        if write_len > TRANSFER_COUNT_MAX {
             return Err(Error::BufferTooLong);
         }
 
@@ -676,11 +697,11 @@ impl<'d, M: PeriMode> Spi<'d, M> {
                 | TransMode::WRITE_DUMMY_READ
                 | TransMode::READ_WRITE
                 | TransMode::WRITE_READ => {
-                    w.set_wrtrancnt(data_len as u16 - 1);
-                    w.set_rdtrancnt(data_len as u16 - 1);
+                    w.set_wrtrancnt(write_len as u16 - 1);
+                    w.set_rdtrancnt(read_len as u16 - 1);
                 }
-                TransMode::WRITE_ONLY | TransMode::DUMMY_WRITE => w.set_wrtrancnt(data_len as u16 - 1),
-                TransMode::READ_ONLY | TransMode::DUMMY_READ => w.set_rdtrancnt(data_len as u16 - 1),
+                TransMode::WRITE_ONLY | TransMode::DUMMY_WRITE => w.set_wrtrancnt(write_len as u16 - 1),
+                TransMode::READ_ONLY | TransMode::DUMMY_READ => w.set_rdtrancnt(read_len as u16 - 1),
                 TransMode::NO_DATA => (),
                 _ => (),
             }
@@ -696,14 +717,14 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             | TransMode::WRITE_DUMMY_READ
             | TransMode::READ_WRITE
             | TransMode::WRITE_READ => {
-                r.wr_trans_cnt().write(|w| w.set_wrtrancnt(data_len as u32 - 1));
-                r.rd_trans_cnt().write(|w| w.set_rdtrancnt(data_len as u32 - 1));
+                r.wr_trans_cnt().write(|w| w.set_wrtrancnt(write_len as u32 - 1));
+                r.rd_trans_cnt().write(|w| w.set_rdtrancnt(read_len as u32 - 1));
             }
             TransMode::WRITE_ONLY | TransMode::DUMMY_WRITE => {
-                r.wr_trans_cnt().write(|w| w.set_wrtrancnt(data_len as u32 - 1))
+                r.wr_trans_cnt().write(|w| w.set_wrtrancnt(write_len as u32 - 1))
             }
             TransMode::READ_ONLY | TransMode::DUMMY_READ => {
-                r.rd_trans_cnt().write(|w| w.set_rdtrancnt(data_len as u32 - 1))
+                r.rd_trans_cnt().write(|w| w.set_rdtrancnt(read_len as u32 - 1))
             }
             TransMode::NO_DATA => (),
             _ => (),
@@ -741,7 +762,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             w.set_datamerge(true);
         });
         self.set_word_size(<u8 as SealedWord>::CONFIG);
-        self.configure_transfer(data.len(), config)?;
+        self.configure_transfer(data.len(), 0, config)?;
         for chunk in data.chunks(4) {
             let word = match chunk.len() {
                 4 => u32::from_le_bytes(chunk.try_into().unwrap()), // LSB send first
@@ -771,7 +792,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         let config = TransferConfig::default();
 
         flush_rx_fifo(r);
-        self.configure_transfer(data.len(), &config)?;
+        self.configure_transfer(data.len(), 0, &config)?;
         self.set_word_size(W::CONFIG);
 
         // Write data byte by byte
@@ -794,7 +815,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         config.transfer_mode = TransMode::READ_ONLY;
 
         flush_rx_fifo(r);
-        self.configure_transfer(data.len(), &config)?;
+        self.configure_transfer(0, data.len(), &config)?;
         self.set_word_size(W::CONFIG);
 
         for b in data {
@@ -817,7 +838,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
         flush_rx_fifo(r);
         let len = read.len().max(write.len());
-        self.configure_transfer(len, &config)?;
+        self.configure_transfer(write.len(), read.len(), &config)?;
         self.set_word_size(W::CONFIG);
 
         for i in 0..len {
@@ -844,7 +865,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         let r = self.info.regs;
 
         flush_rx_fifo(r);
-        self.configure_transfer(words.len(), &config)?;
+        self.configure_transfer(words.len(), words.len(), &config)?;
         self.set_word_size(W::CONFIG);
 
         for i in 0..words.len() {
