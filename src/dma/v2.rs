@@ -226,7 +226,7 @@ impl AnyChannel {
         dst_width: WordSize,
         dst_addr_ctrl: AddrCtrl,
         // TRANSIZE
-        size_in_bytes: usize,
+        size_in_words: usize,
         handshake: HandshakeMode,
         options: TransferOptions,
     ) {
@@ -239,7 +239,7 @@ impl AnyChannel {
         // follow the impl of dma_setup_channel
 
         // check alignment
-        if !dst_width.aligned(size_in_bytes as u32)
+        if !dst_width.aligned((size_in_words as u32) * (dst_width.bytes() as u32))
             || !src_width.aligned(src_addr as u32)
             || !dst_width.aligned(dst_addr as u32)
         {
@@ -253,9 +253,7 @@ impl AnyChannel {
 
         ch_cr.src_addr().write_value(src_addr as u32);
         ch_cr.dst_addr().write_value(dst_addr as u32);
-        ch_cr
-            .tran_size()
-            .modify(|w| w.0 = (size_in_bytes / src_width.bytes()) as u32);
+        ch_cr.tran_size().modify(|w| w.0 = size_in_words as u32);
         ch_cr.llpointer().modify(|w| w.0 = 0x0);
         ch_cr.chan_req_ctrl().write(|w| {
             if dir == Dir::MemoryToPeripheral {
