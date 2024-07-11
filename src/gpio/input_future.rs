@@ -16,14 +16,10 @@ const GPIO_LINES: usize = 32;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static PORT_WAKERS: [AtomicWaker; GPIO_LINES] = [NEW_AW; GPIO_LINES];
 
-const PA: usize = 0;
-const PB: usize = 1;
-const PX: usize = 0xD;
-const PY: usize = 0xE;
-
 #[no_mangle]
 #[link_section = ".fast"]
 unsafe extern "riscv-interrupt-m" fn GPIO0_A() {
+    const PA: usize = 0;
     on_interrupt(PA);
 
     compiler_fence(Ordering::SeqCst);
@@ -32,14 +28,27 @@ unsafe extern "riscv-interrupt-m" fn GPIO0_A() {
 #[no_mangle]
 #[link_section = ".fast"]
 unsafe extern "riscv-interrupt-m" fn GPIO0_B() {
+    const PB: usize = 1;
     on_interrupt(PB);
 
     compiler_fence(Ordering::SeqCst);
     interrupt::GPIO0_B.complete();
 }
+
+#[cfg(hpm67)]
+#[no_mangle]
+#[link_section = ".fast"]
+unsafe extern "riscv-interrupt-m" fn GPIO0_E() {
+    const PE: usize = 4;
+    on_interrupt(PE);
+
+    compiler_fence(Ordering::SeqCst);
+    interrupt::GPIO0_E.complete();
+}
 #[no_mangle]
 #[link_section = ".fast"]
 unsafe extern "riscv-interrupt-m" fn GPIO0_X() {
+    const PX: usize = 0xD;
     on_interrupt(PX);
 
     compiler_fence(Ordering::SeqCst);
@@ -48,6 +57,7 @@ unsafe extern "riscv-interrupt-m" fn GPIO0_X() {
 #[no_mangle]
 #[link_section = ".fast"]
 unsafe extern "riscv-interrupt-m" fn GPIO0_Y() {
+    const PY: usize = 0xE;
     on_interrupt(PY);
 
     compiler_fence(Ordering::SeqCst);
@@ -250,4 +260,10 @@ pub(crate) unsafe fn init_gpio0_irq() {
     interrupt::GPIO0_B.enable();
     interrupt::GPIO0_X.enable();
     interrupt::GPIO0_Y.enable();
+
+    // TODO: gen these using build.rs
+    #[cfg(hpm67)]
+    {
+        interrupt::GPIO0_E.enable();
+    }
 }
