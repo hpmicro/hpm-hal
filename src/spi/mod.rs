@@ -686,7 +686,6 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             }
             w.set_tokenvalue(false);
             w.set_dummycnt(config.dummy_cnt);
-            w.set_rdtrancnt(0);
             w.set_transmode(config.transfer_mode);
         });
 
@@ -767,11 +766,12 @@ impl<'d, M: PeriMode> Spi<'d, M> {
     }
 
     // Write in master mode
-    pub fn blocking_write<W: Word>(&mut self, data: &[W], config: &TransferConfig) -> Result<(), Error> {
+    pub fn blocking_write<W: Word>(&mut self, data: &[W]) -> Result<(), Error> {
         let r = self.info.regs;
+        let config = TransferConfig::default();
 
         flush_rx_fifo(r);
-        self.configure_transfer(data.len(), config)?;
+        self.configure_transfer(data.len(), &config)?;
         self.set_word_size(W::CONFIG);
 
         // Write data byte by byte
@@ -788,19 +788,21 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         Ok(())
     }
 
-    pub fn blocking_read<W: Word>(&mut self, data: &mut [W], config: &TransferConfig) -> Result<(), Error> {
+    pub fn blocking_read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
         let r = self.info.regs;
+        let mut config = TransferConfig::default();
+        config.transfer_mode = TransMode::READ_ONLY;
 
         flush_rx_fifo(r);
-        self.configure_transfer(data.len(), config)?;
+        self.configure_transfer(data.len(), &config)?;
         self.set_word_size(W::CONFIG);
 
         for b in data {
-            while r.status().read().rxempty() {}
+            // while r.status().read().rxempty() {}
+            while (r.status().read().rxnum_7_6() << 5) | r.status().read().rxnum_5_0() == 0 {}
             *b = unsafe { ptr::read_volatile(r.data().as_ptr() as *const W) }
         }
 
-        // no need to wait rx finished, because the data is already read out
         Ok(())
     }
 
@@ -834,7 +836,11 @@ impl<'d, M: PeriMode> Spi<'d, M> {
     }
 
     /// Blocking in-place bidirectional transfer.
-    pub fn blocking_transfer_iplace<W: Word>(&mut self, words: &mut [W], config: &TransferConfig) -> Result<(), Error> {
+    pub fn blocking_transfer_inplace<W: Word>(
+        &mut self,
+        words: &mut [W],
+        config: &TransferConfig,
+    ) -> Result<(), Error> {
         let r = self.info.regs;
 
         flush_rx_fifo(r);
@@ -1023,15 +1029,11 @@ impl<'d, M: PeriMode> embedded_hal::spi::ErrorType for Spi<'d, M> {
 
 impl<'d, M: PeriMode> embedded_hal::spi::SpiBus for Spi<'d, M> {
     fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(buf, &TransferConfig::default())
+        self.blocking_write(buf)
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
-        let config = TransferConfig {
-            transfer_mode: TransMode::READ_ONLY,
-            ..Default::default()
-        };
-        self.blocking_read(buf, &config)
+        self.blocking_read(buf)
     }
 
     fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
@@ -1047,7 +1049,7 @@ impl<'d, M: PeriMode> embedded_hal::spi::SpiBus for Spi<'d, M> {
             transfer_mode: TransMode::WRITE_READ,
             ..Default::default()
         };
-        self.blocking_transfer_iplace(words, &config)
+        self.blocking_transfer_inplace(words, &config)
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
