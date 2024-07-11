@@ -108,9 +108,9 @@ impl RM67162<'_> {
 
         if data.len() == 0 {
             transfer_config.transfer_mode = TransMode::NO_DATA;
-            self.qspi.blocking_write::<u8>(&[], &transfer_config)?;
+            self.qspi.blocking_transfer::<u8>(&mut [], &[], &transfer_config)?;
         } else {
-            self.qspi.blocking_write(data, &transfer_config)?;
+            self.qspi.blocking_transfer(&mut [], data, &transfer_config)?;
         }
 
         Ok(())
