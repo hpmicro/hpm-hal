@@ -1,4 +1,4 @@
-use super::{clock_add_to_group, Pll};
+use super::clock_add_to_group;
 use crate::pac;
 pub use crate::pac::sysctl::vals::ClockMux;
 use crate::pac::{PLLCTL, SYSCTL};
@@ -23,7 +23,7 @@ const CLK_CPU0: Hertz = Hertz(324_000_000); // PLL0CLK0 / 2
 const CLK_CPU1: Hertz = Hertz(324_000_000); // PLL0CLK0 / 2
 const CLK_AHB: Hertz = Hertz(200_000_000 / 2); // PLL1CLK1 / 2
 
-const F_REF: Hertz = CLK_24M;
+// const F_REF: Hertz = CLK_24M;
 
 /// The default system clock configuration
 pub(crate) static mut CLOCKS: Clocks = Clocks {
@@ -82,11 +82,21 @@ impl Clocks {
     }
 }
 
-pub struct Config {}
+pub struct Config {
+    pub cpu0: ClockConfig,
+    pub cpu1: ClockConfig,
+    pub axi: ClockConfig,
+    pub ahb: ClockConfig,
+}
 
 impl Default for Config {
     fn default() -> Self {
-        Self {}
+        Self {
+            cpu0: ClockConfig::new(ClockMux::PLL0CLK0, 2),
+            cpu1: ClockConfig::new(ClockMux::PLL0CLK0, 2),
+            axi: ClockConfig::new(ClockMux::PLL1CLK1, 2),
+            ahb: ClockConfig::new(ClockMux::PLL1CLK0, 2),
+        }
     }
 }
 
@@ -107,7 +117,7 @@ impl ClockConfig {
     }
 }
 
-pub(crate) unsafe fn init(_config: Config) {
+pub(crate) unsafe fn init(config: Config) {
     const PLLCTL_SOC_PLL_REFCLK_FREQ: u32 = 24 * 1_000_000;
 
     if CLOCKS.get_clock_freq(pac::clocks::CPU0).0 == PLLCTL_SOC_PLL_REFCLK_FREQ {
@@ -148,4 +158,40 @@ pub(crate) unsafe fn init(_config: Config) {
 
     // Bump up DCDC voltage to 1200mv
     pac::PCFG.dcdc_mode().modify(|w| w.set_volt(1200));
+
+    // clock settings
+
+    SYSCTL.clock(pac::clocks::CPU0).modify(|w| {
+        w.set_mux(config.cpu0.src);
+        w.set_div(config.cpu0.raw_div);
+    });
+    let cpu0 = CLOCKS.get_freq(&config.cpu0);
+    unsafe {
+        CLOCKS.cpu0 = cpu0;
+    }
+
+    SYSCTL.clock(pac::clocks::CPU1).modify(|w| {
+        w.set_mux(config.cpu1.src);
+        w.set_div(config.cpu1.raw_div);
+    });
+    let cpu1 = CLOCKS.get_freq(&config.cpu1);
+    unsafe {
+        CLOCKS.cpu1 = cpu1;
+    }
+
+    SYSCTL.clock(pac::clocks::AXI).modify(|w| {
+        w.set_mux(config.axi.src);
+        w.set_div(config.axi.raw_div);
+    });
+
+    SYSCTL.clock(pac::clocks::AHB).modify(|w| {
+        w.set_mux(config.ahb.src);
+        w.set_div(config.ahb.raw_div);
+    });
+    let ahb = CLOCKS.get_freq(&config.ahb);
+    unsafe {
+        CLOCKS.ahb = ahb;
+    }
+
+    while SYSCTL.clock(pac::clocks::CPU0).read().glb_busy() {}
 }
