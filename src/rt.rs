@@ -188,6 +188,14 @@ unsafe extern "riscv-interrupt-m" fn CORE_LOCAL() {
     let code = cause.code();
 
     if cause.is_exception() {
+        // Ref: HPM6700_6400_Errata_V2_0.pdf "E00001：RISC-V 处理器指令和数据本地存储器使用限制"
+        #[cfg(hpm67)]
+        if code == 2 {
+            // Illegal instruction
+            if riscv::register::mtval::read() == 0x0 {
+                return;
+            }
+        }
         defmt::error!("Exception code: {}", code);
         loop {} // dead loop
     } else if code < __INTERRUPTS.len() {
