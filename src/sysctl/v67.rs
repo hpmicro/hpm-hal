@@ -95,7 +95,7 @@ impl Default for Config {
             cpu0: ClockConfig::new(ClockMux::PLL0CLK0, 2),
             cpu1: ClockConfig::new(ClockMux::PLL0CLK0, 2),
             axi: ClockConfig::new(ClockMux::PLL1CLK1, 2),
-            ahb: ClockConfig::new(ClockMux::PLL1CLK0, 2),
+            ahb: ClockConfig::new(ClockMux::PLL1CLK1, 2),
         }
     }
 }
