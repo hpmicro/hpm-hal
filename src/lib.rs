@@ -156,7 +156,12 @@ pub fn init(config: Config) -> Peripherals {
     }
 
     #[cfg(feature = "embassy")]
-    embassy::init();
+    {
+        embassy::init();
+
+        #[cfg(feature = "defmt")]
+        defmt::timestamp!("{=u64:us}", embassy_time::Instant::now().as_micros());
+    }
 
     Peripherals::take()
 }
