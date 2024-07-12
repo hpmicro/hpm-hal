@@ -1,3 +1,6 @@
+//! Host controller driver for USB peripheral
+//! 
+
 use super::Usb;
 
 impl Usb {

@@ -35,7 +35,9 @@ impl Usb {
         self.dcd_data.qhd[0].cap.set_int_on_step(true);
     }
 
+    // Used in `usb_dc_init`
     fn device_init(&mut self, int_mask: u32) {
+        
         // Clear dcd data first
         self.dcd_data = DcdData::default();
 
@@ -56,6 +58,10 @@ impl Usb {
 
         // Connect
         r.usbcmd().modify(|w| w.set_rs(true));
+    }
+
+    fn device_deinit(&mut self) {
+        self.dcd_deinit();
     }
 
     fn device_endpoint_transfer(&mut self, ep_addr: EpAddr, data: &[u8]) -> Result<(), Error> {
@@ -139,5 +145,9 @@ impl Usb {
         self.endpoint_transfer(ep_idx as u8);
 
         Ok(())
+    }
+
+    pub(crate) fn device_endpoint_close(&mut self, ep_addr: EpAddr) {
+        self.dcd_endpoint_close(ep_addr);
     }
 }

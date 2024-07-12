@@ -8,6 +8,7 @@ mod dcd;
 mod device;
 mod endpoint;
 mod hcd;
+mod host;
 
 #[cfg(usb_v67)]
 const ENDPOINT_COUNT: usize = 8;
@@ -24,10 +25,13 @@ pub struct Usb {
     dcd_data: DcdData,
 }
 
+#[repr(C, align(32))]
 pub struct DcdData {
     /// Queue head
+    /// NON-CACHABLE
     pub(crate) qhd: [QueueHead; ENDPOINT_COUNT as usize * 2],
     /// Queue element transfer descriptor
+    /// NON-CACHABLE
     pub(crate) qtd: [QueueTransferDescriptor; ENDPOINT_COUNT as usize * 2 * QTD_COUNT_EACH_ENDPOINT as usize],
 }
 
@@ -41,11 +45,11 @@ impl Default for DcdData {
 }
 
 #[derive(Clone, Copy, Default)]
+#[repr(C, align(32))]
 pub(crate) struct QueueHead {
     // Capabilities and characteristics
     pub(crate) cap: CapabilityAndCharacteristics,
     // Current qTD pointer
-    // TODO: use index?
     pub(crate) qtd_addr: u32,
 
     // Transfer overlay
@@ -110,9 +114,9 @@ pub(crate) struct CapabilityAndCharacteristics {
     iso_mult: u8,
 }
 #[derive(Clone, Copy, Default)]
+#[repr(C, align(32))]
 struct QueueTransferDescriptor {
     // Next point
-    // TODO: use index?
     next: u32,
 
     token: QueueTransferDescriptorToken,
@@ -243,6 +247,16 @@ impl Usb {
             w.set_utmi_otg_suspendm(false);
         });
     }
+
+    /// Get port speed: 00: full speed, 01: low speed, 10: high speed, 11: undefined
+    /// TODO: Use enum
+    pub(crate) fn get_port_speed(&mut self) -> u8 {
+        let r = &self.info.regs;
+
+        r.portsc1().read().pspd()
+    }
+
+
 }
 
 pub enum Error {
