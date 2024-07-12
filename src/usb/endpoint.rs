@@ -3,7 +3,7 @@ use hpm_metapac::usb::regs::Endptprime;
 use super::{EpAddr, EpConfig, QueueHead, TransferType, Usb, ENDPOINT_COUNT};
 
 impl Usb {
-    fn endpoint_open(&mut self, ep_config: EpConfig) {
+    fn device_endpoint_open(&mut self, ep_config: EpConfig) {
         let r = &self.info.regs;
 
         let ep_num = ep_config.ep_addr.ep_num();
@@ -74,7 +74,7 @@ impl Usb {
         r.endptprime().write_value(Endptprime(1 << offset));
     }
 
-    fn endpoint_stall(&mut self, ep_addr: EpAddr) {
+    fn device_endpoint_stall(&mut self, ep_addr: EpAddr) {
         let r = &self.info.regs;
 
         if ep_addr.dir() {
@@ -84,7 +84,7 @@ impl Usb {
         }
     }
 
-    fn endpoint_clean_stall(&mut self, ep_addr: EpAddr) {
+    fn device_endpoint_clean_stall(&mut self, ep_addr: EpAddr) {
         let r = &self.info.regs;
 
         r.endptctrl(ep_addr.ep_num() as usize).modify(|w| {
@@ -109,7 +109,7 @@ impl Usb {
         }
     }
 
-    fn endpoint_close(&mut self, ep_addr: EpAddr) {
+    pub(crate) fn dcd_endpoint_close(&mut self, ep_addr: EpAddr) {
         let r = &self.info.regs;
 
         let ep_bit = 1 << ep_addr.ep_num();
@@ -153,5 +153,15 @@ impl Usb {
                 w.set_rxt(TransferType::Bulk as u8);
             }
         });
+    }
+
+    pub(crate) fn ep_is_stalled(&mut self, ep_addr: EpAddr) -> bool {
+        let r = &self.info.regs;
+
+        if ep_addr.dir() {
+            r.endptctrl(ep_addr.ep_num() as usize).read().txs()
+        } else {
+            r.endptctrl(ep_addr.ep_num() as usize).read().rxs()
+        }
     }
 }

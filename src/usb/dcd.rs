@@ -1,3 +1,6 @@
+//! Device controller driver for USB peripheral
+//!
+
 use hpm_metapac::usb::regs::*;
 
 use super::{TransferType, Usb, ENDPOINT_COUNT};
@@ -73,8 +76,17 @@ impl Usb {
         });
     }
 
+    pub(crate) fn dcd_set_address(&mut self, addr: u8) {
+        let r = &self.info.regs;
+
+        r.deviceaddr().modify(|w| {
+            w.set_usbadr(addr);
+            w.set_usbadra(true);
+        });
+    }
+
     /// Deinitialize USB device controller driver
-    fn dcd_deinit(&mut self) {
+    pub(crate) fn dcd_deinit(&mut self) {
         let r = &self.info.regs;
 
         // Stop first
