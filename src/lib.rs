@@ -54,8 +54,8 @@ pub mod uart;
 
 #[cfg(femc)]
 pub mod femc;
-//#[cfg(rtc)]
-//pub mod rtc;
+#[cfg(rtc)]
+pub mod rtc;
 
 #[cfg(feature = "rt")]
 pub mod rt;

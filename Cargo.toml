@@ -39,6 +39,7 @@ futures-util = { version = "0.3.30", optional = true, default-features = false }
 embedded-hal-nb = "1.0.0"
 embedded-io-async = "0.6.1"
 embedded-hal-async = "1.0.0"
+chrono = { version = "0.4.38", default-features = false, optional = true }
 
 
 [build-dependencies]
@@ -57,6 +58,7 @@ default = ["rt", "embassy", "defmt", "time"]
 rt = ["dep:riscv-rt", "hpm-metapac/rt"]
 defmt = ["dep:defmt"]
 time = ["dep:embassy-time"]
+chrono = ["dep:chrono"]
 
 embassy = [
     "dep:embassy-sync",
