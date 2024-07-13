@@ -17,6 +17,12 @@ fn main() -> ! {
     let mut delay = McycleDelay::new(hal::sysctl::clocks().cpu0.0);
 
     defmt::info!("Board init!");
+    defmt::info!("\n{}", BANNER);
+    defmt::info!(
+        "Clock summary:\nCPU0:\t{}Hz\nAHB:\t{}Hz",
+        hal::sysctl::clocks().cpu0.0,
+        hal::sysctl::clocks().ahb.0
+    );
 
     let mut tx = UartTx::new_blocking(p.UART0, p.PA00, Default::default()).unwrap();
 

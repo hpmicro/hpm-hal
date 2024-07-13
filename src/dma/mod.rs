@@ -13,14 +13,14 @@
 mod dmamux;
 use embassy_hal_internal::{impl_peripheral, Peripheral};
 
-#[cfg(any(hpm53, hpm68, hpm6e))]
+#[cfg(ip_feature_dma_v2)]
 pub(crate) mod v2;
-#[cfg(any(hpm53, hpm68, hpm6e))]
+#[cfg(ip_feature_dma_v2)]
 pub use v2::*;
 
-#[cfg(any(hpm67))]
+#[cfg(not(ip_feature_dma_v2))]
 pub(crate) mod v1;
-#[cfg(any(hpm67))]
+#[cfg(not(ip_feature_dma_v2))]
 pub use v1::*;
 
 pub mod word;
