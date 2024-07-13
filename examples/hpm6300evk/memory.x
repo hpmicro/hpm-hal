@@ -17,23 +17,3 @@ REGION_ALIAS("REGION_BSS", DLM0)
 REGION_ALIAS("REGION_HEAP", DLM0);
 REGION_ALIAS("REGION_STACK", DLM0);
 REGION_ALIAS("REGION_FASTTEXT", ILM0);
-
-
-/*
-SECTIONS
-{
-    .fast : ALIGN(4)
-    {
-        . = ALIGN(8);
-         __fast_load_addr__ = LOADADDR(.fast);
-        __fast_start_addr__ = .;
-        PROVIDE(__ramfunc_start__ = .);
-        *(.fast)
-        *(.fast.*)
-        . = ALIGN(8);
-        PROVIDE(__ramfunc_end__ = .);
-        __fast_end_addr__ = .;
-    } > ILM
-}
-
-*/

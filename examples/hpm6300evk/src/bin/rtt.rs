@@ -2,9 +2,11 @@
 #![no_std]
 
 use embedded_hal::delay::DelayNs;
+// use hpm_metapac as pac
+use hpm_hal::pac;
 use pac::gpiom::vals;
 use riscv::delay::McycleDelay;
-use {defmt_rtt as _, hpm_metapac as pac, panic_halt as _};
+use {defmt_rtt as _, panic_halt as _};
 
 #[riscv_rt::entry]
 fn main() -> ! {
