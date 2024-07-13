@@ -248,62 +248,6 @@ fn main() {
         (("spi", "MISO"), quote!(crate::spi::MisoPin)),
         (("spi", "DAT2"), quote!(crate::spi::D2Pin)),
         (("spi", "DAT3"), quote!(crate::spi::D3Pin)),
-    ]
-    .into();
-
-    for p in METADATA.peripherals {
-        if let Some(regs) = &p.registers {
-            for pin in p.pins {
-                let key = (regs.kind, pin.signal);
-                if let Some(tr) = signals.get(&key) {
-                    let peri = format_ident!("{}", p.name);
-
-                    let pin_name = format_ident!("{}", pin.pin);
-
-                    let alt = pin.alt.unwrap_or(0);
-
-                    g.extend(quote! {
-                        pin_trait_impl!(#tr, #peri, #pin_name, #alt);
-                    })
-                }
-
-                // Spi is special
-                if regs.kind == "spi" && pin.signal.starts_with("CS") {
-                    let peri = format_ident!("{}", p.name);
-                    let pin_name = format_ident!("{}", pin.pin);
-                    let alt = pin.alt.unwrap_or(0);
-                    let cs_index: u8 = match pin.signal {
-                        "CS0" => 1,
-                        "CS1" => 2,
-                        "CS2" => 4,
-                        "CS3" => 8,
-                        // CSN pin is available on hpm67 chips
-                        "CSN" => 0,
-                        _ => unreachable!("CS pin not found {:?}", pin.signal),
-                    };
-                    g.extend(quote! {
-                        spi_cs_pin_trait_impl!(crate::spi::CsIndexPin, #peri, #pin_name, #alt, #cs_index);
-                    });
-                }
-
-                // ADC is special
-                if regs.kind == "adc" {
-                    // TODO
-                }
-                // if regs.kind == "dac"
-            }
-        }
-    }
-
-    // ========
-    // Generate dma_trait_impl!
-    let signals: HashMap<_, _> = [
-        // (kind, signal) => trait
-        (("uart", "RX"), quote!(crate::uart::RxDma)),
-        (("uart", "TX"), quote!(crate::uart::TxDma)),
-        (("i2c", "GLOBAL"), quote!(crate::i2c::I2cDma)),
-        (("spi", "RX"), quote!(crate::spi::RxDma)),
-        (("spi", "TX"), quote!(crate::spi::TxDma)),
         // FEMC
         (("femc", "A00"), quote!(crate::femc::A00Pin)),
         (("femc", "A01"), quote!(crate::femc::A01Pin)),
@@ -362,6 +306,62 @@ fn main() {
         (("femc", "DQ31"), quote!(crate::femc::DQ31Pin)),
         (("femc", "RAS"), quote!(crate::femc::RASPin)),
         (("femc", "WE"), quote!(crate::femc::WEPin)),
+    ]
+    .into();
+
+    for p in METADATA.peripherals {
+        if let Some(regs) = &p.registers {
+            for pin in p.pins {
+                let key = (regs.kind, pin.signal);
+                if let Some(tr) = signals.get(&key) {
+                    let peri = format_ident!("{}", p.name);
+
+                    let pin_name = format_ident!("{}", pin.pin);
+
+                    let alt = pin.alt.unwrap_or(0);
+
+                    g.extend(quote! {
+                        pin_trait_impl!(#tr, #peri, #pin_name, #alt);
+                    })
+                }
+
+                // Spi is special
+                if regs.kind == "spi" && pin.signal.starts_with("CS") {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    let alt = pin.alt.unwrap_or(0);
+                    let cs_index: u8 = match pin.signal {
+                        "CS0" => 1,
+                        "CS1" => 2,
+                        "CS2" => 4,
+                        "CS3" => 8,
+                        // CSN pin is available on hpm67 chips
+                        "CSN" => 0,
+                        _ => unreachable!("CS pin not found {:?}", pin.signal),
+                    };
+                    g.extend(quote! {
+                        spi_cs_pin_trait_impl!(crate::spi::CsIndexPin, #peri, #pin_name, #alt, #cs_index);
+                    });
+                }
+
+                // ADC is special
+                if regs.kind == "adc" {
+                    // TODO
+                }
+                // if regs.kind == "dac"
+            }
+        }
+    }
+
+    // ========
+    // Generate dma_trait_impl!
+    let signals: HashMap<_, _> = [
+        // (kind, signal) => trait
+        (("uart", "RX"), quote!(crate::uart::RxDma)),
+        (("uart", "TX"), quote!(crate::uart::TxDma)),
+        (("i2c", "GLOBAL"), quote!(crate::i2c::I2cDma)),
+        (("spi", "RX"), quote!(crate::spi::RxDma)),
+        (("spi", "TX"), quote!(crate::spi::TxDma)),
     ]
     .into();
 
