@@ -719,3 +719,7 @@ impl<'d> embedded_hal::digital::StatefulOutputPin for Flex<'d> {
         Ok((*self).is_set_low())
     }
 }
+
+pub(crate) unsafe fn init(_cs: critical_section::CriticalSection) {
+    crate::_generated::init_gpio();
+}

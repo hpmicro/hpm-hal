@@ -1,5 +1,4 @@
 use core::future::Future;
-use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peripheral, PeripheralRef};
@@ -7,68 +6,18 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use super::{AnyPin, Flex, Input, Pin as GpioPin, SealedPin};
 use crate::internal::BitIter;
-use crate::interrupt::InterruptExt;
-use crate::{interrupt, pac};
 
-// PA00 to PA31
+// Px00 to Px31
 const GPIO_LINES: usize = 32;
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static PORT_WAKERS: [AtomicWaker; GPIO_LINES] = [NEW_AW; GPIO_LINES];
 
-#[no_mangle]
-#[link_section = ".fast"]
-unsafe extern "riscv-interrupt-m" fn GPIO0_A() {
-    const PA: usize = 0;
-    on_interrupt(PA);
-
-    compiler_fence(Ordering::SeqCst);
-    interrupt::GPIO0_A.complete();
-}
-#[no_mangle]
-#[link_section = ".fast"]
-unsafe extern "riscv-interrupt-m" fn GPIO0_B() {
-    const PB: usize = 1;
-    on_interrupt(PB);
-
-    compiler_fence(Ordering::SeqCst);
-    interrupt::GPIO0_B.complete();
-}
-
-#[cfg(hpm67)]
-#[no_mangle]
-#[link_section = ".fast"]
-unsafe extern "riscv-interrupt-m" fn GPIO0_E() {
-    const PE: usize = 4;
-    on_interrupt(PE);
-
-    compiler_fence(Ordering::SeqCst);
-    interrupt::GPIO0_E.complete();
-}
-#[no_mangle]
-#[link_section = ".fast"]
-unsafe extern "riscv-interrupt-m" fn GPIO0_X() {
-    const PX: usize = 0xD;
-    on_interrupt(PX);
-
-    compiler_fence(Ordering::SeqCst);
-    interrupt::GPIO0_X.complete();
-}
-#[no_mangle]
-#[link_section = ".fast"]
-unsafe extern "riscv-interrupt-m" fn GPIO0_Y() {
-    const PY: usize = 0xE;
-    on_interrupt(PY);
-
-    compiler_fence(Ordering::SeqCst);
-    interrupt::GPIO0_Y.complete();
-}
-
 #[inline]
-unsafe fn on_interrupt(port: usize) {
-    for pin in BitIter(pac::GPIO0.if_(port).value().read().irq_flag()) {
-        pac::GPIO0.if_(port).value().write(|w| w.set_irq_flag(1 << pin)); // W1C
-        pac::GPIO0.ie(port).clear().write(|w| w.set_irq_en(1 << pin));
+pub(crate) unsafe fn on_interrupt(r: crate::pac::gpio::Gpio, port: usize) {
+    for pin in BitIter(r.if_(port).value().read().irq_flag()) {
+        r.if_(port).value().write(|w| w.set_irq_flag(1 << pin)); // W1C
+        r.ie(port).clear().write(|w| w.set_irq_en(1 << pin));
         PORT_WAKERS[pin as usize].wake();
     }
 }
@@ -133,7 +82,7 @@ impl<'d> Input<'d> {
         self.pin.wait_for_falling_edge().await
     }
 
-    #[cfg(not(hpm67))]
+    #[cfg(gpio_v53)]
     pub async fn wait_for_any_edge(&mut self) {
         self.pin.wait_for_any_edge().await
     }
@@ -184,7 +133,7 @@ impl<'d> Flex<'d> {
             .pl(self.pin._port())
             .clear()
             .write(|w| w.set_irq_pol(1 << self.pin._pin()));
-        #[cfg(not(hpm67))]
+        #[cfg(gpio_v53)]
         self.pin
             .gpio()
             .pd(self.pin._port())
@@ -210,7 +159,7 @@ impl<'d> Flex<'d> {
             .set()
             .write(|w| w.set_irq_pol(1 << self.pin._pin()));
 
-        #[cfg(not(hpm67))]
+        #[cfg(gpio_v53)]
         self.pin
             .gpio()
             .pd(self.pin._port())
@@ -231,7 +180,7 @@ impl<'d> Flex<'d> {
     }
 
     /// Affects whole port
-    #[cfg(not(hpm67))]
+    #[cfg(gpio_v53)]
     pub async fn wait_for_any_edge(&mut self) {
         self.pin
             .gpio()
@@ -249,21 +198,5 @@ impl<'d> Flex<'d> {
             .set()
             .write(|w| w.set_irq_en(1 << self.pin._pin()));
         InputFuture::new(&mut self.pin).await
-    }
-}
-
-pub(crate) unsafe fn init_gpio0_irq() {
-    use crate::internal::interrupt::InterruptExt;
-    use crate::interrupt;
-
-    interrupt::GPIO0_A.enable();
-    interrupt::GPIO0_B.enable();
-    interrupt::GPIO0_X.enable();
-    interrupt::GPIO0_Y.enable();
-
-    // TODO: gen these using build.rs
-    #[cfg(hpm67)]
-    {
-        interrupt::GPIO0_E.enable();
     }
 }
