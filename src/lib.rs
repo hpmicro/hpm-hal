@@ -54,6 +54,8 @@ pub mod uart;
 
 #[cfg(femc)]
 pub mod femc;
+//#[cfg(rtc)]
+//pub mod rtc;
 
 #[cfg(feature = "rt")]
 pub mod rt;
@@ -140,17 +142,11 @@ pub struct Config {
 }
 
 pub fn init(config: Config) -> Peripherals {
-    // board_init_clock
     unsafe {
         sysctl::init(config.sysctl);
-    }
 
-    unsafe {
-        gpio::input_future::init_gpio0_irq();
-    }
-
-    unsafe {
         critical_section::with(|cs| {
+            gpio::init(cs);
             dma::init(cs);
         });
     }

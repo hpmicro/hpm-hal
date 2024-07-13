@@ -244,6 +244,7 @@ fn main() {
         (("spi", "CS1"), quote!(crate::spi::CsPin)),
         (("spi", "CS2"), quote!(crate::spi::CsPin)),
         (("spi", "CS3"), quote!(crate::spi::CsPin)),
+        (("spi", "CSN"), quote!(crate::spi::CsPin)),
         (("spi", "MOSI"), quote!(crate::spi::MosiPin)),
         (("spi", "MISO"), quote!(crate::spi::MisoPin)),
         (("spi", "DAT2"), quote!(crate::spi::D2Pin)),
@@ -481,6 +482,43 @@ fn main() {
         let row = vec![regs.kind.to_string(), p.name.to_string()];
         peripherals_table.push(row);
     }
+
+    // GPIO irq and init_gpio
+    let mut gg = TokenStream::new();
+    for i in METADATA.interrupts {
+        // GPIO1_ is the same as GPIO0_
+        if i.name.starts_with("GPIO0_") {
+            let irq_name = i.name;
+            let gpio_port = format!("P{}", i.name.strip_prefix("GPIO0_").unwrap());
+            let irq_ident = format_ident!("{}", irq_name);
+
+            let port_offset = match METADATA.pins.iter().find(|p| p.name.starts_with(&gpio_port)) {
+                Some(any_pin) => (any_pin.index >> 5) as usize,
+                _ => continue, // GPIO irq without any pins
+            };
+
+            g.extend(quote! {
+                #[no_mangle]
+                #[link_section = ".fast"]
+                unsafe extern "riscv-interrupt-m" fn #irq_ident() {
+                    use crate::interrupt::InterruptExt;
+                    crate::gpio::input_future::on_interrupt(crate::pac::GPIO0, #port_offset);
+
+                    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+                    crate::interrupt::#irq_ident.complete();
+                }
+            });
+            gg.extend(quote! {
+                crate::interrupt::#irq_ident.enable();
+            })
+        }
+    }
+    g.extend(quote! {
+        pub(crate) unsafe fn init_gpio() {
+            use crate::interrupt::InterruptExt;
+            #gg
+        }
+    });
 
     /*
     for irq in METADATA.interrupts {
