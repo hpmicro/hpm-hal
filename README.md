@@ -9,14 +9,14 @@ This crate is a working-in-progress and not ready for use.
 
 ### MCU Family Support
 
-| MCU Family | PAC | Demo | Embassy | SYSCTL | GPIO | UART | I2C | SPI | DMA | MBX | TMR | ADC | USB |
-|------------|-----|------|---------|--------|------|------|-----|-----|-----|-----|-----|-----|-----|
-| HPM6700    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ?   | ✓   | ✓+  | ?   |     |     |     |
-| HPM6300    | ✓   | ✓    |         | ✓      |      |      |     |     |     |     |     |     |     |
-| HPM6200    | ✓   |      |         |        |      |      |     |     |     |     |     |     |     |
-| HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓   | ✓   | ✓+  | ✓+  |     |     |     |
-| HPM6800    | ✓   |      |         |        |      |      |     |     |     |     |     |     |     |
-| HPM6E00    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ?   | ✓   | ✓+  | ✓+  |     |     |     |
+| MCU Family | PAC | Demo | Embassy | SYSCTL | GPIO | UART | I2C | SPI | DMA | TMR | ADC | USB |
+|------------|-----|------|---------|--------|------|------|-----|-----|-----|-----|-----|-----|
+| HPM6700    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ?   | ✓   | ✓+  |     |     |     |
+| HPM6300    | ✓   | ✓    | ✓       | ✓      |      |      |     |     |     |     |     |     |
+| HPM6200    | ✓   |      |         |        |      |      |     |     |     |     |     |     |
+| HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓   | ✓   | ✓+  |     |     |     |
+| HPM6800    | ✓   |      |         |        |      |      |     |     |     |     |     |     |
+| HPM6E00    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ?   | ✓   | ✓+  |     |     |     |
 
 - ✓: Implemented
 - ?: Requires demo verification
@@ -27,31 +27,39 @@ This crate is a working-in-progress and not ready for use.
 ### TODO
 
 - Peripherals:
-  - [x] basic start up code: linker, startup
+  - [x] Basic rt code: linker, startup
+    - [x] vectored interrupt handling
+    - [x] L1C support
+    - [ ] PMP for noncacheable memory
+    - [ ] CPU1 support - how to?
   - [x] Embassy time driver using MCHTMR
   - [x] SYSCTL init
+    - [x] Resource group handling
   - [x] PLL setting
   - [x] GPIO, Flex, Input, Output, Async
-  - [x] RTT support (defmt, defmt-rtt)
-  - [x] DMA
+  - [x] DMA, both HDMA and XDMA
     - [x] DMA v2
     - [x] DMA v1
   - [x] UART
-    - blocking driver
-    - async driver using DMA
-  - [x] I2C blocking
-  - [x] MBX, blocking and async
+    - [x] Blocking driver
+    - [x] Async driver
+    - [ ] Ring buffer based async
+  - [x] I2C
+    - [x] Blocking driver
+    - [ ] Async driver
+  - [x] MBX
+    - [x] blocking and async, message mode and fifo mode
+    - [ ] DMA driver?
   - [x] FEMC
     - [x] SDRAM init
   - [x] SPI driver
     - [x] QSPI driver
-    - [x] blocking
-    - [x] async using DMA
+    - [x] Blocking
+    - [x] Async using DMA
+  - [x] RTC, with alarm driver and optional chrono datetime
 - Long term Plans
   - [ ] andes-riscv for specific CSRs
   - [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
-  - [ ] CPU1 support - how to?
-  - [ ] PMP for noncacheable memory
 
 ### Toolchain Support
 

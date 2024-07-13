@@ -13,7 +13,7 @@ embedded-hal = "1.0.0"
 #    "rt",
 #], git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-66bb090279425d10478bd9b7dea832e0bc3d8d50" }
 
-hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm6750"] }
+hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm6750", "chrono"] }
 
 panic-halt = "0.2.0"
 riscv = { version = "0.11.1", features = ["critical-section-single-hart"] }
