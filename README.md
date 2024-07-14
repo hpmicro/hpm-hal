@@ -11,10 +11,10 @@ This crate is a working-in-progress and not ready for use.
 
 | MCU Family | PAC | Demo | Embassy | SYSCTL | GPIO | UART | I2C | SPI | DMA | TMR | ADC | USB |
 |------------|-----|------|---------|--------|------|------|-----|-----|-----|-----|-----|-----|
-| HPM6700    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓   | ✓   | ✓+  |     |     |     |
+| HPM6700    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓   | ✓+  |     |     |     |
 | HPM6300    | ✓   | ✓    | ✓       | ✓      |      |      |     |     |     |     |     |     |
 | HPM6200    | ✓   |      |         |        |      |      |     |     |     |     |     |     |
-| HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓   | ✓   | ✓+  |     |     |     |
+| HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓   | ✓+  |     |     |     |
 | HPM6800    | ✓   |      |         |        |      |      |     |     |     |     |     |     |
 | HPM6E00    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ?   | ✓   | ✓+  |     |     |     |
 
@@ -46,7 +46,7 @@ This crate is a working-in-progress and not ready for use.
     - [ ] Ring buffer based async
   - [x] I2C
     - [x] Blocking driver
-    - [ ] Async driver
+    - [x] Async driver
   - [x] MBX
     - [x] blocking and async, message mode and fifo mode
     - [ ] DMA driver?
