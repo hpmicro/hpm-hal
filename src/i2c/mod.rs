@@ -2,17 +2,21 @@
 
 use core::future::Future;
 use core::marker::PhantomData;
+use core::task::Poll;
 
+use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_hal::i2c::Operation;
+use futures_util::future::poll_fn;
 use hpm_metapac::i2c::vals;
 
+use crate::dma::ChannelAndRequest;
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::Interrupt as _;
-use crate::mode::{Blocking, Mode};
-use crate::peripherals;
+use crate::mode::{Async, Blocking, Mode};
 use crate::time::Hertz;
+use crate::{interrupt, peripherals};
 
 const HPM_I2C_DRV_DEFAULT_TPM: i32 = 0;
 
@@ -24,7 +28,26 @@ const I2C_SOC_TRANSFER_COUNT_MAX: usize = 4096;
 #[cfg(not(ip_feature_i2c_transfer_count_max_4096))]
 const I2C_SOC_TRANSFER_COUNT_MAX: usize = 256;
 
-// const HPM_I2C_DRV_DEFAULT_RETRY_COUNT: u32 = 5000;
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        on_interrupt::<T>()
+    }
+}
+
+pub unsafe fn on_interrupt<T: Instance>() {
+    let r = T::info().regs;
+
+    r.int_en().modify(|w| {
+        w.set_cmpl(false);
+        w.set_arblose(false);
+    });
+
+    T::state().waker.wake();
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Timings {
@@ -107,8 +130,7 @@ pub struct I2c<'d, M: Mode> {
     kernel_clock: Hertz,
     scl: Option<PeripheralRef<'d, AnyPin>>,
     sda: Option<PeripheralRef<'d, AnyPin>>,
-    //tx_dma: Option<ChannelAndRequest<'d>>,
-    //rx_dma: Option<ChannelAndRequest<'d>>,
+    dma: Option<ChannelAndRequest<'d>>,
     #[cfg(feature = "time")]
     timeout: embassy_time::Duration,
     _phantom: PhantomData<M>,
@@ -151,7 +173,306 @@ impl<'d> I2c<'d, Blocking> {
             T::set_clock(ClockConfig::new(ClockMux::CLK_24M, 1));
         }
 
-        Self::new_inner(peri, Some(scl.map_into()), Some(sda.map_into()), config)
+        Self::new_inner(peri, Some(scl.map_into()), Some(sda.map_into()), None, config)
+    }
+}
+
+impl<'d> I2c<'d, Async> {
+    /// Create a new async I2C driver.
+    pub fn new<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
+        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        dma: impl Peripheral<P = impl I2cDma<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(scl, sda);
+
+        #[cfg(not(ip_feature_i2c_support_reset))]
+        loop {
+            // TODO: Fix this strangle control flow
+            use embedded_hal::delay::DelayNs;
+            use riscv::delay::McycleDelay;
+
+            scl.set_as_ioc_gpio();
+            sda.set_as_ioc_gpio();
+            scl.set_as_input();
+            sda.set_as_input();
+
+            if !scl.is_high() {
+                panic!("SCL is low, panic");
+            }
+
+            if !sda.is_high() {
+                defmt::info!("SDA is low, reset bus");
+            } else {
+                break;
+            }
+
+            let mut delay = McycleDelay::new(crate::sysctl::clocks().cpu0.0);
+            scl.set_as_output();
+            for _ in 0..3 {
+                for _ in 0..9 {
+                    scl.set_high();
+                    delay.delay_ms(10);
+                    scl.set_low();
+                    delay.delay_ms(10);
+                }
+                delay.delay_ms(100);
+            }
+            break;
+        }
+
+        scl.ioc_pad().func_ctl().write(|w| {
+            w.set_alt_select(scl.alt_num());
+            w.set_loop_back(true);
+        });
+        scl.ioc_pad().pad_ctl().write(|w| {
+            w.set_od(true);
+            w.set_pe(true);
+            w.set_ps(true);
+        });
+        sda.ioc_pad().func_ctl().write(|w| {
+            w.set_alt_select(sda.alt_num());
+            w.set_loop_back(true);
+        });
+        sda.ioc_pad().pad_ctl().write(|w| {
+            w.set_od(true);
+            w.set_pe(true);
+            w.set_ps(true);
+        });
+
+        T::add_resource_group(0);
+        {
+            use crate::sysctl::*;
+            T::set_clock(ClockConfig::new(ClockMux::CLK_24M, 1));
+        }
+
+        Self::new_inner(peri, Some(scl.map_into()), Some(sda.map_into()), new_dma!(dma), config)
+    }
+
+    /// Write.
+    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+        self.write_frame(
+            address,
+            write,
+            FrameOptions {
+                send_start: true,
+                send_stop: true,
+                send_addr: true,
+            },
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Read.
+    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        self.read_frame(
+            address,
+            buffer,
+            FrameOptions {
+                send_start: true,
+                send_stop: true,
+                send_addr: true,
+            },
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Write, restart, read.
+    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+        // Check empty read buffer before starting transaction. Otherwise, we would not generate the
+        // stop condition below.
+        if read.is_empty() {
+            return Err(Error::Overrun);
+        }
+
+        self.write_frame(
+            address,
+            write,
+            FrameOptions {
+                send_start: true,
+                send_stop: false,
+                send_addr: true,
+            },
+        )
+        .await?;
+        self.read_frame(
+            address,
+            read,
+            FrameOptions {
+                send_start: true,
+                send_stop: true,
+                send_addr: true,
+            },
+        )
+        .await
+    }
+
+    /// Transaction with operations.
+    ///
+    /// Consecutive operations of same type are merged. See [transaction contract] for details.
+    ///
+    /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
+    pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        for (op, frame) in operation_frames(operations)? {
+            match op {
+                Operation::Read(read) => self.read_frame(addr, read, frame).await?,
+                Operation::Write(write) => self.write_frame(addr, write, frame).await?,
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn write_frame(&mut self, addr: u8, write: &[u8], frame: FrameOptions) -> Result<(), Error> {
+        // i2c_tx_trigger_dma + i2c_master_start_dma_write + i2c_handle_dma_transfer_complete
+        // TODO: cache handling
+        if write.is_empty() {
+            return Err(Error::ZeroLengthTransfer);
+        }
+
+        let r = self.info.regs;
+
+        let timeout = self.timeout();
+        while r.status().read().busbusy() {
+            timeout.check()?;
+        }
+
+        // W1C, clear CMPL bit to avoid blocking the transmission
+        r.status().write(|w| w.set_cmpl(true));
+        r.addr().write(|w| w.set_addr(addr as u16));
+        r.ctrl().write(|w| {
+            w.set_phase_start(frame.send_start);
+            w.set_phase_stop(frame.send_stop);
+            w.set_phase_addr(frame.send_addr);
+            w.set_dir(vals::Dir::MASTER_WRITE_SLAVE_READ);
+            if !write.is_empty() {
+                w.set_phase_data(true);
+                w.set_datacnt(write.len() as _);
+                #[cfg(ip_feature_i2c_transfer_count_max_4096)]
+                w.set_datacnt_high((write.len() >> 8) as _);
+            }
+        });
+
+        r.int_en().modify(|w| {
+            w.set_cmpl(true);
+            w.set_arblose(true);
+        });
+
+        let ch = self.dma.as_mut().unwrap();
+        let transfer = unsafe { ch.write(write, r.data().as_ptr() as *mut u8, Default::default()) };
+
+        let on_drop = OnDrop::new(|| {
+            let regs = self.info.regs;
+            let status = regs.status().read();
+            // clear status, W1C
+            regs.status().write_value(status);
+            // disable i2c dma before next dma transaction
+            regs.setup().modify(|w| w.set_dmaen(false));
+        });
+
+        r.setup().modify(|w| w.set_dmaen(true));
+
+        r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
+        transfer.await;
+
+        let s = self.state;
+
+        let complete_or_error = poll_fn(move |cx| {
+            s.waker.register(cx.waker());
+
+            if r.status().read().cmpl() {
+                return Poll::Ready(Ok(()));
+            } else if r.status().read().arblose() {
+                return Poll::Ready(Err(Error::Arbitration));
+            }
+
+            Poll::Pending
+        });
+
+        let ret = complete_or_error.await;
+
+        drop(on_drop);
+
+        ret
+    }
+
+    async fn read_frame(&mut self, addr: u8, read: &mut [u8], frame: FrameOptions) -> Result<(), Error> {
+        // i2c_rx_trigger_dma + i2c_master_start_dma_read + i2c_handle_dma_transfer_complete
+        if read.is_empty() {
+            return Err(Error::ZeroLengthTransfer);
+        }
+        if read.len() > I2C_SOC_TRANSFER_COUNT_MAX {
+            return Err(Error::InvalidArgument);
+        }
+
+        let r = self.info.regs;
+
+        // W1C, clear CMPL bit to avoid blocking the transmission
+        r.status().write(|w| w.set_cmpl(true));
+        r.addr().write(|w| w.set_addr(addr as u16));
+        r.ctrl().write(|w| {
+            w.set_phase_start(frame.send_start);
+            w.set_phase_stop(frame.send_stop);
+            w.set_phase_addr(frame.send_addr);
+            w.set_dir(vals::Dir::MASTER_READ_SLAVE_WRITE);
+            if !read.is_empty() {
+                w.set_phase_data(true);
+                w.set_datacnt(read.len() as _);
+                #[cfg(ip_feature_i2c_transfer_count_max_4096)]
+                w.set_datacnt_high((read.len() >> 8) as _);
+            }
+        });
+
+        r.int_en().modify(|w| {
+            w.set_cmpl(true);
+            w.set_arblose(true);
+        });
+
+        let ch = self.dma.as_mut().unwrap();
+        let transfer = unsafe { ch.read(r.data().as_ptr() as *mut u8, read, Default::default()) };
+
+        let on_drop = OnDrop::new(|| {
+            let regs = self.info.regs;
+            let status = regs.status().read();
+            // clear status, W1C
+            regs.status().write_value(status);
+            // disable i2c dma before next dma transaction
+            regs.setup().modify(|w| w.set_dmaen(false));
+        });
+
+        r.setup().modify(|w| w.set_dmaen(true));
+        r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
+
+        transfer.await;
+
+        let s = self.state;
+
+        let complete_or_error = poll_fn(move |cx| {
+            s.waker.register(cx.waker());
+
+            if r.int_en().read().cmpl() {
+                return Poll::Pending;
+            } else if r.status().read().cmpl() {
+                return Poll::Ready(Ok(()));
+            } else if r.status().read().arblose() {
+                return Poll::Ready(Err(Error::Arbitration));
+            }
+
+            Poll::Pending
+        });
+
+        let ret = complete_or_error.await;
+
+        drop(on_drop);
+
+        ret
     }
 }
 
@@ -161,8 +482,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         _peri: impl Peripheral<P = T> + 'd,
         scl: Option<PeripheralRef<'d, AnyPin>>,
         sda: Option<PeripheralRef<'d, AnyPin>>,
-        //tx_dma: Option<ChannelAndRequest<'d>>,
-        //rx_dma: Option<ChannelAndRequest<'d>>,
+        dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Self {
         unsafe { T::Interrupt::enable() };
@@ -173,19 +493,13 @@ impl<'d, M: Mode> I2c<'d, M> {
             kernel_clock: T::frequency(),
             scl,
             sda,
-            //tx_dma,
-            //rx_dma,
+            dma,
             #[cfg(feature = "time")]
             timeout: config.timeout,
             _phantom: PhantomData,
         };
-        this.enable_and_init(config);
+        this.init(config);
         this
-    }
-
-    fn enable_and_init(&mut self, config: Config) {
-        // self.info.rcc.enable_and_reset();
-        self.init(config);
     }
 
     fn timeout(&self) -> Timeout {
@@ -641,7 +955,6 @@ impl Timeout {
 // state and info
 
 struct State {
-    #[allow(unused)]
     waker: AtomicWaker,
 }
 
@@ -736,6 +1049,7 @@ impl<'d, M: Mode> embedded_hal::i2c::I2c for I2c<'d, M> {
 // frame options
 
 #[derive(Clone, Copy)]
+#[repr(packed)]
 struct FrameOptions {
     send_start: bool,
     send_stop: bool,
