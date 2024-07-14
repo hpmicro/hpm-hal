@@ -1045,6 +1045,28 @@ impl<'d, M: Mode> embedded_hal::i2c::I2c for I2c<'d, M> {
     }
 }
 
+impl<'d> embedded_hal_async::i2c::I2c for I2c<'d, Async> {
+    async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+        self.read(address, read).await
+    }
+
+    async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+        self.write(address, write).await
+    }
+
+    async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        self.write_read(address, write, read).await
+    }
+
+    async fn transaction(
+        &mut self,
+        _address: u8,
+        _operations: &mut [embedded_hal::i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        unimplemented!("async transaction")
+    }
+}
+
 // ==========
 // frame options
 
