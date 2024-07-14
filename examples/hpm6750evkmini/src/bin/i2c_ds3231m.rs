@@ -134,6 +134,8 @@ impl<'d> DS3231M<'d> {
     pub fn now(&mut self) -> Option<DateTime> {
         let mut buf = [0u8; 7];
         self.i2c.blocking_write_read(ADDRESS, &[regs::SECONDS], &mut buf).ok()?;
+        //self.i2c.blocking_write(ADDRESS, &[regs::SECONDS]).ok()?;
+        //self.i2c.blocking_read(ADDRESS, &mut buf).ok()?;
 
         let seconds = bcd2bin(buf[0]);
         let minutes = bcd2bin(buf[1]);
@@ -186,7 +188,7 @@ async fn main(_spawner: embassy_executor::Spawner) -> ! {
 
     let r = split_resources!(p);
 
-    let mut led = Output::new(r.leds.red, Level::Low, Speed::Medium);
+    let mut led = Output::new(r.leds.red, Level::Low, Speed::default());
 
     // use IOC for power domain PY pins
     r.uart.tx.set_as_ioc_gpio();
