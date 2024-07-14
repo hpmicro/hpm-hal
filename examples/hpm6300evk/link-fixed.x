@@ -99,13 +99,17 @@ SECTIONS
     *(.text .text.*);
   } > REGION_TEXT
 
-  /* Fast code section */
+  /* In-ILM code section */
   .fast : ALIGN(4)
   {
     _sifast = LOADADDR(.fast);
     _sfast = .;
-    *(.fast)
-    *(.fast.*)
+    /** CAUTION:
+        ILM0 starts at 0x00000000. Using this as an IRQ handler address results in `None` when cast to `Option<fn()>`.
+        The IRQ handler will not be called.
+    */
+    KEEP(*(.vector_table.interrupts));
+    *(.fast .fast.*);
     . = ALIGN(4);
     PROVIDE(_efast= .); /* No idea why `PROVIDE` is needed here */
   } > REGION_FASTTEXT AT > REGION_RODATA
