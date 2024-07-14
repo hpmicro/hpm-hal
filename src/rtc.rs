@@ -17,11 +17,7 @@ pub struct Rtc<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Rtc<'d, T> {
-    /// Create a new instance of the real time clock, with the given date as an initial value.
-    ///
-    /// # Errors
-    ///
-    /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
+    /// Create a new instance of the real time clock
     pub fn new(inner: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(inner);
 
@@ -32,6 +28,12 @@ impl<'d, T: Instance> Rtc<'d, T> {
     pub fn restore(&mut self, secs: u32, subsecs: u32) {
         T::regs().subsec().write(|w| w.0 = subsecs);
         T::regs().second().write(|w| w.0 = secs);
+    }
+
+    /// Get the time in internal format
+    pub fn snapshot(&mut self) -> (u32, u32) {
+        T::regs().sec_snap().write(|w| w.0 = 0x00);
+        (T::regs().sec_snap().read().0, T::regs().sub_snap().read().0)
     }
 
     pub fn seconds(&mut self) -> u32 {
