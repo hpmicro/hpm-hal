@@ -44,6 +44,7 @@ pub unsafe fn on_interrupt<T: Instance>() {
     r.int_en().modify(|w| {
         w.set_cmpl(false);
         w.set_arblose(false);
+        w.set_stop(false);
     });
 
     T::state().waker.wake();
@@ -288,9 +289,10 @@ impl<'d> I2c<'d, Async> {
 
     /// Write.
     pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
-        let timeout = self.timeout();
-        while self.info.regs.status().read().busbusy() {
-            timeout.check()?;
+        if self.info.regs.status().read().busbusy() {
+            let timeout = self.timeout();
+            let fut = self.wait_for_stop();
+            timeout.with(fut).await?;
         }
 
         self.do_operation_inner(
@@ -307,9 +309,10 @@ impl<'d> I2c<'d, Async> {
 
     /// Read.
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        let timeout = self.timeout();
-        while self.info.regs.status().read().busbusy() {
-            timeout.check()?;
+        if self.info.regs.status().read().busbusy() {
+            let timeout = self.timeout();
+            let fut = self.wait_for_stop();
+            timeout.with(fut).await?;
         }
 
         self.do_operation_inner(
@@ -332,9 +335,10 @@ impl<'d> I2c<'d, Async> {
             return Err(Error::Overrun);
         }
 
-        let timeout = self.timeout();
-        while self.info.regs.status().read().busbusy() {
-            timeout.check()?;
+        if self.info.regs.status().read().busbusy() {
+            let timeout = self.timeout();
+            let fut = self.wait_for_stop();
+            timeout.with(fut).await?;
         }
 
         self.do_operation_inner(
@@ -367,14 +371,38 @@ impl<'d> I2c<'d, Async> {
     ///
     /// [transaction contract]: embedded_hal::i2c::I2c::transaction
     pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        let timeout = self.timeout();
-        while self.info.regs.status().read().busbusy() {
-            timeout.check()?;
+        if self.info.regs.status().read().busbusy() {
+            let timeout = self.timeout();
+            let fut = self.wait_for_stop();
+            timeout.with(fut).await?;
         }
 
         for (op, frame) in operation_frames(operations)? {
             self.do_operation_inner(addr, op, frame).await?;
         }
+
+        Ok(())
+    }
+
+    // Wait for STOP condition(BUSBUSY=0)
+    async fn wait_for_stop(&mut self) -> Result<(), Error> {
+        let r = self.info.regs;
+
+        r.int_en().modify(|w| w.set_stop(true));
+
+        poll_fn(|cx| {
+            self.state.waker.register(cx.waker());
+
+            if r.status().read().stop() {
+                r.status().write(|w| w.set_stop(true)); // W1C
+                return Poll::Ready(Ok(()));
+            } else if r.status().read().arblose() {
+                return Poll::Ready(Err(Error::Arbitration));
+            }
+
+            Poll::Pending
+        })
+        .await?;
 
         Ok(())
     }
