@@ -146,7 +146,41 @@ impl<'d> I2c<'d, Blocking> {
     ) -> Self {
         into_ref!(scl, sda);
 
-        // init pins
+        #[cfg(not(ip_feature_i2c_support_reset))]
+        loop {
+            // TODO: Fix this strangle control flow
+            use embedded_hal::delay::DelayNs;
+            use riscv::delay::McycleDelay;
+
+            scl.set_as_ioc_gpio();
+            sda.set_as_ioc_gpio();
+            scl.set_as_input();
+            sda.set_as_input();
+
+            if !scl.is_high() {
+                panic!("SCL is low, panic");
+            }
+
+            if !sda.is_high() {
+                defmt::info!("SDA is low, reset bus");
+            } else {
+                break;
+            }
+
+            let mut delay = McycleDelay::new(crate::sysctl::clocks().cpu0.0);
+            scl.set_as_output();
+            for _ in 0..3 {
+                for _ in 0..9 {
+                    scl.set_high();
+                    delay.delay_ms(10);
+                    scl.set_low();
+                    delay.delay_ms(10);
+                }
+                delay.delay_ms(100);
+            }
+            break;
+        }
+
         // ALT, Open Drain, Pull-up
         scl.ioc_pad().func_ctl().write(|w| {
             w.set_alt_select(scl.alt_num());
@@ -254,34 +288,40 @@ impl<'d> I2c<'d, Async> {
 
     /// Write.
     pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
-        self.write_frame(
+        let timeout = self.timeout();
+        while self.info.regs.status().read().busbusy() {
+            timeout.check()?;
+        }
+
+        self.do_operation_inner(
             address,
-            write,
+            &mut Operation::Write(write),
             FrameOptions {
                 send_start: true,
                 send_stop: true,
                 send_addr: true,
             },
         )
-        .await?;
-
-        Ok(())
+        .await
     }
 
     /// Read.
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        self.read_frame(
+        let timeout = self.timeout();
+        while self.info.regs.status().read().busbusy() {
+            timeout.check()?;
+        }
+
+        self.do_operation_inner(
             address,
-            buffer,
+            &mut Operation::Read(buffer),
             FrameOptions {
                 send_start: true,
                 send_stop: true,
                 send_addr: true,
             },
         )
-        .await?;
-
-        Ok(())
+        .await
     }
 
     /// Write, restart, read.
@@ -292,9 +332,14 @@ impl<'d> I2c<'d, Async> {
             return Err(Error::Overrun);
         }
 
-        self.write_frame(
+        let timeout = self.timeout();
+        while self.info.regs.status().read().busbusy() {
+            timeout.check()?;
+        }
+
+        self.do_operation_inner(
             address,
-            write,
+            &mut Operation::Write(write),
             FrameOptions {
                 send_start: true,
                 send_stop: false,
@@ -302,46 +347,48 @@ impl<'d> I2c<'d, Async> {
             },
         )
         .await?;
-        self.read_frame(
+        self.do_operation_inner(
             address,
-            read,
+            &mut Operation::Read(read),
             FrameOptions {
                 send_start: true,
                 send_stop: true,
                 send_addr: true,
             },
         )
-        .await
+        .await?;
+
+        Ok(())
     }
 
     /// Transaction with operations.
     ///
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
-    /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
+    /// [transaction contract]: embedded_hal::i2c::I2c::transaction
     pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        let timeout = self.timeout();
+        while self.info.regs.status().read().busbusy() {
+            timeout.check()?;
+        }
+
         for (op, frame) in operation_frames(operations)? {
-            match op {
-                Operation::Read(read) => self.read_frame(addr, read, frame).await?,
-                Operation::Write(write) => self.write_frame(addr, write, frame).await?,
-            }
+            self.do_operation_inner(addr, op, frame).await?;
         }
 
         Ok(())
     }
 
-    async fn write_frame(&mut self, addr: u8, write: &[u8], frame: FrameOptions) -> Result<(), Error> {
-        // i2c_tx_trigger_dma + i2c_master_start_dma_write + i2c_handle_dma_transfer_complete
-        // TODO: cache handling
-        if write.is_empty() {
-            return Err(Error::ZeroLengthTransfer);
-        }
-
+    async fn do_operation_inner(&mut self, addr: u8, op: &mut Operation<'_>, frame: FrameOptions) -> Result<(), Error> {
         let r = self.info.regs;
 
-        let timeout = self.timeout();
-        while r.status().read().busbusy() {
-            timeout.check()?;
+        let (size, dir) = match op {
+            Operation::Read(read) => (read.len(), vals::Dir::MASTER_READ_SLAVE_WRITE),
+            Operation::Write(write) => (write.len(), vals::Dir::MASTER_WRITE_SLAVE_READ),
+        };
+
+        if size > I2C_SOC_TRANSFER_COUNT_MAX {
+            return Err(Error::InvalidArgument);
         }
 
         // W1C, clear CMPL bit to avoid blocking the transmission
@@ -351,12 +398,12 @@ impl<'d> I2c<'d, Async> {
             w.set_phase_start(frame.send_start);
             w.set_phase_stop(frame.send_stop);
             w.set_phase_addr(frame.send_addr);
-            w.set_dir(vals::Dir::MASTER_WRITE_SLAVE_READ);
-            if !write.is_empty() {
+            w.set_dir(dir);
+            if size > 0 {
                 w.set_phase_data(true);
-                w.set_datacnt(write.len() as _);
+                w.set_datacnt(size as _);
                 #[cfg(ip_feature_i2c_transfer_count_max_4096)]
-                w.set_datacnt_high((write.len() >> 8) as _);
+                w.set_datacnt_high((size >> 8) as _);
             }
         });
 
@@ -366,7 +413,10 @@ impl<'d> I2c<'d, Async> {
         });
 
         let ch = self.dma.as_mut().unwrap();
-        let transfer = unsafe { ch.write(write, r.data().as_ptr() as *mut u8, Default::default()) };
+        let transfer = match op {
+            Operation::Read(read) => unsafe { ch.read(r.data().as_ptr() as *mut u8, read, Default::default()) },
+            Operation::Write(write) => unsafe { ch.write(write, r.data().as_ptr() as *mut u8, Default::default()) },
+        };
 
         let on_drop = OnDrop::new(|| {
             let regs = self.info.regs;
@@ -378,8 +428,8 @@ impl<'d> I2c<'d, Async> {
         });
 
         r.setup().modify(|w| w.set_dmaen(true));
-
         r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
+
         transfer.await;
 
         let s = self.state;
@@ -388,78 +438,6 @@ impl<'d> I2c<'d, Async> {
             s.waker.register(cx.waker());
 
             if r.status().read().cmpl() {
-                return Poll::Ready(Ok(()));
-            } else if r.status().read().arblose() {
-                return Poll::Ready(Err(Error::Arbitration));
-            }
-
-            Poll::Pending
-        });
-
-        let ret = complete_or_error.await;
-
-        drop(on_drop);
-
-        ret
-    }
-
-    async fn read_frame(&mut self, addr: u8, read: &mut [u8], frame: FrameOptions) -> Result<(), Error> {
-        // i2c_rx_trigger_dma + i2c_master_start_dma_read + i2c_handle_dma_transfer_complete
-        if read.is_empty() {
-            return Err(Error::ZeroLengthTransfer);
-        }
-        if read.len() > I2C_SOC_TRANSFER_COUNT_MAX {
-            return Err(Error::InvalidArgument);
-        }
-
-        let r = self.info.regs;
-
-        // W1C, clear CMPL bit to avoid blocking the transmission
-        r.status().write(|w| w.set_cmpl(true));
-        r.addr().write(|w| w.set_addr(addr as u16));
-        r.ctrl().write(|w| {
-            w.set_phase_start(frame.send_start);
-            w.set_phase_stop(frame.send_stop);
-            w.set_phase_addr(frame.send_addr);
-            w.set_dir(vals::Dir::MASTER_READ_SLAVE_WRITE);
-            if !read.is_empty() {
-                w.set_phase_data(true);
-                w.set_datacnt(read.len() as _);
-                #[cfg(ip_feature_i2c_transfer_count_max_4096)]
-                w.set_datacnt_high((read.len() >> 8) as _);
-            }
-        });
-
-        r.int_en().modify(|w| {
-            w.set_cmpl(true);
-            w.set_arblose(true);
-        });
-
-        let ch = self.dma.as_mut().unwrap();
-        let transfer = unsafe { ch.read(r.data().as_ptr() as *mut u8, read, Default::default()) };
-
-        let on_drop = OnDrop::new(|| {
-            let regs = self.info.regs;
-            let status = regs.status().read();
-            // clear status, W1C
-            regs.status().write_value(status);
-            // disable i2c dma before next dma transaction
-            regs.setup().modify(|w| w.set_dmaen(false));
-        });
-
-        r.setup().modify(|w| w.set_dmaen(true));
-        r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
-
-        transfer.await;
-
-        let s = self.state;
-
-        let complete_or_error = poll_fn(move |cx| {
-            s.waker.register(cx.waker());
-
-            if r.int_en().read().cmpl() {
-                return Poll::Pending;
-            } else if r.status().read().cmpl() {
                 return Poll::Ready(Ok(()));
             } else if r.status().read().arblose() {
                 return Poll::Ready(Err(Error::Arbitration));
@@ -653,7 +631,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         Ok(())
     }
 
-    fn blocking_operation_timeout(
+    fn blocking_do_operation_timeout(
         &mut self,
         addr: u8,
         op: &mut Operation<'_>,
@@ -747,70 +725,16 @@ impl<'d, M: Mode> I2c<'d, M> {
 
     // i2c_master_write
     fn blocking_read_timeout(&mut self, addr: u8, read: &mut [u8], timeout: Timeout) -> Result<(), Error> {
-        let r = self.info.regs;
-
-        let size = read.len();
-        if size > I2C_SOC_TRANSFER_COUNT_MAX {
-            return Err(Error::InvalidArgument);
-        }
-
-        while r.status().read().busbusy() {
-            timeout.check()?;
-        }
-
-        // W1C, clear CMPL bit to avoid blocking the transmission
-        r.status().write(|w| w.set_cmpl(true));
-
-        r.cmd().write(|w| w.set_cmd(vals::Cmd::CLEAR_FIFO));
-        r.addr().write(|w| w.set_addr(addr as u16));
-        r.ctrl().write(|w| {
-            w.set_phase_start(true);
-            w.set_phase_stop(true);
-            w.set_phase_addr(true);
-            w.set_dir(vals::Dir::MASTER_READ_SLAVE_WRITE);
-
-            if size > 0 {
-                #[cfg(ip_feature_i2c_transfer_count_max_4096)]
-                w.set_datacnt_high((size >> 8) as _);
-                w.set_datacnt(size as u8);
-                w.set_phase_data(true);
-            }
-        });
-        r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
-
-        // Before starting to transmit data, judge addrhit to ensure that the slave address exists on the bus.
-        while r.status().read().addrhit() == false {
-            timeout.check()?;
-        }
-
-        r.status().write(|w| w.set_addrhit(true));
-
-        // when size is zero, it's probe slave device, so directly return success
-        if size == 0 {
-            return Ok(());
-        }
-
-        for b in read {
-            loop {
-                if !r.status().read().fifoempty() {
-                    *b = r.data().read().data() as u8;
-                    break;
-                } else {
-                    timeout.check()?;
-                }
-            }
-        }
-
-        // wait completion
-        while !r.status().read().cmpl() {
-            timeout.check()?;
-        }
-
-        if get_data_count(r) > 0 && size > 0 {
-            return Err(Error::TrasnmitNotCompleted);
-        }
-
-        Ok(())
+        self.blocking_do_operation_timeout(
+            addr,
+            &mut Operation::Read(read),
+            timeout,
+            FrameOptions {
+                send_start: true,
+                send_stop: true,
+                send_addr: true,
+            },
+        )
     }
 
     // i2c_master_write
@@ -821,70 +745,16 @@ impl<'d, M: Mode> I2c<'d, M> {
         timeout: Timeout,
         send_stop: bool,
     ) -> Result<(), Error> {
-        let r = self.info.regs;
-
-        let size = write.len();
-        if size > I2C_SOC_TRANSFER_COUNT_MAX {
-            return Err(Error::InvalidArgument);
-        }
-
-        while r.status().read().busbusy() {
-            timeout.check()?;
-        }
-
-        // W1C, clear CMPL bit to avoid blocking the transmissio
-        r.status().write(|w| w.set_cmpl(true));
-
-        r.cmd().write(|w| w.set_cmd(vals::Cmd::CLEAR_FIFO));
-        r.addr().write(|w| w.set_addr(addr as u16));
-        r.ctrl().write(|w| {
-            w.set_phase_start(true);
-            w.set_phase_stop(send_stop);
-            w.set_phase_addr(true);
-            w.set_dir(vals::Dir::MASTER_WRITE_SLAVE_READ); // diffs
-
-            if size > 0 {
-                #[cfg(ip_feature_i2c_transfer_count_max_4096)]
-                w.set_datacnt_high((size >> 8) as _);
-                w.set_datacnt(size as u8);
-                w.set_phase_data(true);
-            }
-        });
-        r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
-
-        // Before starting to transmit data, judge addrhit to ensure that the slave address exists on the bus.
-        while !r.status().read().addrhit() {
-            timeout.check()?;
-        }
-
-        r.status().write(|w| w.set_addrhit(true));
-
-        // when size is zero, it's probe slave device, so directly return success
-        if size == 0 {
-            return Ok(());
-        }
-
-        for b in write {
-            loop {
-                if !r.status().read().fifofull() {
-                    r.data().write(|w| w.set_data(*b));
-                    break;
-                } else {
-                    timeout.check()?;
-                }
-            }
-        }
-
-        // wait completion
-        while !r.status().read().cmpl() {
-            timeout.check()?;
-        }
-
-        if get_data_count(r) > 0 && size > 0 {
-            return Err(Error::TrasnmitNotCompleted);
-        }
-
-        Ok(())
+        self.blocking_do_operation_timeout(
+            addr,
+            &mut Operation::Write(write),
+            timeout,
+            FrameOptions {
+                send_start: true,
+                send_stop,
+                send_addr: true,
+            },
+        )
     }
 
     /// Blocking read.
@@ -906,7 +776,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         let timeout = self.timeout();
 
         for (op, frame) in operation_frames(operations)? {
-            self.blocking_operation_timeout(addr, op, timeout, frame)?;
+            self.blocking_do_operation_timeout(addr, op, timeout, frame)?;
         }
 
         Ok(())
@@ -1060,10 +930,10 @@ impl<'d> embedded_hal_async::i2c::I2c for I2c<'d, Async> {
 
     async fn transaction(
         &mut self,
-        _address: u8,
-        _operations: &mut [embedded_hal::i2c::Operation<'_>],
+        address: u8,
+        transactions: &mut [embedded_hal::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        unimplemented!("async transaction")
+        self.transaction(address, transactions).await
     }
 }
 
