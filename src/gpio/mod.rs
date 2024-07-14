@@ -28,16 +28,8 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn set_as_input(&mut self, pull: Pull) {
         critical_section::with(|_| {
-            self.pin
-                .gpio()
-                .oe(self.pin._port())
-                .clear()
-                .modify(|w| w.set_direction(1 << self.pin.pin()));
-
-            self.pin.ioc_pad().pad_ctl().modify(|w| {
-                w.set_pe(pull != Pull::None); // pull enable
-                w.set_ps(pull == Pull::Up); // pull select
-            });
+            self.pin.set_as_input();
+            self.pin.set_pull(pull);
         });
     }
 
@@ -46,17 +38,14 @@ impl<'d> Flex<'d> {
     /// The pin level will be whatever was set before (or low by default). If you want it to begin
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
+    #[allow(unused)]
     pub fn set_as_output(&mut self, speed: Speed) {
         critical_section::with(|_| {
-            self.pin
-                .gpio()
-                .oe(self.pin._port())
-                .set()
-                .write(|r| r.set_direction(1 << self.pin.pin()));
+            self.pin.set_as_output();
 
             #[cfg(not(hpm67))]
             self.pin.ioc_pad().pad_ctl().modify(|w| {
-                w.set_spd(speed as u8); // speed
+                w.set_spd(speed as u8);
             });
         });
     }
@@ -228,10 +217,13 @@ pub enum Pull {
 /// * `Max`: Maximum frequency slew rate (200MHz)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Speed {
+    #[cfg(gpio_v53)]
     Slow = 0b00,
+    #[cfg(gpio_v53)]
     Medium = 0b01,
     #[default]
     Fast = 0b10,
+    #[cfg(gpio_v53)]
     Max = 0b11,
 }
 
@@ -480,6 +472,35 @@ pub(crate) trait SealedPin: Sized {
             .do_(self._port())
             .clear()
             .write(|w| w.set_output(1 << self._pin()));
+    }
+
+    #[inline]
+    fn set_as_input(&self) {
+        self.gpio()
+            .oe(self._port())
+            .clear()
+            .modify(|w| w.set_direction(1 << self._pin()));
+    }
+
+    #[inline]
+    fn set_as_output(&self) {
+        self.gpio()
+            .oe(self._port())
+            .set()
+            .write(|r| r.set_direction(1 << self._pin()));
+    }
+
+    #[inline]
+    fn set_pull(&self, pull: Pull) {
+        self.ioc_pad().pad_ctl().modify(|w| {
+            w.set_pe(pull != Pull::None); // pull enable
+            w.set_ps(pull == Pull::Up); // pull select
+        });
+    }
+
+    #[inline]
+    fn is_high(&self) -> bool {
+        self.gpio().di(self._port()).value().read().0 & (1 << self._pin()) != 0
     }
 
     #[inline]
