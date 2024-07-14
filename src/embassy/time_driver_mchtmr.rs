@@ -183,10 +183,11 @@ impl embassy_time_driver::Driver for MachineTimerDriver {
     }
 }
 
-// Core local interrupts are handled in CORE_LOCAL, using "C" ABI
+// Core local interrupts are handled in CORE_LOCAL
 #[no_mangle]
 #[link_section = ".fast"]
-extern "C" fn MachineTimer() {
+#[allow(non_snake_case)]
+fn MachineTimer() {
     DRIVER.on_interrupt();
 }
 
