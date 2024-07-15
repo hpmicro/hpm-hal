@@ -16,7 +16,7 @@ This crate is a working-in-progress and not ready for use.
 | HPM6200    | ✓   |      |         |        |      |      |     |     |     |     |     |     |
 | HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓   | ✓+  |     |     |     |
 | HPM6800    | ✓   |      |         |        |      |      |     |     |     |     |     |     |
-| HPM6E00    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ?   | ✓   | ✓+  |     |     |     |
+| HPM6E00    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓   | ✓+  |     |     |     |
 
 - ✓: Implemented
 - ?: Requires demo verification
