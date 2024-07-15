@@ -20,6 +20,7 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn new(pin: impl Peripheral<P = impl Pin> + 'd) -> Self {
         into_ref!(pin);
+        pin.set_as_ioc_gpio();
         // Pin will be in disconnected state.
         Self { pin: pin.map_into() }
     }
