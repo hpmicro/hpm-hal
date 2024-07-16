@@ -1,7 +1,7 @@
-use super::Usb;
+use super::Bus;
 
-impl Usb {
-    fn host_init(&mut self) {
+impl Bus {
+    pub(crate) fn host_init(&mut self) {
         let r = &self.info.regs;
 
         r.usbmode().modify(|w| {

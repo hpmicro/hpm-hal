@@ -26,6 +26,7 @@ embassy-sync = { version = "0.6.0", optional = true }
 embassy-futures = { version = "0.1.1", optional = true }
 embassy-hal-internal = { version = "0.2.0", default-features = false }
 embassy-time = { version = "0.3.0", optional = true }
+embassy-usb-driver = { version = "0.1.0", features = ["defmt"] }
 critical-section = "1.1.2"
 
 riscv-rt = { version = "0.12.2", optional = true }
