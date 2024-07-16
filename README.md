@@ -11,12 +11,12 @@ This crate is a working-in-progress and not ready for use.
 
 | MCU Family | PAC | Demo | Embassy | SYSCTL | GPIO | UART | I2C | SPI | DMA | TMR | ADC | USB |
 |------------|-----|------|---------|--------|------|------|-----|-----|-----|-----|-----|-----|
-| HPM6700    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓   | ✓+  |     |     |     |
+| HPM6700    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     |     |     |
 | HPM6300    | ✓   | ✓    | ✓       | ✓      |      |      |     |     |     |     |     |     |
 | HPM6200    | ✓   |      |         |        |      |      |     |     |     |     |     |     |
-| HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓   | ✓+  |     |     |     |
+| HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     |     |     |
 | HPM6800    | ✓   |      |         |        |      |      |     |     |     |     |     |     |
-| HPM6E00    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓   | ✓+  |     |     |     |
+| HPM6E00    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     |     |     |
 
 - ✓: Implemented
 - ?: Requires demo verification
@@ -60,6 +60,7 @@ This crate is a working-in-progress and not ready for use.
 - Long term Plans
   - [ ] andes-riscv for specific CSRs
   - [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
+  - [ ] power domain handling
 
 ### Toolchain Support
 

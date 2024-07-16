@@ -632,12 +632,14 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
     /// Actual SPI frequency
     pub fn frequency(&self) -> Hertz {
-        let r = self.info.regs;
-        let clk_in = self.kernel_clock.0;
-        let sclk_div = r.timing().read().sclk_div();
-        let f_sclk = clk_in / ((sclk_div as u32 + 1) * 2);
-
-        Hertz(f_sclk)
+        let sclk_div = self.info.regs.timing().read().sclk_div();
+        if sclk_div == 0xff {
+            return self.kernel_clock;
+        } else {
+            let clk_in = self.kernel_clock.0;
+            let f_sclk = clk_in / ((sclk_div as u32 + 1) * 2);
+            Hertz(f_sclk)
+        }
     }
 
     fn enable_and_configure(&mut self, config: &Config) -> Result<(), Error> {
