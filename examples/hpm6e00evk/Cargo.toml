@@ -26,6 +26,9 @@ embedded-io = "0.6.1"
 embedded-graphics = "0.8.1"
 futures-util = { version = "0.3.30", default-features = false }
 tinygif = "0.0.4"
+assign-resources = "0.4.1"
+embedded-hal-bus = "0.2.0"
+embassy-sync = "0.6.0"
 
 [profile.release]
 strip = false   # symbols are not flashed to the microcontroller, so don't strip them.
