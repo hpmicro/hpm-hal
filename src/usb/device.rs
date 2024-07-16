@@ -2,19 +2,19 @@
 //!
 
 use super::{
-    DcdData, EpAddr, Error, QueueHead, QueueTransferDescriptor, Usb, QHD_BUFFER_COUNT, QTD_COUNT_EACH_ENDPOINT,
+    DcdData, EndpointAddress, Error, QueueHead, QueueTransferDescriptor, Bus, QHD_BUFFER_COUNT, QTD_COUNT_EACH_ENDPOINT,
 };
 
-impl Usb {
-    fn device_qhd_get(&self, ep_idx: u8) -> &QueueHead {
+impl Bus {
+    pub(crate) fn device_qhd_get(&self, ep_idx: u8) -> &QueueHead {
         &self.dcd_data.qhd[ep_idx as usize]
     }
 
-    fn device_qtd_get(&self, ep_idx: u8) -> &QueueTransferDescriptor {
+    pub(crate) fn device_qtd_get(&self, ep_idx: u8) -> &QueueTransferDescriptor {
         &self.dcd_data.qtd[ep_idx as usize * 8]
     }
 
-    fn device_bus_reset(&mut self, ep0_max_packet_size: u16) {
+    pub(crate) fn device_bus_reset(&mut self, ep0_max_packet_size: u16) {
         let r = &self.info.regs;
 
         self.dcd_bus_reset();
@@ -36,7 +36,7 @@ impl Usb {
     }
 
     // Used in `usb_dc_init`
-    fn device_init(&mut self, int_mask: u32) {
+    pub(crate) fn device_init(&mut self, int_mask: u32) {
         
         // Clear dcd data first
         self.dcd_data = DcdData::default();
@@ -60,16 +60,15 @@ impl Usb {
         r.usbcmd().modify(|w| w.set_rs(true));
     }
 
-    fn device_deinit(&mut self) {
+    pub(crate) fn device_deinit(&mut self) {
         self.dcd_deinit();
     }
 
-    fn device_endpoint_transfer(&mut self, ep_addr: EpAddr, data: &[u8]) -> Result<(), Error> {
+    pub(crate) fn device_endpoint_transfer(&mut self, ep_addr: EndpointAddress, data: &[u8]) -> Result<(), Error> {
         let r = &self.info.regs;
 
-        let ep_num = ep_addr.ep_num();
-        let dir = ep_addr.dir();
-        let ep_idx = (2 * ep_num + dir as u8) as usize;
+        let ep_num = ep_addr.index();
+        let ep_idx = 2 * ep_num + ep_addr.is_in() as usize;
 
         //  Setup packet handling using setup lockout mechanism
         //  wait until ENDPTSETUPSTAT before priming data/status in response
@@ -147,7 +146,7 @@ impl Usb {
         Ok(())
     }
 
-    pub(crate) fn device_endpoint_close(&mut self, ep_addr: EpAddr) {
+    pub(crate) fn device_endpoint_close(&mut self, ep_addr: EndpointAddress) {
         self.dcd_endpoint_close(ep_addr);
     }
 }

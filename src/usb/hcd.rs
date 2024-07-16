@@ -1,10 +1,10 @@
 //! Host controller driver for USB peripheral
 //! 
 
-use super::Usb;
+use super::Bus;
 
-impl Usb {
-    fn hcd_init(&mut self, int_mask: u32, framelist_size: u16) -> bool {
+impl Bus {
+    pub(crate) fn hcd_init(&mut self, int_mask: u32, framelist_size: u16) -> bool {
         let r = &self.info.regs;
 
         // hcd framelist max element is 1024
@@ -27,7 +27,7 @@ impl Usb {
         todo!()
     }
 
-    fn hcd_port_reset(&mut self) {
+    pub(crate) fn hcd_port_reset(&mut self) {
         todo!()
     }
 }

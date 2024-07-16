@@ -1,9 +1,18 @@
+use core::marker::PhantomData;
+
 use bitfield_struct::bitfield;
+use control_pipe::ControlPipe;
+use embassy_hal_internal::{into_ref, Peripheral};
+use embassy_sync::waitqueue::AtomicWaker;
+use embassy_usb_driver::{Direction, Driver, EndpointAddress, EndpointAllocError, EndpointInfo, EndpointType};
 use embedded_hal::delay::DelayNs;
+use endpoint::{Endpoint, EndpointAllocInfo};
 use riscv::delay::McycleDelay;
 
 use crate::pac::usb::regs::*;
 
+mod bus;
+mod control_pipe;
 mod dcd;
 mod device;
 mod endpoint;
@@ -19,7 +28,7 @@ const QTD_COUNT_EACH_ENDPOINT: usize = 8;
 const QHD_BUFFER_COUNT: usize = 5;
 
 #[allow(unused)]
-pub struct Usb {
+pub struct Bus {
     info: &'static Info,
     delay: McycleDelay,
     dcd_data: DcdData,
@@ -164,29 +173,11 @@ struct QueueTransferDescriptorToken {
 
 pub struct EpConfig {
     transfer: u8,
-    ep_addr: EpAddr,
+    ep_addr: EndpointAddress,
     max_packet_size: u16,
 }
 
-#[bitfield(u8)]
-struct EpAddr {
-    #[bits(4)]
-    ep_num: u8,
-    #[bits(3)]
-    _reserved: u8,
-    #[bits(1)]
-    dir: bool,
-}
-
-/// Usb transfer type
-pub enum TransferType {
-    Control = 0b00,
-    Isochronous = 0b01,
-    Bulk = 0b10,
-    Interrupt = 0b11,
-}
-
-impl Usb {
+impl Bus {
     fn phy_init(&mut self) {
         let r = &self.info.regs;
 
@@ -255,14 +246,209 @@ impl Usb {
 
         r.portsc1().read().pspd()
     }
+}
 
+pub struct UsbDriver<'d, T: Instance> {
+    phantom: PhantomData<&'d mut T>,
+    info: &'static Info,
+    endpoints: [EndpointAllocInfo; ENDPOINT_COUNT],
+}
 
+impl<'d, T: Instance> UsbDriver<'d, T> {
+    pub fn new(dp: impl Peripheral<P = impl DpPin<T>> + 'd, dm: impl Peripheral<P = impl DmPin<T>> + 'd) -> Self {
+        into_ref!(dp, dm);
+
+        // suppress "unused" warnings.
+        let _ = (dp, dm);
+
+        UsbDriver {
+            phantom: PhantomData,
+            info: T::info(),
+            endpoints: [EndpointAllocInfo {
+                ep_type: EndpointType::Bulk,
+                used_in: false,
+                used_out: false,
+            }; ENDPOINT_COUNT],
+        }
+    }
+
+    /// Find the free endpoint
+    pub(crate) fn find_free_endpoint(&mut self, ep_type: EndpointType, dir: Direction) -> Option<usize> {
+        self.endpoints
+            .iter_mut()
+            .enumerate()
+            .find(|(i, ep)| {
+                if *i == 0 && ep_type != EndpointType::Control {
+                    return false; // reserved for control pipe
+                }
+                let used = ep.used_out || ep.used_in;
+                let used_dir = match dir {
+                    Direction::Out => ep.used_out,
+                    Direction::In => ep.used_in,
+                };
+                !used || (ep.ep_type == ep_type && !used_dir)
+            })
+            .map(|(i, _)| i)
+    }
+}
+
+impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
+    type EndpointOut = Endpoint;
+
+    type EndpointIn = Endpoint;
+
+    type ControlPipe = ControlPipe;
+
+    type Bus = Bus;
+
+    /// Allocates an OUT endpoint.
+    ///
+    /// This method is called by the USB stack to allocate endpoints.
+    /// It can only be called before [`start`](Self::start) is called.
+    ///
+    /// # Arguments
+    ///
+    /// * `ep_type` - the endpoint's type.
+    /// * `max_packet_size` - Maximum packet size in bytes.
+    /// * `interval_ms` - Polling interval parameter for interrupt endpoints.
+    fn alloc_endpoint_out(
+        &mut self,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval_ms: u8,
+    ) -> Result<Self::EndpointOut, EndpointAllocError> {
+        let ep_idx = self
+            .find_free_endpoint(ep_type, Direction::Out)
+            .ok_or(EndpointAllocError)?;
+
+        self.endpoints[ep_idx].used_out = true;
+        Ok(Endpoint {
+            info: EndpointInfo {
+                addr: EndpointAddress::from_parts(ep_idx, Direction::Out),
+                ep_type,
+                max_packet_size,
+                interval_ms,
+            },
+        })
+    }
+
+    /// Allocates an IN endpoint.
+    ///
+    /// This method is called by the USB stack to allocate endpoints.
+    /// It can only be called before [`start`](Self::start) is called.
+    ///
+    /// # Arguments
+    ///
+    /// * `ep_type` - the endpoint's type.
+    /// * `max_packet_size` - Maximum packet size in bytes.
+    /// * `interval_ms` - Polling interval parameter for interrupt endpoints.
+    fn alloc_endpoint_in(
+        &mut self,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval_ms: u8,
+    ) -> Result<Self::EndpointIn, EndpointAllocError> {
+        let ep_idx = self
+            .find_free_endpoint(ep_type, Direction::In)
+            .ok_or(EndpointAllocError)?;
+
+        self.endpoints[ep_idx].used_out = true;
+        Ok(Endpoint {
+            info: EndpointInfo {
+                addr: EndpointAddress::from_parts(ep_idx, Direction::In),
+                ep_type,
+                max_packet_size,
+                interval_ms,
+            },
+        })
+    }
+
+    /// Start operation of the USB device.
+    ///
+    /// This returns the `Bus` and `ControlPipe` instances that are used to operate
+    /// the USB device. Additionally, this makes all the previously allocated endpoints
+    /// start operating.
+    ///
+    /// This consumes the `Driver` instance, so it's no longer possible to allocate more
+    /// endpoints.
+    fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
+        // Set control endpoint first
+        let ep_out = self
+            .alloc_endpoint_out(EndpointType::Control, control_max_packet_size, 0)
+            .unwrap();
+        let ep_in = self
+            .alloc_endpoint_in(EndpointType::Control, control_max_packet_size, 0)
+            .unwrap();
+        assert_eq!(ep_out.info.addr.index(), 0);
+        assert_eq!(ep_in.info.addr.index(), 0);
+
+        // FIXME: Do nothing now, but check whether we should start the usb device here?
+        // `Bus` has a `enable` function, which enables the USB peri
+        // But the comment says this function makes all the allocated endpoints **start operating**
+        // self.dcd_init();
+
+        (
+            Self::Bus {
+                info: self.info,
+                dcd_data: todo!(),
+                delay: todo!(),
+            },
+            Self::ControlPipe {
+                max_packet_size: control_max_packet_size as usize,
+                ep_in,
+                ep_out,
+            },
+        )
+    }
 }
 
 pub enum Error {
     InvalidQtdNum,
 }
 
-struct Info {
+pub(super) struct Info {
     regs: crate::pac::usb::Usb,
 }
+
+// TODO: USB STATE?
+struct State {
+    #[allow(unused)]
+    waker: AtomicWaker,
+}
+
+impl State {
+    const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
+        }
+    }
+}
+
+peri_trait!(
+    irqs: [Interrupt],
+);
+
+foreach_peripheral!(
+    (usb, $inst:ident) => {
+        #[allow(private_interfaces)]
+        impl SealedInstance for crate::peripherals::$inst {
+            fn info() -> &'static Info {
+                static INFO: Info = Info{
+                    regs: crate::pac::$inst,
+                };
+                &INFO
+            }
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
+            }
+        }
+
+        impl Instance for crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$inst;
+        }
+    };
+);
+
+pin_trait!(DmPin, Instance);
+pin_trait!(DpPin, Instance);

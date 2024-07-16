@@ -1,11 +1,12 @@
 //! Device controller driver for USB peripheral
 //!
 
+use embassy_usb_driver::EndpointType;
 use hpm_metapac::usb::regs::*;
 
-use super::{TransferType, Usb, ENDPOINT_COUNT};
+use super::{Bus, ENDPOINT_COUNT};
 
-impl Usb {
+impl Bus {
     pub(crate) fn dcd_bus_reset(&mut self) {
         let r = &self.info.regs;
 
@@ -15,8 +16,8 @@ impl Usb {
         // for the data PID tracking on the active endpoint.
         for i in 0..ENDPOINT_COUNT {
             r.endptctrl(i as usize).write(|w| {
-                w.set_txt(TransferType::Bulk as u8);
-                w.set_rxt(TransferType::Bulk as u8);
+                w.set_txt(EndpointType::Bulk as u8);
+                w.set_rxt(EndpointType::Bulk as u8);
             });
         }
 
@@ -106,7 +107,7 @@ impl Usb {
     }
 
     /// Connect by enabling internal pull-up resistor on D+/D-
-    fn dcd_connect(&mut self) {
+    pub(crate) fn dcd_connect(&mut self) {
         let r = &self.info.regs;
 
         r.usbcmd().modify(|w| {
@@ -115,7 +116,7 @@ impl Usb {
     }
 
     /// Disconnect by disabling internal pull-up resistor on D+/D-
-    fn dcd_disconnect(&mut self) {
+    pub(crate) fn dcd_disconnect(&mut self) {
         let r = &self.info.regs;
 
         // Stop
