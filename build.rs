@@ -326,7 +326,7 @@ fn main() {
                     })
                 }
 
-                // Spi is special
+                // SPI is special, CS pins are numbered
                 if regs.kind == "spi" && pin.signal.starts_with("CS") {
                     let peri = format_ident!("{}", p.name);
                     let pin_name = format_ident!("{}", pin.pin);
@@ -346,8 +346,26 @@ fn main() {
                 }
 
                 // ADC is special
-                if regs.kind == "adc" {
-                    // TODO
+                if regs.kind == "adc16" {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+
+                    // HPM67 has differential voltage measurements
+                    let ch: Option<u8> = if pin.signal.starts_with("INP") {
+                        Some(pin.signal.strip_prefix("INP").unwrap().parse().unwrap())
+                    } else if pin.signal.starts_with("INN") {
+                        // TODO handle in the future when embassy supports differential measurements
+                        None
+                    } else if pin.signal.starts_with("IN") {
+                        Some(pin.signal.strip_prefix("IN").unwrap().parse().unwrap())
+                    } else {
+                        None
+                    };
+                    if let Some(ch) = ch {
+                        g.extend(quote! {
+                            impl_adc_pin!( #peri, #pin_name, #ch);
+                        })
+                    }
                 }
                 // if regs.kind == "dac"
             }

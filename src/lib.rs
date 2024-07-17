@@ -41,14 +41,15 @@ pub mod mode {
 }
 
 // required peripherals
-pub mod gpio;
-pub mod mbx;
+pub mod dma;
 pub mod sysctl;
 
-pub mod dma;
-
 // other peripherals
+#[cfg(adc16)]
+pub mod adc;
+pub mod gpio;
 pub mod i2c;
+pub mod mbx;
 pub mod spi;
 pub mod uart;
 
