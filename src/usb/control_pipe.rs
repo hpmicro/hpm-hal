@@ -7,7 +7,7 @@ use super::endpoint::Endpoint;
 use super::Instance;
 use crate::usb::{init_qhd, EpConfig, DCD_DATA};
 
-pub(crate) struct ControlPipe<'d, T: Instance> {
+pub struct ControlPipe<'d, T: Instance> {
     pub(crate) phantom: PhantomData<&'d mut T>,
     pub(crate) max_packet_size: usize,
     pub(crate) ep_in: Endpoint,

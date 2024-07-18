@@ -3,8 +3,8 @@ use hpm_metapac::usb::regs::Endptprime;
 
 use super::{Error, Info, QueueTransferDescriptor, DCD_DATA, QTD_COUNT_EACH_ENDPOINT};
 
-// #[derive(Copy, Clone)]
-pub(crate) struct Endpoint {
+#[derive(Copy, Clone)]
+pub struct Endpoint {
     pub(crate) info: EndpointInfo,
     pub(crate) usb_info: &'static Info,
 }
