@@ -171,7 +171,7 @@ pub(crate) struct CapabilityAndCharacteristics {
 }
 #[derive(Clone, Copy, Default)]
 #[repr(C, align(32))]
-struct QueueTransferDescriptor {
+pub(crate) struct QueueTransferDescriptor {
     // Next point
     next: u32,
 
