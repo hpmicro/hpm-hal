@@ -196,6 +196,29 @@ impl QueueTransferDescriptor {
             _reserved: [0; 2],
         }
     }
+
+    pub(crate) fn reinit_with(&mut self, data: &[u8], transfer_bytes: usize, remaining_bytes: usize) {
+        // Initialize qtd
+        self.next = 0;
+        self.token = QueueTransferDescriptorToken::new();
+        self.buffer = [0; QHD_BUFFER_COUNT];
+        self.expected_bytes = 0;
+
+        self.token.set_active(true);
+        self.token.set_total_bytes(transfer_bytes as u16);
+        self.expected_bytes = transfer_bytes as u16;
+        // Fill data into qtd
+        // FIXME: Fill correct data
+        self.buffer[0] = data.as_ptr() as u32;
+        for i in 1..QHD_BUFFER_COUNT {
+            // TODO: WHY the buffer is filled in this way?
+            self.buffer[i] |= (self.buffer[i - 1] & 0xFFFFF000) + 4096;
+        }
+    }
+
+    pub(crate) fn set_token_int_on_complete(&mut self, value: bool) {
+        self.token.set_int_on_complete(value);
+    }
 }
 
 #[bitfield(u32)]
