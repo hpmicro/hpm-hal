@@ -5,15 +5,11 @@ use control_pipe::ControlPipe;
 use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{Direction, Driver, EndpointAddress, EndpointAllocError, EndpointInfo, EndpointType};
-use embedded_hal::delay::DelayNs;
-use endpoint::{Endpoint, EndpointAllocInfo};
+use endpoint::Endpoint;
 use riscv::delay::McycleDelay;
-
-use crate::pac::usb::regs::*;
 
 mod bus;
 mod control_pipe;
-mod dcd;
 mod device;
 mod endpoint;
 mod hcd;
@@ -26,13 +22,10 @@ const ENDPOINT_COUNT: usize = 16;
 
 const QTD_COUNT_EACH_ENDPOINT: usize = 8;
 const QHD_BUFFER_COUNT: usize = 5;
-
-#[allow(unused)]
-pub struct Bus {
-    info: &'static Info,
-    delay: McycleDelay,
-    dcd_data: DcdData,
-}
+static mut DCD_DATA: DcdData = DcdData {
+    qhd: [QueueHead::new(); ENDPOINT_COUNT as usize * 2],
+    qtd: [QueueTransferDescriptor::new(); ENDPOINT_COUNT as usize * 2 * QTD_COUNT_EACH_ENDPOINT as usize],
+};
 
 #[repr(C, align(32))]
 pub struct DcdData {
@@ -42,6 +35,42 @@ pub struct DcdData {
     /// Queue element transfer descriptor
     /// NON-CACHABLE
     pub(crate) qtd: [QueueTransferDescriptor; ENDPOINT_COUNT as usize * 2 * QTD_COUNT_EACH_ENDPOINT as usize],
+}
+
+pub(crate) unsafe fn reset_dcd_data(ep0_max_packet_size: u16) {
+    DCD_DATA.qhd = [QueueHead::new(); ENDPOINT_COUNT as usize * 2];
+    DCD_DATA.qtd = [QueueTransferDescriptor::new(); ENDPOINT_COUNT as usize * 2 * QTD_COUNT_EACH_ENDPOINT as usize];
+
+    DCD_DATA.qhd[0].cap.set_zero_length_termination(true);
+    DCD_DATA.qhd[1].cap.set_zero_length_termination(true);
+    DCD_DATA.qhd[0].cap.set_max_packet_size(ep0_max_packet_size);
+    DCD_DATA.qhd[1].cap.set_max_packet_size(ep0_max_packet_size);
+
+    // Set the next pointer INVALID
+    // TODO: replacement?
+    DCD_DATA.qhd[0].qtd_overlay.next = 1;
+    DCD_DATA.qhd[1].qtd_overlay.next = 1;
+
+    // Set for OUT only
+    DCD_DATA.qhd[0].cap.set_int_on_step(true);
+}
+
+pub(crate) unsafe fn prepare_qhd(ep_config: &EpConfig) {
+    let ep_num = ep_config.ep_addr.index();
+    let ep_idx = 2 * ep_num + ep_config.ep_addr.is_in() as usize;
+
+    // Prepare queue head
+    DCD_DATA.qhd[ep_idx as usize] = QueueHead::default();
+    DCD_DATA.qhd[ep_idx as usize].cap.set_zero_length_termination(true);
+    DCD_DATA.qhd[ep_idx as usize]
+        .cap
+        .set_max_packet_size(ep_config.max_packet_size & 0x7FF);
+    DCD_DATA.qhd[ep_idx as usize].qtd_overlay.next = 1; // Set next to invalid
+    if ep_config.transfer == EndpointType::Isochronous as u8 {
+        DCD_DATA.qhd[ep_idx as usize]
+            .cap
+            .set_iso_mult(((ep_config.max_packet_size >> 11) & 0x3) as u8 + 1);
+    }
 }
 
 impl Default for DcdData {
@@ -54,7 +83,7 @@ impl Default for DcdData {
 }
 
 #[derive(Clone, Copy, Default)]
-#[repr(C, align(32))]
+#[repr(align(32))]
 pub(crate) struct QueueHead {
     // Capabilities and characteristics
     pub(crate) cap: CapabilityAndCharacteristics,
@@ -65,11 +94,25 @@ pub(crate) struct QueueHead {
     pub(crate) qtd_overlay: QueueTransferDescriptor,
 
     pub(crate) setup_request: ControlRequest,
-
     // Due to the fact QHD is 64 bytes aligned but occupies only 48 bytes
     // thus there are 16 bytes padding free that we can make use of.
     // TODO: Check memory layout
-    _reserved: [u8; 16],
+    // _reserved: [u8; 16],
+}
+
+impl QueueHead {
+    const fn new() -> Self {
+        Self {
+            cap: CapabilityAndCharacteristics::new(),
+            qtd_addr: 0,
+            qtd_overlay: QueueTransferDescriptor::new(),
+            setup_request: ControlRequest::new(),
+        }
+    }
+
+    pub(crate) fn set_next_overlay(&mut self, next: u32) {
+        self.qtd_overlay.next = next;
+    }
 }
 
 #[bitfield(u64)]
@@ -143,6 +186,18 @@ struct QueueTransferDescriptor {
     _reserved: [u8; 2],
 }
 
+impl QueueTransferDescriptor {
+    const fn new() -> Self {
+        QueueTransferDescriptor {
+            next: 0,
+            token: QueueTransferDescriptorToken::new(),
+            buffer: [0; QHD_BUFFER_COUNT],
+            expected_bytes: 0,
+            _reserved: [0; 2],
+        }
+    }
+}
+
 #[bitfield(u32)]
 struct QueueTransferDescriptorToken {
     #[bits(3)]
@@ -171,87 +226,46 @@ struct QueueTransferDescriptorToken {
     _r5: bool,
 }
 
+#[allow(unused)]
+pub struct Bus {
+    info: &'static Info,
+    endpoints: [EndpointInfo; ENDPOINT_COUNT],
+    delay: McycleDelay,
+}
+
 pub struct EpConfig {
+    /// Endpoint type
     transfer: u8,
     ep_addr: EndpointAddress,
     max_packet_size: u16,
 }
 
-impl Bus {
-    fn phy_init(&mut self) {
-        let r = &self.info.regs;
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub(crate) struct EndpointAllocData {
+    pub(crate) info: EndpointInfo,
+    pub(crate) used_in: bool,
+    pub(crate) used_out: bool,
+}
 
-        // Enable dp/dm pulldown
-        // In hpm_sdk, this operation is done by `ptr->PHY_CTRL0 &= ~0x001000E0u`.
-        // But there's corresponding bits in register, so we write the register directly here.
-        let phy_ctrl0 = r.phy_ctrl0().read().0 & (!0x001000E0);
-        r.phy_ctrl0().write_value(PhyCtrl0(phy_ctrl0));
-
-        r.otg_ctrl0().modify(|w| {
-            w.set_otg_utmi_suspendm_sw(false);
-            w.set_otg_utmi_reset_sw(true);
-        });
-
-        r.phy_ctrl1().modify(|w| {
-            w.set_utmi_cfg_rst_n(false);
-        });
-
-        // Wait for reset status
-        while r.otg_ctrl0().read().otg_utmi_reset_sw() {}
-
-        // Set suspend
-        r.otg_ctrl0().modify(|w| {
-            w.set_otg_utmi_suspendm_sw(true);
-        });
-
-        // Delay at least 1us
-        self.delay.delay_us(5);
-
-        r.otg_ctrl0().modify(|w| {
-            // Disable dm/dp wakeup
-            w.set_otg_wkdpdmchg_en(false);
-            // Clear reset sw
-            w.set_otg_utmi_reset_sw(false);
-        });
-
-        // OTG utmi clock detection
-        r.phy_status().modify(|w| w.set_utmi_clk_valid(true));
-        while r.phy_status().read().utmi_clk_valid() == false {}
-
-        // Reset and set suspend
-        r.phy_ctrl1().modify(|w| {
-            w.set_utmi_cfg_rst_n(true);
-            w.set_utmi_otg_suspendm(true);
-        });
-    }
-
-    fn phy_deinit(&mut self) {
-        let r = &self.info.regs;
-
-        r.otg_ctrl0().modify(|w| {
-            w.set_otg_utmi_suspendm_sw(true);
-            w.set_otg_utmi_reset_sw(false);
-        });
-
-        r.phy_ctrl1().modify(|w| {
-            w.set_utmi_cfg_rst_n(false);
-            w.set_utmi_otg_suspendm(false);
-        });
-    }
-
-    /// Get port speed: 00: full speed, 01: low speed, 10: high speed, 11: undefined
-    /// TODO: Use enum
-    pub(crate) fn get_port_speed(&mut self) -> u8 {
-        let r = &self.info.regs;
-
-        r.portsc1().read().pspd()
+impl Default for EndpointAllocData {
+    fn default() -> Self {
+        Self {
+            info: EndpointInfo {
+                addr: EndpointAddress::from_parts(0, Direction::Out),
+                max_packet_size: 0,
+                ep_type: EndpointType::Bulk,
+                interval_ms: 0,
+            },
+            used_in: false,
+            used_out: false,
+        }
     }
 }
 
 pub struct UsbDriver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     info: &'static Info,
-    endpoints: [EndpointAllocInfo; ENDPOINT_COUNT],
+    endpoints: [EndpointAllocData; ENDPOINT_COUNT],
 }
 
 impl<'d, T: Instance> UsbDriver<'d, T> {
@@ -264,11 +278,7 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
         UsbDriver {
             phantom: PhantomData,
             info: T::info(),
-            endpoints: [EndpointAllocInfo {
-                ep_type: EndpointType::Bulk,
-                used_in: false,
-                used_out: false,
-            }; ENDPOINT_COUNT],
+            endpoints: [EndpointAllocData::default(); ENDPOINT_COUNT],
         }
     }
 
@@ -286,7 +296,7 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
                     Direction::Out => ep.used_out,
                     Direction::In => ep.used_in,
                 };
-                !used || (ep.ep_type == ep_type && !used_dir)
+                !used || (ep.info.ep_type == ep_type && !used_dir)
             })
             .map(|(i, _)| i)
     }
@@ -321,14 +331,17 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             .find_free_endpoint(ep_type, Direction::Out)
             .ok_or(EndpointAllocError)?;
 
+        let ep = EndpointInfo {
+            addr: EndpointAddress::from_parts(ep_idx, Direction::Out),
+            ep_type,
+            max_packet_size,
+            interval_ms,
+        };
         self.endpoints[ep_idx].used_out = true;
+        self.endpoints[ep_idx].info = ep.clone();
         Ok(Endpoint {
-            info: EndpointInfo {
-                addr: EndpointAddress::from_parts(ep_idx, Direction::Out),
-                ep_type,
-                max_packet_size,
-                interval_ms,
-            },
+            info: ep,
+            usb_info: self.info,
         })
     }
 
@@ -352,14 +365,17 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             .find_free_endpoint(ep_type, Direction::In)
             .ok_or(EndpointAllocError)?;
 
+        let ep = EndpointInfo {
+            addr: EndpointAddress::from_parts(ep_idx, Direction::In),
+            ep_type,
+            max_packet_size,
+            interval_ms,
+        };
         self.endpoints[ep_idx].used_out = true;
+        self.endpoints[ep_idx].info = ep.clone();
         Ok(Endpoint {
-            info: EndpointInfo {
-                addr: EndpointAddress::from_parts(ep_idx, Direction::In),
-                ep_type,
-                max_packet_size,
-                interval_ms,
-            },
+            info: ep,
+            usb_info: self.info,
         })
     }
 
@@ -387,11 +403,21 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         // But the comment says this function makes all the allocated endpoints **start operating**
         // self.dcd_init();
 
+        let mut eps: [EndpointInfo; ENDPOINT_COUNT] = [EndpointInfo {
+            addr: EndpointAddress::from(0),
+            ep_type: EndpointType::Bulk,
+            max_packet_size: 0,
+            interval_ms: 0,
+        }; ENDPOINT_COUNT];
+        for i in 0..ENDPOINT_COUNT {
+            eps[i] = self.endpoints[i].info;
+        }
+
         (
             Self::Bus {
                 info: self.info,
-                dcd_data: todo!(),
-                delay: todo!(),
+                endpoints: eps,
+                delay: McycleDelay::new(crate::sysctl::clocks().cpu0.0),
             },
             Self::ControlPipe {
                 max_packet_size: control_max_packet_size as usize,

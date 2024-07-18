@@ -1,9 +1,5 @@
 use super::endpoint::Endpoint;
 
-
-
-
-
 pub(crate) struct ControlPipe {
     pub(crate) max_packet_size: usize,
     pub(crate) ep_in: Endpoint,
@@ -19,7 +15,12 @@ impl embassy_usb_driver::ControlPipe for ControlPipe {
         todo!()
     }
 
-    async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, embassy_usb_driver::EndpointError> {
+    async fn data_out(
+        &mut self,
+        buf: &mut [u8],
+        first: bool,
+        last: bool,
+    ) -> Result<usize, embassy_usb_driver::EndpointError> {
         todo!()
     }
 

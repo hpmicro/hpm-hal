@@ -1,22 +1,114 @@
 use embassy_usb_driver::{Direction, EndpointAddress, EndpointIn, EndpointInfo, EndpointOut, EndpointType};
 use hpm_metapac::usb::regs::Endptprime;
 
-use super::{EpConfig, Info, QueueHead, Bus, ENDPOINT_COUNT};
+use super::{
+    prepare_qhd, Bus, EpConfig, Error, Info, QueueTransferDescriptor, DCD_DATA, ENDPOINT_COUNT, QHD_BUFFER_COUNT,
+    QTD_COUNT_EACH_ENDPOINT,
+};
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub(crate) struct EndpointAllocInfo {
-    pub(crate) ep_type: EndpointType,
-    pub(crate) used_in: bool,
-    pub(crate) used_out: bool,
-}
+// #[derive(Copy, Clone)]
 pub(crate) struct Endpoint {
     pub(crate) info: EndpointInfo,
-    // TODO
+    pub(crate) usb_info: &'static Info,
+}
+
+impl Endpoint {
+    pub(crate) fn start_transfer(&mut self) {
+        let ep_idx = self.info.addr.index();
+
+        let offset = if ep_idx % 2 == 1 { ep_idx / 2 + 16 } else { ep_idx / 2 };
+
+        self.usb_info.regs.endptprime().write_value(Endptprime(1 << offset));
+    }
+
+    pub(crate) fn transfer(&mut self, data: &[u8]) -> Result<(), Error> {
+        let r = &self.usb_info.regs;
+
+        let ep_num = self.info.addr.index();
+        let ep_idx = 2 * ep_num + self.info.addr.is_in() as usize;
+
+        //  Setup packet handling using setup lockout mechanism
+        //  wait until ENDPTSETUPSTAT before priming data/status in response
+        if ep_num == 0 {
+            while (r.endptsetupstat().read().endptsetupstat() & 0b1) == 1 {}
+        }
+
+        let qtd_num = (data.len() + 0x3FFF) / 0x4000;
+        if qtd_num > 8 {
+            return Err(Error::InvalidQtdNum);
+        }
+
+        // Convert data's address, TODO: how to do it in Rust?
+        // data = core_local_mem_to_sys_address(data);
+
+        // Add all data to the circular queue
+        let mut prev_qtd: Option<QueueTransferDescriptor> = None;
+        let mut first_qtd: Option<QueueTransferDescriptor> = None;
+        let mut i = 0;
+        let mut data_offset = 0;
+        let mut remaining_bytes = data.len();
+        loop {
+            let mut qtd = unsafe { DCD_DATA.qtd[ep_idx * QTD_COUNT_EACH_ENDPOINT + i] };
+            i += 1;
+
+            let transfer_bytes = if remaining_bytes > 0x4000 {
+                remaining_bytes -= 0x4000;
+                0x4000
+            } else {
+                remaining_bytes = 0;
+                data.len()
+            };
+
+            // Initialize qtd
+            qtd = QueueTransferDescriptor::default();
+            qtd.token.set_active(true);
+            qtd.token.set_total_bytes(transfer_bytes as u16);
+            qtd.expected_bytes = transfer_bytes as u16;
+            // Fill data into qtd
+            // FIXME: Fill correct data
+            qtd.buffer[0] = data.as_ptr() as u32 + 4096 * data_offset;
+            for i in 1..QHD_BUFFER_COUNT {
+                // TODO: WHY the buffer is filled in this way?
+                qtd.buffer[i] |= (qtd.buffer[i - 1] & 0xFFFFF000) + 4096;
+            }
+
+            //
+            if remaining_bytes == 0 {
+                qtd.token.set_int_on_complete(true);
+            }
+
+            data_offset += transfer_bytes as u32;
+
+            // Linked list operations
+            // Set circular link
+            if let Some(mut prev_qtd) = prev_qtd {
+                prev_qtd.next = &qtd as *const _ as u32;
+            } else {
+                first_qtd = Some(qtd);
+            }
+            prev_qtd = Some(qtd);
+
+            // Check the remaining_bytes
+            if remaining_bytes == 0 {
+                break;
+            }
+        }
+
+        // FIXME: update qhd's overlay
+        unsafe {
+            DCD_DATA.qhd[ep_idx].qtd_overlay.next = &(first_qtd.unwrap()) as *const _ as u32;
+        }
+
+        // Start transfer
+        self.start_transfer();
+
+        Ok(())
+    }
 }
 
 impl embassy_usb_driver::Endpoint for Endpoint {
     fn info(&self) -> &embassy_usb_driver::EndpointInfo {
-        todo!()
+        &self.info
     }
 
     async fn wait_enabled(&mut self) {
@@ -37,31 +129,14 @@ impl EndpointIn for Endpoint {
 }
 
 impl Bus {
-
-
     pub(crate) fn device_endpoint_open(&mut self, ep_config: EpConfig) {
-        let r = &self.info.regs;
-
-        let ep_num = ep_config.ep_addr.index();
-        let ep_idx = 2 * ep_num + ep_config.ep_addr.is_in() as usize;
-
         // Max EP count: 16
-        if ep_num >= ENDPOINT_COUNT {
+        if ep_config.ep_addr.index() >= ENDPOINT_COUNT {
             // TODO: return false
         }
 
         // Prepare queue head
-        self.dcd_data.qhd[ep_idx as usize] = QueueHead::default();
-        self.dcd_data.qhd[ep_idx as usize].cap.set_zero_length_termination(true);
-        self.dcd_data.qhd[ep_idx as usize]
-            .cap
-            .set_max_packet_size(ep_config.max_packet_size & 0x7FF);
-        self.dcd_data.qhd[ep_idx as usize].qtd_overlay.next = 1; // Set next to invalid
-        if ep_config.transfer == EndpointType::Isochronous as u8 {
-            self.dcd_data.qhd[ep_idx as usize]
-                .cap
-                .set_iso_mult(((ep_config.max_packet_size >> 11) & 0x3) as u8 + 1);
-        }
+        unsafe { prepare_qhd(&ep_config) };
 
         // Open endpoint
         self.dcd_endpoint_open(ep_config);
@@ -98,14 +173,6 @@ impl Bus {
         } else {
             r.endptctrl(ep_addr.index() as usize).read().rxt()
         }
-    }
-
-    pub(crate) fn endpoint_transfer(&mut self, ep_idx: u8) {
-        let offset = if ep_idx % 2 == 1 { ep_idx / 2 + 16 } else { ep_idx / 2 };
-
-        let r = &self.info.regs;
-
-        r.endptprime().write_value(Endptprime(1 << offset));
     }
 
     pub(crate) fn device_endpoint_stall(&mut self, ep_addr: EndpointAddress) {

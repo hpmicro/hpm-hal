@@ -1,5 +1,5 @@
 //! Host controller driver for USB peripheral
-//! 
+//!
 
 use super::Bus;
 
