@@ -12,8 +12,6 @@ mod bus;
 mod control_pipe;
 mod device;
 mod endpoint;
-mod hcd;
-mod host;
 
 #[cfg(usb_v67)]
 const ENDPOINT_COUNT: usize = 8;
@@ -52,10 +50,10 @@ pub(crate) unsafe fn reset_dcd_data(ep0_max_packet_size: u16) {
     DCD_DATA.qhd[1].qtd_overlay.next = 1;
 
     // Set for OUT only
-    DCD_DATA.qhd[0].cap.set_int_on_step(true);
+    DCD_DATA.qhd[0].cap.set_int_on_setup(true);
 }
 
-pub(crate) unsafe fn prepare_qhd(ep_config: &EpConfig) {
+pub(crate) unsafe fn init_qhd(ep_config: &EpConfig) {
     let ep_num = ep_config.ep_addr.index();
     let ep_idx = 2 * ep_num + ep_config.ep_addr.is_in() as usize;
 
@@ -65,11 +63,15 @@ pub(crate) unsafe fn prepare_qhd(ep_config: &EpConfig) {
     DCD_DATA.qhd[ep_idx as usize]
         .cap
         .set_max_packet_size(ep_config.max_packet_size & 0x7FF);
-    DCD_DATA.qhd[ep_idx as usize].qtd_overlay.next = 1; // Set next to invalid
+    // Set next to invalid, T=1
+    DCD_DATA.qhd[ep_idx as usize].qtd_overlay.next = 1;
     if ep_config.transfer == EndpointType::Isochronous as u8 {
         DCD_DATA.qhd[ep_idx as usize]
             .cap
             .set_iso_mult(((ep_config.max_packet_size >> 11) & 0x3) as u8 + 1);
+    }
+    if ep_config.transfer == EndpointType::Control as u8 {
+        DCD_DATA.qhd[ep_idx as usize].cap.set_int_on_setup(true);
     }
 }
 
@@ -81,6 +83,8 @@ impl Default for DcdData {
         }
     }
 }
+
+pub(crate) struct QueueHeadV2([u8; 48]);
 
 #[derive(Clone, Copy, Default)]
 #[repr(align(32))]
@@ -151,7 +155,7 @@ pub(crate) struct CapabilityAndCharacteristics {
     /// This bit is used on control type endpoints to indicate if
     /// USBINT is set in response to a setup being received.
     #[bits(1)]
-    int_on_step: bool,
+    int_on_setup: bool,
 
     #[bits(11)]
     max_packet_size: u16,
@@ -197,7 +201,7 @@ impl QueueTransferDescriptor {
         }
     }
 
-    pub(crate) fn reinit_with(&mut self, data: &[u8], transfer_bytes: usize, remaining_bytes: usize) {
+    pub(crate) fn reinit_with(&mut self, data: &[u8], transfer_bytes: usize) {
         // Initialize qtd
         self.next = 0;
         self.token = QueueTransferDescriptorToken::new();
@@ -330,7 +334,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
 
     type EndpointIn = Endpoint;
 
-    type ControlPipe = ControlPipe;
+    type ControlPipe = ControlPipe<'a, T>;
 
     type Bus = Bus;
 
@@ -443,6 +447,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
                 delay: McycleDelay::new(crate::sysctl::clocks().cpu0.0),
             },
             Self::ControlPipe {
+                phantom: PhantomData,
                 max_packet_size: control_max_packet_size as usize,
                 ep_in,
                 ep_out,

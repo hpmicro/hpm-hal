@@ -2,7 +2,7 @@ use embassy_usb_driver::{EndpointAddress, EndpointType, Event, Unsupported};
 use embedded_hal::delay::DelayNs;
 use hpm_metapac::usb::regs::*;
 
-use super::{Bus, ENDPOINT_COUNT};
+use super::{init_qhd, Bus, ENDPOINT_COUNT};
 use crate::usb::EpConfig;
 
 impl embassy_usb_driver::Bus for Bus {
@@ -278,5 +278,140 @@ impl Bus {
         r.usbcmd().modify(|w| {
             w.set_rs(false);
         });
+    }
+    pub(crate) fn device_endpoint_open(&mut self, ep_config: EpConfig) {
+        if ep_config.ep_addr.index() >= ENDPOINT_COUNT {
+            // TODO: return false
+        }
+
+        // Prepare queue head
+        unsafe { init_qhd(&ep_config) };
+
+        // Open endpoint
+        self.dcd_endpoint_open(ep_config);
+    }
+
+    pub(crate) fn dcd_endpoint_open(&mut self, ep_config: EpConfig) {
+        let r = &self.info.regs;
+
+        let ep_num = ep_config.ep_addr.index();
+
+        // Enable EP control
+        r.endptctrl(ep_num as usize).modify(|w| {
+            // Clear the RXT or TXT bits
+            if ep_config.ep_addr.is_in() {
+                w.set_txt(0);
+                w.set_txe(true);
+                w.set_txr(true);
+                // TODO: Better impl? For example, make transfer a bitfield struct
+                w.0 |= (ep_config.transfer as u32) << 18;
+            } else {
+                w.set_rxt(0);
+                w.set_rxe(true);
+                w.set_rxr(true);
+                w.0 |= (ep_config.transfer as u32) << 2;
+            }
+        });
+    }
+
+    pub(crate) fn endpoint_get_type(&mut self, ep_addr: EndpointAddress) -> u8 {
+        let r = &self.info.regs;
+
+        if ep_addr.is_in() {
+            r.endptctrl(ep_addr.index() as usize).read().txt()
+        } else {
+            r.endptctrl(ep_addr.index() as usize).read().rxt()
+        }
+    }
+
+    pub(crate) fn device_endpoint_stall(&mut self, ep_addr: EndpointAddress) {
+        let r = &self.info.regs;
+
+        if ep_addr.is_in() {
+            r.endptctrl(ep_addr.index() as usize).modify(|w| w.set_txs(true));
+        } else {
+            r.endptctrl(ep_addr.index() as usize).modify(|w| w.set_rxs(true));
+        }
+    }
+
+    pub(crate) fn device_endpoint_clean_stall(&mut self, ep_addr: EndpointAddress) {
+        let r = &self.info.regs;
+
+        r.endptctrl(ep_addr.index() as usize).modify(|w| {
+            if ep_addr.is_in() {
+                // Data toggle also need to be reset
+                w.set_txr(true);
+                w.set_txs(false);
+            } else {
+                w.set_rxr(true);
+                w.set_rxs(false);
+            }
+        });
+    }
+
+    pub(crate) fn dcd_endpoint_check_stall(&mut self, ep_addr: EndpointAddress) -> bool {
+        let r = &self.info.regs;
+
+        if ep_addr.is_in() {
+            r.endptctrl(ep_addr.index() as usize).read().txs()
+        } else {
+            r.endptctrl(ep_addr.index() as usize).read().rxs()
+        }
+    }
+
+    pub(crate) fn dcd_endpoint_close(&mut self, ep_addr: EndpointAddress) {
+        let r = &self.info.regs;
+
+        let ep_bit = 1 << ep_addr.index();
+
+        // Flush the endpoint first
+        if ep_addr.is_in() {
+            loop {
+                r.endptflush().modify(|w| w.set_fetb(ep_bit));
+                while (r.endptflush().read().fetb() & ep_bit) == 1 {}
+                if r.endptstat().read().etbr() & ep_bit == 0 {
+                    break;
+                }
+            }
+        } else {
+            loop {
+                r.endptflush().modify(|w| w.set_ferb(ep_bit));
+                while (r.endptflush().read().ferb() & ep_bit) == 1 {}
+                if r.endptstat().read().erbr() & ep_bit == 0 {
+                    break;
+                }
+            }
+        }
+
+        // Disable endpoint
+        r.endptctrl(ep_addr.index() as usize).write(|w| {
+            if ep_addr.is_in() {
+                w.set_txt(0);
+                w.set_txe(false);
+                w.set_txs(false);
+            } else {
+                w.set_rxt(0);
+                w.set_rxe(false);
+                w.set_rxs(false);
+            }
+        });
+        // Set transfer type back to ANY type other than control
+        r.endptctrl(ep_addr.index() as usize).write(|w| {
+            if ep_addr.is_in() {
+                w.set_txt(EndpointType::Bulk as u8);
+            } else {
+                w.set_rxt(EndpointType::Bulk as u8);
+            }
+        });
+    }
+
+    pub(crate) fn ep_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
+        let r = &self.info.regs;
+
+        if ep_addr.is_in() {
+            r.endptctrl(ep_addr.index() as usize).read().txs()
+        } else {
+            r.endptctrl(ep_addr.index() as usize).read().rxs()
+        }
     }
 }
