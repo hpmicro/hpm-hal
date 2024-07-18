@@ -1,9 +1,8 @@
-use embassy_usb_driver::{Direction, EndpointAddress, EndpointIn, EndpointInfo, EndpointOut, EndpointType};
+use embassy_usb_driver::{EndpointAddress, EndpointIn, EndpointInfo, EndpointOut, EndpointType};
 use hpm_metapac::usb::regs::Endptprime;
 
 use super::{
-    prepare_qhd, Bus, EpConfig, Error, Info, QueueTransferDescriptor, DCD_DATA, ENDPOINT_COUNT, QHD_BUFFER_COUNT,
-    QTD_COUNT_EACH_ENDPOINT,
+    prepare_qhd, Bus, EpConfig, Error, Info, QueueTransferDescriptor, DCD_DATA, ENDPOINT_COUNT, QTD_COUNT_EACH_ENDPOINT,
 };
 
 // #[derive(Copy, Clone)]
@@ -60,24 +59,14 @@ impl Endpoint {
             };
 
             // Initialize qtd
-            qtd = QueueTransferDescriptor::default();
-            qtd.token.set_active(true);
-            qtd.token.set_total_bytes(transfer_bytes as u16);
-            qtd.expected_bytes = transfer_bytes as u16;
-            // Fill data into qtd
-            // FIXME: Fill correct data
-            qtd.buffer[0] = data.as_ptr() as u32 + 4096 * data_offset;
-            for i in 1..QHD_BUFFER_COUNT {
-                // TODO: WHY the buffer is filled in this way?
-                qtd.buffer[i] |= (qtd.buffer[i - 1] & 0xFFFFF000) + 4096;
-            }
+            qtd.reinit_with(&data[data_offset..], transfer_bytes, remaining_bytes);
 
-            //
+            // Last chunk of the data
             if remaining_bytes == 0 {
-                qtd.token.set_int_on_complete(true);
+                qtd.set_token_int_on_complete(true);
             }
 
-            data_offset += transfer_bytes as u32;
+            data_offset += transfer_bytes;
 
             // Linked list operations
             // Set circular link
