@@ -100,7 +100,6 @@ pub(crate) struct QueueHead {
     pub(crate) setup_request: ControlRequest,
     // Due to the fact QHD is 64 bytes aligned but occupies only 48 bytes
     // thus there are 16 bytes padding free that we can make use of.
-    // TODO: Check memory layout
     // _reserved: [u8; 16],
 }
 
@@ -211,11 +210,22 @@ impl QueueTransferDescriptor {
         self.token.set_active(true);
         self.token.set_total_bytes(transfer_bytes as u16);
         self.expected_bytes = transfer_bytes as u16;
+
+        // According to the UM, buffer[0] is the start address of the transfer data.
+        // Buffer[0] has two parts: buffer[0] & 0xFFFFF000 is the address, and buffer[0] & 0x00000FFF is the offset.
+        // The offset will be updated by hardware, indicating the number of transferred data.
+        // So, the buffer[0] can be set directly to `data.as_ptr()`, with address + non-zero offset.
+        // However, buffer[1-4] cannot be set with an offset, so they MUST be 4K bytes aligned.
+        // That's why the buffer[1-4] is filled with a `& 0xFFFFF000`.
+        // To be convenient, if the data length is larger than 4K, we require the data address to be 4K bytes aligned.
+        if transfer_bytes > 0x1000 && data.as_ptr() as u32 % 0x1000 != 0 {
+            error!("The buffer[1-4] must be 4K bytes aligned");
+        }
+
         // Fill data into qtd
-        // FIXME: Fill correct data
         self.buffer[0] = data.as_ptr() as u32;
         for i in 1..QHD_BUFFER_COUNT {
-            // TODO: WHY the buffer is filled in this way?
+            // Fill address of next 4K bytes
             self.buffer[i] |= (self.buffer[i - 1] & 0xFFFFF000) + 4096;
         }
     }
