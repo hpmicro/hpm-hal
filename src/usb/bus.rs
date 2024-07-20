@@ -1,3 +1,4 @@
+use defmt::error;
 use embassy_usb_driver::{EndpointAddress, EndpointType, Event, Unsupported};
 use embedded_hal::delay::DelayNs;
 use hpm_metapac::usb::regs::*;
@@ -281,7 +282,8 @@ impl Bus {
     }
     pub(crate) fn device_endpoint_open(&mut self, ep_config: EpConfig) {
         if ep_config.ep_addr.index() >= ENDPOINT_COUNT {
-            // TODO: return false
+            error!("Invalid endpoint index");
+            return
         }
 
         // Prepare queue head

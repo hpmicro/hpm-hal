@@ -48,6 +48,7 @@ impl Endpoint {
             let mut qtd = unsafe { DCD_DATA.qtd[ep_idx * QTD_COUNT_EACH_ENDPOINT + i] };
             i += 1;
 
+            // If the transfer size > 0x4000, then there should be multiple qtds in the linked list
             let transfer_bytes = if remaining_bytes > 0x4000 {
                 remaining_bytes -= 0x4000;
                 0x4000
@@ -55,8 +56,11 @@ impl Endpoint {
                 remaining_bytes = 0;
                 data.len()
             };
+            
+            // TODO: use data address for multi-core
+            // Check hpm_sdk: static inline uint32_t core_local_mem_to_sys_address()
 
-            // Initialize qtd
+            // Initialize qtd with the data
             qtd.reinit_with(&data[data_offset..], transfer_bytes);
 
             // Last chunk of the data
@@ -66,8 +70,7 @@ impl Endpoint {
 
             data_offset += transfer_bytes;
 
-            // Linked list operations
-            // Set circular link
+            // Set qtd linked list
             if let Some(mut prev_qtd) = prev_qtd {
                 prev_qtd.next = &qtd as *const _ as u32;
             } else {
@@ -81,7 +84,7 @@ impl Endpoint {
             }
         }
 
-        // FIXME: update qhd's overlay
+        // Link qtd to qhd
         unsafe {
             DCD_DATA.qhd[ep_idx].qtd_overlay.next = &(first_qtd.unwrap()) as *const _ as u32;
         }
