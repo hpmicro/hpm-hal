@@ -5,8 +5,12 @@ use control_pipe::ControlPipe;
 use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{Direction, Driver, EndpointAddress, EndpointAllocError, EndpointInfo, EndpointType};
+use embedded_hal::delay::DelayNs;
 use endpoint::Endpoint;
 use riscv::delay::McycleDelay;
+
+use crate::gpio::Pin;
+use crate::sysctl;
 
 mod bus;
 mod control_pipe;
@@ -219,7 +223,8 @@ impl QueueTransferDescriptor {
         // That's why the buffer[1-4] is filled with a `& 0xFFFFF000`.
         // To be convenient, if the data length is larger than 4K, we require the data address to be 4K bytes aligned.
         if transfer_bytes > 0x1000 && data.as_ptr() as u32 % 0x1000 != 0 {
-            error!("The buffer[1-4] must be 4K bytes aligned");
+            // defmt::error!("The buffer[1-4] must be 4K bytes aligned");
+            return
         }
 
         // Fill data into qtd
@@ -306,8 +311,79 @@ pub struct UsbDriver<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> UsbDriver<'d, T> {
-    pub fn new(dp: impl Peripheral<P = impl DpPin<T>> + 'd, dm: impl Peripheral<P = impl DmPin<T>> + 'd) -> Self {
+    pub fn new(dp: impl Peripheral<P = impl Pin> + 'd, dm: impl Peripheral<P = impl Pin> + 'd) -> Self {
+        // TODO: Initialization
+        //
+        // For HPM5300 series, DP/DM are reused with PA24/PA25.
+        // To use USB, the func_ctl of PA24/PA25 should be set to ANALOG,
+        // set IOC of PY00/01/02 aka USB0_ID, USB0_OC, USB0_PWR to USB,
+        // and config PIOC of PY00/01/02 as well.
+        //
+        // C code:
+        //
+        // ```c
+        // void init_usb_pins(void)
+        // {
+        //     HPM_IOC->PAD[IOC_PAD_PA24].FUNC_CTL = IOC_PAD_FUNC_CTL_ANALOG_MASK;
+        //     HPM_IOC->PAD[IOC_PAD_PA25].FUNC_CTL = IOC_PAD_FUNC_CTL_ANALOG_MASK;
+        //
+        //     /* USB0_ID */
+        //     HPM_IOC->PAD[IOC_PAD_PY00].FUNC_CTL = IOC_PY00_FUNC_CTL_USB0_ID;
+        //     /* USB0_OC */
+        //     HPM_IOC->PAD[IOC_PAD_PY01].FUNC_CTL = IOC_PY01_FUNC_CTL_USB0_OC;
+        //     /* USB0_PWR */
+        //     HPM_IOC->PAD[IOC_PAD_PY02].FUNC_CTL = IOC_PY02_FUNC_CTL_USB0_PWR;
+        //
+        //     /* PY port IO needs to configure PIOC as well */
+        //     HPM_PIOC->PAD[IOC_PAD_PY00].FUNC_CTL = PIOC_PY00_FUNC_CTL_SOC_GPIO_Y_00;
+        //     HPM_PIOC->PAD[IOC_PAD_PY01].FUNC_CTL = PIOC_PY01_FUNC_CTL_SOC_GPIO_Y_01;
+        //     HPM_PIOC->PAD[IOC_PAD_PY02].FUNC_CTL = PIOC_PY02_FUNC_CTL_SOC_GPIO_Y_02;
+        // }
+        // ```
+        //
+        // After that, power ctrl polarity of vbus should be set
+        //
+        // ```c
+        // // vbus high level enable
+        // ptr->OTG_CTRL0 |= USB_OTG_CTRL0_OTG_POWER_MASK_MASK;
+        // ```
+        //
+        // Then wait for 100ms.
+        //
+        // Since QFN48/LQFP64 have no vbus pin, there's an extra step: call `usb_phy_using_internal_vbus` to enable internal vbus
+        //
+        // ```c
+        // static inline void usb_phy_using_internal_vbus(USB_Type *ptr)
+        // {
+        //     ptr->PHY_CTRL0 |= (USB_PHY_CTRL0_VBUS_VALID_OVERRIDE_MASK | USB_PHY_CTRL0_SESS_VALID_OVERRIDE_MASK)
+        //                     | (USB_PHY_CTRL0_VBUS_VALID_OVERRIDE_EN_MASK | USB_PHY_CTRL0_SESS_VALID_OVERRIDE_EN_MASK);
+        // }
+        // ```
+
         into_ref!(dp, dm);
+
+        // Set to analog
+        dp.set_as_analog();
+        dm.set_as_analog();
+
+        // TODO: Set ID/OC/PWR in host mode
+        //
+
+        // Set vbus high level enable
+        let r = T::info().regs;
+        r.otg_ctrl0().modify(|w| w.set_otg_power_mask(true));
+
+        // Wait for 100ms
+        let mut delay = McycleDelay::new(sysctl::clocks().cpu0.0);
+        delay.delay_ms(100);
+
+        // Enable internal vbus
+        r.phy_ctrl0().modify(|w| {
+            w.set_vbus_valid_override(true);
+            w.set_sess_valid_override(true);
+            w.set_vbus_valid_override_en(true);
+            w.set_sess_valid_override_en(true);
+        });
 
         // suppress "unused" warnings.
         let _ = (dp, dm);
