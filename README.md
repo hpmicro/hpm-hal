@@ -66,8 +66,10 @@ This crate is a working-in-progress and not ready for use.
 
 - [probe-rs]
   - [x] [HPM5300 series flash algorithm support](https://github.com/probe-rs/probe-rs/pull/2575)
-  - [ ] [#2578 JTag support for DAPLink](https://github.com/probe-rs/probe-rs/pull/2578)
-- [ ] probe-rs for HPM6750 is not working, use OpenOCD instead
+    - Other series are available in the top level of this repo as `HPMicro.yaml`
+    - HPM6750 is not working(unknown bug), use OpenOCD instead
+  - <https://github.com/hpmicro-rs/probe-rs> `hpmicro` branch, with DAP support and flash speed fix for HPM's RISC-V MCUs
+    - [ ] Upstream Pull Request [#2578 JTag support for DAPLink](https://github.com/probe-rs/probe-rs/pull/2578)
 
 ## Usage
 
