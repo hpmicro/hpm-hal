@@ -63,7 +63,7 @@ rt = ["dep:riscv-rt", "hpm-metapac/rt"]
 defmt = ["dep:defmt"]
 time = ["dep:embassy-time"]
 chrono = ["dep:chrono"]
-
+usb-pin-reuse-hpm5300 = []
 embassy = [
     "dep:embassy-sync",
     "dep:embassy-futures",

@@ -395,7 +395,17 @@ fn main() {
                         })
                     }
                 }
+
                 // if regs.kind == "dac"
+            }
+
+            // Usb is special
+            #[cfg(feature = "usb-pin-reuse-hpm5300")]
+            if p.name == "USB0" {
+                g.extend(quote! {
+                    pin_trait_impl!(crate::usb::DmPin, USB0, PA24, 0);
+                    pin_trait_impl!(crate::usb::DpPin, USB0, PA25, 0);
+                })
             }
         }
     }
