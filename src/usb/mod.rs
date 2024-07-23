@@ -224,7 +224,7 @@ impl QueueTransferDescriptor {
         // To be convenient, if the data length is larger than 4K, we require the data address to be 4K bytes aligned.
         if transfer_bytes > 0x1000 && data.as_ptr() as u32 % 0x1000 != 0 {
             // defmt::error!("The buffer[1-4] must be 4K bytes aligned");
-            return
+            return;
         }
 
         // Fill data into qtd
@@ -311,7 +311,11 @@ pub struct UsbDriver<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> UsbDriver<'d, T> {
-    pub fn new(dp: impl Peripheral<P = impl Pin> + 'd, dm: impl Peripheral<P = impl Pin> + 'd) -> Self {
+    pub fn new(
+        peri: impl Peripheral<P = T> + 'd,
+        #[cfg(feature = "usb-pin-reuse-hpm5300")] dm: impl Peripheral<P = impl DmPin<T>> + 'd,
+        #[cfg(feature = "usb-pin-reuse-hpm5300")] dp: impl Peripheral<P = impl DpPin<T>> + 'd,
+    ) -> Self {
         // TODO: Initialization
         //
         // For HPM5300 series, DP/DM are reused with PA24/PA25.
@@ -360,11 +364,19 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
         // }
         // ```
 
-        into_ref!(dp, dm);
+        let r = T::info().regs;
 
-        // Set to analog
-        dp.set_as_analog();
-        dm.set_as_analog();
+        // Disable dp/dm pulldown
+        r.phy_ctrl0().modify(|w| w.0 |= 0x001000E0);
+
+        #[cfg(feature = "usb-pin-reuse-hpm5300")]
+        {
+            into_ref!(dp, dm);
+
+            // Set to analog
+            dp.set_as_analog();
+            dm.set_as_analog();
+        }
 
         // TODO: Set ID/OC/PWR in host mode
         //
@@ -377,7 +389,8 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
         let mut delay = McycleDelay::new(sysctl::clocks().cpu0.0);
         delay.delay_ms(100);
 
-        // Enable internal vbus
+        // Enable internal vbus when reuse pins
+        #[cfg(feature = "usb-pin-reuse-hpm5300")]
         r.phy_ctrl0().modify(|w| {
             w.set_vbus_valid_override(true);
             w.set_sess_valid_override(true);
