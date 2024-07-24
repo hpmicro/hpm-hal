@@ -1,17 +1,21 @@
 use core::marker::PhantomData;
+use core::task::Poll;
 
+use defmt::info;
 use embassy_usb_driver::EndpointError;
+use futures_util::future::poll_fn;
 use hpm_metapac::usb::regs::Endptsetupstat;
 
 use super::endpoint::Endpoint;
 use super::Instance;
-use crate::usb::{init_qhd, EpConfig, DCD_DATA};
+use crate::usb::{init_qhd, EpConfig, State, DCD_DATA};
 
 pub struct ControlPipe<'d, T: Instance> {
     pub(crate) phantom: PhantomData<&'d mut T>,
     pub(crate) max_packet_size: usize,
     pub(crate) ep_in: Endpoint,
     pub(crate) ep_out: Endpoint,
+    pub(crate) state: &'static State,
 }
 
 impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
@@ -30,11 +34,31 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
             })
         }
 
+        let r = T::info().regs;
+
         // TODO: 1. Wait for SETUP packet(interrupt here)
+        // Clear interrupt status
+        r.usbsts().modify(|w| w.set_ui(false));
+        // Set USB interrupt enable
+        r.usbintr().modify(|w| w.set_ue(true));
+        info!("Waiting for setup packet");
+        poll_fn(|cx| {
+            self.state.waker.register(cx.waker());
+
+            if r.usbsts().read().ui() {
+                info!("Got setup packet");
+                r.usbsts().write(|w| w.set_ui(true)); // W1C
+                return Poll::Ready(Ok::<(), ()>(()));
+            }
+            Poll::Pending
+        })
+        .await;
+        // .unwrap();
+        while !r.usbsts().read().ui() {}
+        info!("Got setup packet");
 
         // 2. Read setup packet from qhd buffer
         // See hpm_sdk/middleware/cherryusb/port/hpm/usb_dc_hpm.c: 285L
-        let r = T::info().regs;
         // TODO: clear setup status, should we clear ALL?
         r.endptsetupstat().write_value(Endptsetupstat::default());
 
@@ -42,6 +66,7 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         let setup_packet = unsafe { DCD_DATA.qhd[0].setup_request };
 
         // Convert to slice
+        defmt::trace!("setup_packet: {:?}", setup_packet);
         setup_packet.0.to_le_bytes()
     }
 
