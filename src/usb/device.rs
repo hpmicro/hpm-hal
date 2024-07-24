@@ -12,6 +12,7 @@ pub(crate) fn device_qtd_get(ep_idx: u8) -> &'static QueueTransferDescriptor {
 
 impl Bus {
     pub(crate) fn device_bus_reset(&mut self, ep0_max_packet_size: u16) {
+        defmt::info!("Bus::device_bus_reset");
         self.dcd_bus_reset();
 
         unsafe {
@@ -21,6 +22,7 @@ impl Bus {
 
     // Used in `usb_dc_init`
     pub(crate) fn device_init(&mut self, int_mask: u32) {
+        defmt::info!("Bus::device_init");
         // Clear dcd data first
         unsafe {
             DCD_DATA = DcdData::default();
@@ -46,10 +48,12 @@ impl Bus {
     }
 
     pub(crate) fn device_deinit(&mut self) {
+        defmt::info!("Bus::device_deinit");
         self.dcd_deinit();
     }
 
     pub(crate) fn device_endpoint_close(&mut self, ep_addr: EndpointAddress) {
+        defmt::info!("Bus::device_edpt_close");
         self.dcd_endpoint_close(ep_addr);
     }
 }

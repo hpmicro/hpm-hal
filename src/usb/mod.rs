@@ -398,9 +398,6 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
             w.set_sess_valid_override_en(true);
         });
 
-        // suppress "unused" warnings.
-        let _ = (dp, dm);
-
         UsbDriver {
             phantom: PhantomData,
             info: T::info(),

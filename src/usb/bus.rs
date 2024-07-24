@@ -9,6 +9,7 @@ use crate::usb::EpConfig;
 impl embassy_usb_driver::Bus for Bus {
     /// Enable the USB peripheral.
     async fn enable(&mut self) {
+        defmt::info!("Bus::enable");
         // TODO: dcd init or phy init?
         self.dcd_init();
         // self.phy_init();
@@ -22,6 +23,7 @@ impl embassy_usb_driver::Bus for Bus {
 
     /// Disable and powers down the USB peripheral.
     async fn disable(&mut self) {
+        defmt::info!("Bus::disable");
         // TODO: dcd deinit or phy deinit?
         self.dcd_deinit();
         // self.phy_deinit();
@@ -32,11 +34,13 @@ impl embassy_usb_driver::Bus for Bus {
     /// This method should asynchronously wait for an event to happen, then
     /// return it. See [`Event`] for the list of events this method should return.
     async fn poll(&mut self) -> Event {
+        defmt::info!("Bus::poll");
         todo!()
     }
 
     /// Enable or disable an endpoint.
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+        defmt::info!("Bus::endpoint_set_enabled");
         if enabled {
             let ep_data = self.endpoints[ep_addr.index()];
             assert!(ep_data.addr == ep_addr);
@@ -54,6 +58,7 @@ impl embassy_usb_driver::Bus for Bus {
     ///
     /// If the endpoint is an OUT endpoint, it should be prepared to receive data again.
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+        defmt::info!("Bus::endpoint_set_stalled");
         if stalled {
             self.device_endpoint_stall(ep_addr);
         } else {
@@ -63,6 +68,7 @@ impl embassy_usb_driver::Bus for Bus {
 
     /// Get whether the STALL condition is set for an endpoint.
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
+        defmt::info!("Bus::endpoint_is_stalled");
         self.dcd_endpoint_check_stall(ep_addr)
     }
 
