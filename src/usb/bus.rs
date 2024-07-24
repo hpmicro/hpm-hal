@@ -35,6 +35,7 @@ impl embassy_usb_driver::Bus for Bus {
     /// return it. See [`Event`] for the list of events this method should return.
     async fn poll(&mut self) -> Event {
         defmt::info!("Bus::poll");
+        embassy_time::Timer::after_secs(200000).await;
         todo!()
     }
 

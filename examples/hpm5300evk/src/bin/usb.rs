@@ -91,13 +91,13 @@ async fn echo<'d, T: Instance + 'd>(class: &mut CdcAcmClass<'d, UsbDriver<'d, T>
     loop {
         let n = class.read_packet(&mut buf).await?;
         let data = &buf[..n];
-        info!("data: {:x}", data);
+        // info!("data: {:x}", data);
         class.write_packet(data).await?;
     }
 }
 
 #[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    defmt::info!("panic");
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    defmt::info!("panic: {:?}", defmt::Debug2Format(&info));
     loop {}
 }

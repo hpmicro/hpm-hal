@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use core::task::Poll;
 
 use bitfield_struct::bitfield;
 use control_pipe::ControlPipe;
@@ -7,9 +8,11 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{Direction, Driver, EndpointAddress, EndpointAllocError, EndpointInfo, EndpointType};
 use embedded_hal::delay::DelayNs;
 use endpoint::Endpoint;
+use futures_util::future::poll_fn;
 use riscv::delay::McycleDelay;
 
 use crate::gpio::Pin;
+use crate::interrupt::typelevel::Interrupt as _;
 use crate::sysctl;
 
 mod bus;
@@ -123,6 +126,7 @@ impl QueueHead {
 }
 
 #[bitfield(u64)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) struct ControlRequest {
     #[bits(8)]
     request_type: u8,
@@ -316,6 +320,7 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
         #[cfg(feature = "usb-pin-reuse-hpm5300")] dm: impl Peripheral<P = impl DmPin<T>> + 'd,
         #[cfg(feature = "usb-pin-reuse-hpm5300")] dp: impl Peripheral<P = impl DpPin<T>> + 'd,
     ) -> Self {
+        unsafe { T::Interrupt::enable() };
         // TODO: Initialization
         //
         // For HPM5300 series, DP/DM are reused with PA24/PA25.
@@ -547,6 +552,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
                 max_packet_size: control_max_packet_size as usize,
                 ep_in,
                 ep_out,
+                state: T::state(),
             },
         )
     }
@@ -599,6 +605,23 @@ foreach_peripheral!(
         }
     };
 );
+
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        on_interrupt::<T>()
+    }
+}
+
+pub unsafe fn on_interrupt<T: Instance>() {
+    defmt::info!("USB interrupt");
+    let r = T::info().regs;
+
+    T::state().waker.wake();
+}
 
 pin_trait!(DmPin, Instance);
 pin_trait!(DpPin, Instance);

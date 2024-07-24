@@ -136,7 +136,8 @@ impl embassy_usb_driver::Endpoint for Endpoint {
     }
 
     async fn wait_enabled(&mut self) {
-        todo!()
+        defmt::info!("Endpoint::wait_enabled");
+        todo!();
     }
 }
 
