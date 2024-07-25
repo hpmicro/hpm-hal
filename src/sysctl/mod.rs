@@ -96,3 +96,25 @@ pub(crate) trait SealedClockPeripheral {
 
 #[allow(private_bounds)]
 pub trait ClockPeripheral: SealedClockPeripheral + 'static {}
+
+pub(crate) trait SealedAnalogClockPeripheral {
+    const ANA_CLOCK: usize;
+    const SYSCTL_RESOURCE: usize;
+
+    fn add_resource_group(group: usize) {
+        if Self::SYSCTL_RESOURCE == usize::MAX {
+            return;
+        }
+
+        clock_add_to_group(Self::SYSCTL_RESOURCE, group);
+    }
+
+    fn frequency() -> Hertz;
+
+    fn set_ahb_clock();
+
+    fn set_ana_clock(cfg: ClockConfig);
+}
+
+#[allow(private_bounds)]
+pub trait AnalogClockPeripheral: SealedAnalogClockPeripheral + 'static {}
