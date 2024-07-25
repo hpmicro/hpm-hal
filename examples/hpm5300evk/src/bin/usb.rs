@@ -1,6 +1,7 @@
 #![no_main]
 #![no_std]
 #![feature(type_alias_impl_trait)]
+#![feature(abi_riscv_interrupt)]
 
 use embassy_executor::Spawner;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
@@ -9,7 +10,12 @@ use embassy_usb::Builder;
 use hal::usb::{UsbDriver, Instance};
 use futures_util::future::join;
 use defmt::info;
+use hpm_hal::{bind_interrupts, peripherals};
 use {defmt_rtt as _, hpm_hal as hal, riscv_rt as _};
+
+bind_interrupts!(struct Irqs {
+    USB0 => hal::usb::InterruptHandler<peripherals::USB0>;
+});
 
 #[embassy_executor::main(entry = "hpm_hal::entry")]
 async fn main(_spawner: Spawner) -> ! {
