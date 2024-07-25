@@ -1,7 +1,14 @@
-use embassy_usb_driver::{EndpointIn, EndpointInfo, EndpointOut};
+use embassy_usb_driver::{EndpointAddress, EndpointIn, EndpointInfo, EndpointOut};
 use hpm_metapac::usb::regs::Endptprime;
 
 use super::{Error, Info, QueueTransferDescriptor, DCD_DATA, QTD_COUNT_EACH_ENDPOINT};
+
+pub struct EpConfig {
+    /// Endpoint type
+    pub(crate) transfer: u8,
+    pub(crate) ep_addr: EndpointAddress,
+    pub(crate) max_packet_size: u16,
+}
 
 #[derive(Copy, Clone)]
 pub struct Endpoint {

@@ -1,10 +1,17 @@
 use defmt::error;
-use embassy_usb_driver::{EndpointAddress, EndpointType, Event, Unsupported};
+use embassy_usb_driver::{EndpointAddress, EndpointInfo, EndpointType, Event, Unsupported};
 use embedded_hal::delay::DelayNs;
 use hpm_metapac::usb::regs::*;
+use riscv::delay::McycleDelay;
 
-use super::{init_qhd, Bus, ENDPOINT_COUNT};
-use crate::usb::EpConfig;
+use super::{init_qhd, Info, ENDPOINT_COUNT};
+use crate::usb::{reset_dcd_data, DcdData, EpConfig, DCD_DATA};
+#[allow(unused)]
+pub struct Bus {
+    pub(crate) info: &'static Info,
+    pub(crate) endpoints: [EndpointInfo; ENDPOINT_COUNT],
+    pub(crate) delay: McycleDelay,
+}
 
 impl embassy_usb_driver::Bus for Bus {
     /// Enable the USB peripheral.
@@ -290,7 +297,7 @@ impl Bus {
     pub(crate) fn device_endpoint_open(&mut self, ep_config: EpConfig) {
         if ep_config.ep_addr.index() >= ENDPOINT_COUNT {
             error!("Invalid endpoint index");
-            return
+            return;
         }
 
         // Prepare queue head
@@ -422,5 +429,51 @@ impl Bus {
         } else {
             r.endptctrl(ep_addr.index() as usize).read().rxs()
         }
+    }
+
+    pub(crate) fn device_bus_reset(&mut self, ep0_max_packet_size: u16) {
+        defmt::info!("Bus::device_bus_reset");
+        self.dcd_bus_reset();
+
+        unsafe {
+            reset_dcd_data(ep0_max_packet_size);
+        }
+    }
+
+    // Used in `usb_dc_init`
+    pub(crate) fn device_init(&mut self, int_mask: u32) {
+        defmt::info!("Bus::device_init");
+        // Clear dcd data first
+        unsafe {
+            DCD_DATA = DcdData::default();
+        }
+
+        // Initialize controller
+        self.dcd_init();
+
+        let r = &self.info.regs;
+        // Set endpoint list address
+        // TODO: Check if this is correct
+        let addr = unsafe { DCD_DATA.qhd.as_ptr() as u32 };
+        r.endptlistaddr().write(|w| w.set_epbase(addr));
+
+        // Clear status
+        r.usbsts().modify(|w| w.0 = 0);
+
+        // Enable interrupts
+        r.usbintr().modify(|w| w.0 = w.0 | int_mask);
+
+        // Connect
+        r.usbcmd().modify(|w| w.set_rs(true));
+    }
+
+    pub(crate) fn device_deinit(&mut self) {
+        defmt::info!("Bus::device_deinit");
+        self.dcd_deinit();
+    }
+
+    pub(crate) fn device_endpoint_close(&mut self, ep_addr: EndpointAddress) {
+        defmt::info!("Bus::device_edpt_close");
+        self.dcd_endpoint_close(ep_addr);
     }
 }
