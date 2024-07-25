@@ -605,6 +605,39 @@ pub unsafe fn on_interrupt<T: Instance>() {
     defmt::info!("USB interrupt");
     let r = T::info().regs;
 
+    // Get triggered interrupts
+    let status = r.usbsts().read();
+    let enabled_interrupts: hpm_metapac::usb::regs::Usbintr = r.usbintr().read();
+
+    // Clear triggered interrupts status bits
+    let triggered_interrupts = status.0 & enabled_interrupts.0;
+    r.usbsts().write(|w| w.0 = w.0 & (!triggered_interrupts));
+
+    // Disabled interrupt sources
+    if status.0 == 0 {
+        return;
+    }
+
+    // Reset event
+    if status.uri() {
+        defmt::info!("Reset event!")
+    }
+
+    // Suspend event
+    if status.sli() {
+        defmt::info!("Suspend event!")
+    }
+
+    // Port change event
+    if status.pci() {
+        defmt::info!("Port change event!")
+    }
+
+    // Transfer complete event
+    if status.ui() {
+        defmt::info!("Transfer complete event!")
+    }
+
     T::state().waker.wake();
 }
 
