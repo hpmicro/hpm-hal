@@ -43,6 +43,7 @@ fn get_ip_features(chip_family: &str) -> &[&str] {
             // custom
             "DMA_V2",
             "I2C_TRANSFER_COUNT_MAX_4096",
+            "ADC_BUSMODE_ENABLE_CTRL_SUPPORT",
         ],
         "hpm68" => &[
             "UART_RX_IDLE_DETECT",
@@ -99,6 +100,7 @@ fn get_ip_features(chip_family: &str) -> &[&str] {
             "DMA_V2",
             "DMA_V2_SWAP_TABLE",
             "I2C_TRANSFER_COUNT_MAX_4096",
+            "ADC_BUSMODE_ENABLE_CTRL_SUPPORT",
         ],
         _ => panic!("Unknown chip family: {}", chip_family),
     }
