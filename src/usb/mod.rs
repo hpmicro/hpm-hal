@@ -1,17 +1,16 @@
 use core::marker::PhantomData;
-use core::task::Poll;
 
 use bitfield_struct::bitfield;
+use bus::Bus;
 use control_pipe::ControlPipe;
-use embassy_hal_internal::{into_ref, Peripheral};
+#[cfg(feature = "usb-pin-reuse-hpm5300")]
+use embassy_hal_internal::into_ref;
+use embassy_hal_internal::Peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{Direction, Driver, EndpointAddress, EndpointAllocError, EndpointInfo, EndpointType};
 use embedded_hal::delay::DelayNs;
-use endpoint::Endpoint;
-use futures_util::future::poll_fn;
+use endpoint::{Endpoint, EpConfig};
 use riscv::delay::McycleDelay;
-
-use crate::gpio::Pin;
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::sysctl;
 
@@ -272,20 +271,6 @@ struct QueueTransferDescriptorToken {
     _r5: bool,
 }
 
-#[allow(unused)]
-pub struct Bus {
-    info: &'static Info,
-    endpoints: [EndpointInfo; ENDPOINT_COUNT],
-    delay: McycleDelay,
-}
-
-pub struct EpConfig {
-    /// Endpoint type
-    transfer: u8,
-    ep_addr: EndpointAddress,
-    max_packet_size: u16,
-}
-
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub(crate) struct EndpointAllocData {
     pub(crate) info: EndpointInfo,
@@ -316,7 +301,7 @@ pub struct UsbDriver<'d, T: Instance> {
 
 impl<'d, T: Instance> UsbDriver<'d, T> {
     pub fn new(
-        peri: impl Peripheral<P = T> + 'd,
+        _peri: impl Peripheral<P = T> + 'd,
         #[cfg(feature = "usb-pin-reuse-hpm5300")] dm: impl Peripheral<P = impl DmPin<T>> + 'd,
         #[cfg(feature = "usb-pin-reuse-hpm5300")] dp: impl Peripheral<P = impl DpPin<T>> + 'd,
     ) -> Self {
