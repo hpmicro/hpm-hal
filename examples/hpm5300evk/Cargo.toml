@@ -28,6 +28,7 @@ tinygif = "0.0.4"
 heapless = "0.8.0"
 micromath = "2.1.0"
 embedded-hal-bus = "0.2.0"
+assign-resources = "0.4.1"
 
 
 [profile.release]
