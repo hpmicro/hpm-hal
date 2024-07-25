@@ -3,6 +3,7 @@ use core::marker::PhantomData;
 use bitfield_struct::bitfield;
 use bus::Bus;
 use control_pipe::ControlPipe;
+use defmt::info;
 #[cfg(feature = "usb-pin-reuse-hpm5300")]
 use embassy_hal_internal::into_ref;
 use embassy_hal_internal::Peripheral;
@@ -10,7 +11,9 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{Direction, Driver, EndpointAddress, EndpointAllocError, EndpointInfo, EndpointType};
 use embedded_hal::delay::DelayNs;
 use endpoint::{Endpoint, EpConfig};
+use hpm_metapac::usb::regs::Usbsts;
 use riscv::delay::McycleDelay;
+
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::sysctl;
 
@@ -31,7 +34,7 @@ static mut DCD_DATA: DcdData = DcdData {
     qtd: [QueueTransferDescriptor::new(); ENDPOINT_COUNT as usize * 2 * QTD_COUNT_EACH_ENDPOINT as usize],
 };
 
-#[repr(C, align(32))]
+#[repr(C, align(2048))]
 pub struct DcdData {
     /// Queue head
     /// NON-CACHABLE
@@ -388,6 +391,8 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
             w.set_sess_valid_override_en(true);
         });
 
+        T::add_resource_group(0);
+
         UsbDriver {
             phantom: PhantomData,
             info: T::info(),
@@ -511,11 +516,6 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         assert_eq!(ep_out.info.addr.index(), 0);
         assert_eq!(ep_in.info.addr.index(), 0);
 
-        // FIXME: Do nothing now, but check whether we should start the usb device here?
-        // `Bus` has a `enable` function, which enables the USB peri
-        // But the comment says this function makes all the allocated endpoints **start operating**
-        // self.dcd_init();
-
         let mut eps: [EndpointInfo; ENDPOINT_COUNT] = [EndpointInfo {
             addr: EndpointAddress::from(0),
             ep_type: EndpointType::Bulk,
@@ -525,13 +525,39 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         for i in 0..ENDPOINT_COUNT {
             eps[i] = self.endpoints[i].info;
         }
+        let mut bus = Bus {
+            info: self.info,
+            endpoints: eps,
+            delay: McycleDelay::new(sysctl::clocks().cpu0.0),
+        };
+
+        // Init the usb bus
+        bus.dcd_init();
+
+        {
+            let r = self.info.regs;
+            // Set endpoint list address
+            // FIXME: the addr should be 2K bytes aligned
+            unsafe {
+                r.endptlistaddr()
+                    .modify(|w| w.set_epbase(DCD_DATA.qhd.as_ptr() as u32 & 0xFFFFF800))
+            };
+
+            // Clear status
+            // Enable interrupt mask
+            r.usbsts().write_value(Usbsts::default());
+            r.usbintr().write(|w| {
+                w.set_ue(true);
+                w.set_uee(true);
+                w.set_pce(true);
+                w.set_ure(true);
+            });
+        }
+
+        bus.dcd_connect();
 
         (
-            Self::Bus {
-                info: self.info,
-                endpoints: eps,
-                delay: McycleDelay::new(crate::sysctl::clocks().cpu0.0),
-            },
+            bus,
             Self::ControlPipe {
                 phantom: PhantomData,
                 max_packet_size: control_max_packet_size as usize,

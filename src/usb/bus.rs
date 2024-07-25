@@ -1,4 +1,4 @@
-use defmt::error;
+use defmt::{error, info};
 use embassy_usb_driver::{EndpointAddress, EndpointInfo, EndpointType, Event, Unsupported};
 use embedded_hal::delay::DelayNs;
 use hpm_metapac::usb::regs::*;
@@ -16,16 +16,9 @@ pub struct Bus {
 impl embassy_usb_driver::Bus for Bus {
     /// Enable the USB peripheral.
     async fn enable(&mut self) {
+        // FIXME: dcd init and dcd connect are called when initializing the Bus
+        // What should be done here?
         defmt::info!("Bus::enable");
-        // TODO: dcd init or phy init?
-        self.dcd_init();
-        // self.phy_init();
-
-        // TODO:
-        // Set endpoint list address
-        // Clear status
-        // Enable interrupt mask
-        self.dcd_connect();
     }
 
     /// Disable and powers down the USB peripheral.
@@ -111,7 +104,7 @@ impl Bus {
         });
 
         // Wait for reset status
-        while r.otg_ctrl0().read().otg_utmi_reset_sw() {}
+        while !r.otg_ctrl0().read().otg_utmi_reset_sw() {}
 
         // Set suspend
         r.otg_ctrl0().modify(|w| {
