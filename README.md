@@ -14,7 +14,7 @@ This crate is a working-in-progress and not ready for use.
 | HPM6700    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     |     |     |
 | HPM6300    | ✓   | ✓    | ✓       | ✓      |      |      |     |     |     |     |     |     |
 | HPM6200    | ✓   |      |         |        |      |      |     |     |     |     |     |     |
-| HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     |     |     |
+| HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     | ✓   |     |
 | HPM6800    | ✓   |      |         |        |      |      |     |     |     |     |     |     |
 | HPM6E00    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     |     |     |
 
@@ -47,16 +47,23 @@ This crate is a working-in-progress and not ready for use.
   - [x] I2C
     - [x] Blocking driver
     - [x] Async driver
+  - [x] SPI driver
+    - [x] QSPI driver
+    - [x] Blocking
+    - [x] Async using DMA
+  - [x] ADC driver
+    - [x] ADC16
+      - blocking one-shot
+      - blocking periodic
+      - [ ] sequence mode
+      - [ ] preemption mode
+    - [ ] ADC12, and differential mode
+  - [x] RTC, with alarm driver and optional chrono datetime
   - [x] MBX
     - [x] blocking and async, message mode and fifo mode
     - [ ] DMA driver?
   - [x] FEMC
     - [x] SDRAM init
-  - [x] SPI driver
-    - [x] QSPI driver
-    - [x] Blocking
-    - [x] Async using DMA
-  - [x] RTC, with alarm driver and optional chrono datetime
 - Long term Plans
   - [ ] andes-riscv for specific CSRs
   - [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
