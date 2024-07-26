@@ -1,9 +1,9 @@
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use bitfield_struct::bitfield;
 use bus::Bus;
 use control_pipe::ControlPipe;
-use defmt::info;
 #[cfg(feature = "usb-pin-reuse-hpm5300")]
 use embassy_hal_internal::into_ref;
 use embassy_hal_internal::Peripheral;
@@ -21,6 +21,11 @@ mod bus;
 mod control_pipe;
 mod device;
 mod endpoint;
+
+static IRQ_RESET: AtomicBool = AtomicBool::new(false);
+static IRQ_SUSPEND: AtomicBool = AtomicBool::new(false);
+static IRQ_TRANSFER_COMPLETED: AtomicBool = AtomicBool::new(false);
+static IRQ_PORT_CHANGE: AtomicBool = AtomicBool::new(false);
 
 #[cfg(usb_v67)]
 const ENDPOINT_COUNT: usize = 8;
@@ -529,6 +534,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             info: self.info,
             endpoints: eps,
             delay: McycleDelay::new(sysctl::clocks().cpu0.0),
+            state: T::state(),
         };
 
         // Init the usb bus
@@ -646,22 +652,53 @@ pub unsafe fn on_interrupt<T: Instance>() {
 
     // Reset event
     if status.uri() {
-        defmt::info!("Reset event!")
+        // Set IRQ_RESET signal
+        IRQ_RESET.store(true, Ordering::Relaxed);
+
+        // Wake main thread. Then the reset event will be processed in Bus::poll()
+        T::state().waker.wake();
     }
 
     // Suspend event
     if status.sli() {
-        defmt::info!("Suspend event!")
+        // Set IRQ_SUSPEND signal
+        IRQ_SUSPEND.store(true, Ordering::Relaxed);
+
+        // Wake main thread. Then the suspend event will be processed in Bus::poll()
+        T::state().waker.wake();
     }
 
     // Port change event
     if status.pci() {
-        defmt::info!("Port change event!")
+        defmt::info!("Port change event!");
+        if r.portsc1().read().ccs() {
+            // Connected
+        } else {
+            // Disconnected
+        }
     }
 
     // Transfer complete event
     if status.ui() {
-        defmt::info!("Transfer complete event!")
+        defmt::info!("Transfer complete event!");
+        let ep_status = r.endptstat().read();
+        // Clear the status by rewrite those bits
+        r.endptstat().modify(|w| w.0 = w.0);
+        let ep_setup_status = r.endptsetupstat().read();
+        if ep_setup_status.0 > 0 {
+            // Setup received, clear setup status first
+            r.endptsetupstat().modify(|w| w.0 = w.0);
+            // Get qhd0
+            let qhd0 = unsafe { DCD_DATA.qhd[0] };
+            // TODO: usbd_event_ep0_setup_complete_handler
+        }
+
+        if ep_status.0 > 0 {
+            // Transfer completed
+            // TODO: for each endpoint, check endpoint bit
+        }
+
+        // TODO: WAKE ENDPOINTS
     }
 
     T::state().waker.wake();

@@ -1,16 +1,21 @@
+use core::future::poll_fn;
+use core::sync::atomic::Ordering;
+use core::task::Poll;
+
 use defmt::{error, info};
-use embassy_usb_driver::{EndpointAddress, EndpointInfo, EndpointType, Event, Unsupported};
+use embassy_usb_driver::{Direction, EndpointAddress, EndpointInfo, EndpointType, Event, Unsupported};
 use embedded_hal::delay::DelayNs;
 use hpm_metapac::usb::regs::*;
 use riscv::delay::McycleDelay;
 
-use super::{init_qhd, Info, ENDPOINT_COUNT};
-use crate::usb::{reset_dcd_data, DcdData, EpConfig, DCD_DATA};
+use super::{init_qhd, Info, State, ENDPOINT_COUNT};
+use crate::usb::{reset_dcd_data, DcdData, EpConfig, DCD_DATA, IRQ_RESET, IRQ_SUSPEND};
 #[allow(unused)]
 pub struct Bus {
     pub(crate) info: &'static Info,
     pub(crate) endpoints: [EndpointInfo; ENDPOINT_COUNT],
     pub(crate) delay: McycleDelay,
+    pub(crate) state: &'static State,
 }
 
 impl embassy_usb_driver::Bus for Bus {
@@ -35,8 +40,63 @@ impl embassy_usb_driver::Bus for Bus {
     /// return it. See [`Event`] for the list of events this method should return.
     async fn poll(&mut self) -> Event {
         defmt::info!("Bus::poll");
-        embassy_time::Timer::after_secs(200000).await;
-        todo!()
+        let r = self.info.regs;
+        poll_fn(move |cx| {
+            self.state.waker.register(cx.waker());
+
+            // // TODO: implement VBUS detection.
+            // if !self.inited {
+            //     self.inited = true;
+            //     return Poll::Ready(Event::PowerDetected);
+            // }
+
+            // let regs = T::regs();
+
+            // if IRQ_RESUME.load(Ordering::Acquire) {
+            //     IRQ_RESUME.store(false, Ordering::Relaxed);
+            //     return Poll::Ready(Event::Resume);
+            // }
+
+            if IRQ_RESET.load(Ordering::Acquire) {
+                IRQ_RESET.store(false, Ordering::Relaxed);
+
+                info!("poll: RESET");
+                // TODO: Clear all existing ep data in regs
+
+                // Set device addr to 0
+                r.deviceaddr().modify(|w| {
+                    w.set_usbadr(0);
+                    w.set_usbadra(true);
+                });
+
+                // Set ep0 IN/OUT
+                self.endpoint_open(EpConfig {
+                    transfer: EndpointType::Control as u8,
+                    ep_addr: EndpointAddress::from_parts(0, Direction::In),
+                    max_packet_size: 64,
+                });
+                self.endpoint_open(EpConfig {
+                    transfer: EndpointType::Control as u8,
+                    ep_addr: EndpointAddress::from_parts(0, Direction::Out),
+                    max_packet_size: 64,
+                });
+
+                // TODO: wake all eps
+
+
+                return Poll::Ready(Event::Reset);
+            }
+
+            if IRQ_SUSPEND.load(Ordering::Acquire) {
+                IRQ_SUSPEND.store(false, Ordering::Relaxed);
+                // TODO: Suspend
+
+                return Poll::Ready(Event::Suspend);
+            }
+
+            Poll::Pending
+        })
+        .await
     }
 
     /// Enable or disable an endpoint.
@@ -45,7 +105,7 @@ impl embassy_usb_driver::Bus for Bus {
         if enabled {
             let ep_data = self.endpoints[ep_addr.index()];
             assert!(ep_data.addr == ep_addr);
-            self.device_endpoint_open(EpConfig {
+            self.endpoint_open(EpConfig {
                 transfer: ep_data.ep_type as u8,
                 ep_addr,
                 max_packet_size: ep_data.max_packet_size,
@@ -287,7 +347,9 @@ impl Bus {
             w.set_rs(false);
         });
     }
-    pub(crate) fn device_endpoint_open(&mut self, ep_config: EpConfig) {
+
+    /// usbd_endpoint_open
+    pub(crate) fn endpoint_open(&mut self, ep_config: EpConfig) {
         if ep_config.ep_addr.index() >= ENDPOINT_COUNT {
             error!("Invalid endpoint index");
             return;
