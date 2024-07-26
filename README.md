@@ -75,7 +75,7 @@ This crate is a working-in-progress and not ready for use.
   - [x] [HPM5300 series flash algorithm support](https://github.com/probe-rs/probe-rs/pull/2575)
     - Other series are available in the top level of this repo as `HPMicro.yaml`
     - HPM6750 is not working(unknown bug), use OpenOCD instead
-  - <https://github.com/hpmicro-rs/probe-rs> `hpmicro` branch, with DAP support and flash speed fix for HPM's RISC-V MCUs
+  - [probe-rs HPM fork] (`hpmicro` branch), with DAP support and flash speed fix for HPM's RISC-V MCUs
     - [ ] Upstream Pull Request [#2578 JTag support for DAPLink](https://github.com/probe-rs/probe-rs/pull/2578)
 
 ## Usage
@@ -107,7 +107,7 @@ The best reference is the examples in the `examples` directory and Github action
   - Set `HPM_SDK_BASE` environment variable to the SDK path
 - Choose one debugger:
   - OpenOCD: HPM's fork <https://github.com/hpmicro/riscv-openocd>
-  - probe-rs: <https://github.com/probe-rs/probe-rs>
+  - [probe-rs] or [probe-rs HPM fork]
     - The `HPMicro.yaml` flash algorithm is provided in top level of this repo
     - If you are using DAPLink probe, you need to use the version from PR [#2578 JTag support for DAPLink](https://github.com/probe-rs/probe-rs/pull/2578)
 
@@ -163,3 +163,5 @@ This crate is under active development. Before starting your work, it's better t
 
 [hpm-data]: https://github.com/andelf/hpm-data
 [HPM OpenOCD]: https://github.com/hpmicro/riscv-openocd
+[probe-rs]: https://github.com/probe-rs/probe-rs
+[probe-rs HPM fork]: https://github.com/hpmicro-rs/probe-rs
