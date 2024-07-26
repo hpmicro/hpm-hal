@@ -14,7 +14,7 @@ license = "MIT/Apache-2.0"
 
 [dependencies]
 # hpm-metapac = { path = "../hpm-data/build/hpm-metapac" }
-hpm-metapac = { version = "0.0.3", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-2b4efc081998998c40e41ad0f4918b918fa2b98f" }
+hpm-metapac = { version = "0.0.3", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-26b9ba91d6621c822205abfaf05e18239772e46b" }
 
 riscv = { version = "0.11", features = ["critical-section-single-hart"] }
 embedded-hal = { version = "1.0.0" }
@@ -46,7 +46,7 @@ chrono = { version = "0.4.38", default-features = false, optional = true }
 # hpm-metapac = { path = "../hpm-data/build/hpm-metapac", default-features = false, features = [
 #     "metadata",
 # ] }
-hpm-metapac = { version = "0.0.3", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-2b4efc081998998c40e41ad0f4918b918fa2b98f", default-features = false, features = [
+hpm-metapac = { version = "0.0.3", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-26b9ba91d6621c822205abfaf05e18239772e46b", default-features = false, features = [
     "metadata",
 ] }
 proc-macro2 = "1.0.85"

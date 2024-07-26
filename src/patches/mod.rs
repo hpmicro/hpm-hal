@@ -4,6 +4,8 @@ use crate::peripherals;
 use crate::sysctl::ClockConfig;
 use crate::time::Hertz;
 
+// - MARK: ClockPeripheral
+
 // Modules that use clock sources directly
 #[cfg(peri_puart)]
 mod puart {
@@ -35,6 +37,9 @@ mod ptmr {
     }
     impl crate::sysctl::ClockPeripheral for peripherals::PTMR {}
 }
+
+// - MARK: AnalogClockPeripheral
+// TOOD: patch I2S clock
 
 #[allow(unused)]
 macro_rules! impl_ana_clock_periph {
