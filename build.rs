@@ -213,8 +213,11 @@ fn main() {
         if !singletons.contains(&p.name.to_string()) {
             continue;
         }
+        // ADC is special, using AnalogClockPeripheral
+        if p.name.starts_with("ADC") {
+            continue;
+        }
         let pname = format_ident!("{}", p.name);
-
         if let Some(sysctl) = &p.sysctl {
             //            if let Some(clock_idx) = sysctl.clock_node {
             let resource_idx = sysctl.resource;

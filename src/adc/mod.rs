@@ -17,6 +17,8 @@ pub use crate::pac::adc16::vals::ClockDivider;
 use crate::peripherals;
 use crate::time::Hertz;
 
+// for ADC12
+// const MAX_ADC_CLK_FREQ: u32 = 83_300_000;
 // for ADC16
 const MAX_ADC_CLK_FREQ: u32 = 50_000_000;
 const ADC16_SOC_MAX_CONV_CLK_NUM: u8 = 21;
@@ -117,8 +119,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         r.conv_cfg1().modify(|w| w.set_clock_divider(config.clock_divider));
 
         let mut this = Self { adc };
-
-        defmt::info!("beigin calibrate");
 
         this.calibrate();
 
