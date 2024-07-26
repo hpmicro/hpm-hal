@@ -67,6 +67,23 @@ impl Default for ChannelConfig {
     }
 }
 
+/// Period mode configuration.
+#[non_exhaustive]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct PeriodicConfig {
+    pub prescale: u8,
+    pub period_count: u8,
+}
+
+impl Default for PeriodicConfig {
+    fn default() -> Self {
+        Self {
+            prescale: 22,    // 2^22 clocks
+            period_count: 5, // (1/200_000_000) * 5 * 2**22 = 0.10486s
+        }
+    }
+}
+
 /// Analog to Digital driver.
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
@@ -125,12 +142,12 @@ impl<'d, T: Instance> Adc<'d, T> {
         this
     }
 
-    pub fn configure_channel(channel: &mut impl AdcChannel<T>, config: ChannelConfig) {
-        channel.setup();
-
+    fn configure_channel(channel: &mut impl AdcChannel<T>, config: ChannelConfig) {
         if config.sample_cycle == 0 {
             panic!("invalid argument");
         }
+
+        channel.setup();
 
         let ch = channel.channel();
 
@@ -142,6 +159,30 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
 
         // TODO: watchdog
+    }
+
+    // Configure the the period mode for an ADC16 instance.
+    pub fn configure_periodic(&mut self, channel: &mut impl AdcChannel<T>, config: PeriodicConfig) {
+        if config.prescale > 0x1F {
+            panic!("prescale invalid");
+        }
+
+        channel.setup();
+
+        let r = T::regs();
+        let ch = channel.channel();
+
+        r.prd_cfg(ch as usize).prd_cfg().modify(|w| {
+            w.set_prescale(config.prescale);
+            w.set_prd(config.period_count);
+        });
+    }
+
+    pub fn disable_periodic(&mut self, channel: &mut impl AdcChannel<T>) {
+        let r = T::regs();
+        let ch = channel.channel();
+
+        r.prd_cfg(ch as usize).prd_cfg().modify(|w| w.set_prd(0));
     }
 
     pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, config: ChannelConfig) -> u16 {
@@ -169,6 +210,13 @@ impl<'d, T: Instance> Adc<'d, T> {
                 panic!("ADC read conflict");
             }
         }
+    }
+
+    pub fn periodic_read(&self, channel: &mut impl AdcChannel<T>) -> u16 {
+        let r = T::regs();
+        let ch = channel.channel();
+
+        r.prd_cfg(ch as usize).prd_result().read().chan_result()
     }
 
     ///  Do a calibration
