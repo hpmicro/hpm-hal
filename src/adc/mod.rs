@@ -10,7 +10,7 @@
 use core::marker::PhantomData;
 use core::ops;
 
-use embassy_hal_internal::{into_ref, Peripheral};
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 pub use crate::pac::adc16::vals::ClockDivider;
@@ -87,7 +87,7 @@ impl Default for PeriodicConfig {
 /// Analog to Digital driver.
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
-    adc: crate::PeripheralRef<'d, T>,
+    adc: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
