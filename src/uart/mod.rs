@@ -233,7 +233,11 @@ unsafe fn on_interrupt(r: pac::uart::Uart, s: &'static State) {
             }
         }
 
-        #[cfg(all(not(ip_feature_uart_e00018_fix), ip_feature_uart_rx_idle_detect))]
+        #[cfg(all(
+            not(ip_feature_uart_e00018_fix),
+            ip_feature_uart_rx_idle_detect,
+            ip_feature_uart_9bit_mode
+        ))]
         if r.ier().read().erxidle() && lsr.rxidle() {
             r.ier().modify(|w| w.set_etxidle(false)); // disable idle line detection
         }
@@ -539,10 +543,9 @@ impl<'d> UartRx<'d, Async> {
                 w.set_elsi(false); // rx status
                 w.set_ethei(false); // tx status
                 #[cfg(ip_feature_uart_rx_idle_detect)]
-                {
-                    w.set_erxidle(false);
-                    w.set_etxidle(false);
-                }
+                w.set_erxidle(false);
+                #[cfg(ip_feature_uart_9bit_mode)]
+                w.set_etxidle(false);
             });
 
             #[cfg(ip_feature_uart_rx_idle_detect)]
@@ -622,7 +625,7 @@ impl<'d> UartRx<'d, Async> {
                 }
             }
 
-            #[cfg(ip_feature_uart_rx_idle_detect)]
+            #[cfg(all(ip_feature_uart_rx_idle_detect, ip_feature_uart_9bit_mode))]
             if enable_idle_line_detection && lsr.rxidle() {
                 return Poll::Ready(Ok(()));
             }
