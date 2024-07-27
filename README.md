@@ -59,7 +59,7 @@ This crate is a working-in-progress and not ready for use.
   - [ ] ADC12, and differential mode
 - [x] DAC driver
   - [x] direct mode
-  - [ ] step mode
+  - [x] step mode
   - [ ] buffer mode
   - [ ] trigger mode
 - [x] RTC, with alarm driver and optional chrono datetime
