@@ -47,6 +47,8 @@ pub mod sysctl;
 // other peripherals
 #[cfg(adc16)]
 pub mod adc;
+#[cfg(dac)]
+pub mod dac;
 pub mod gpio;
 pub mod i2c;
 pub mod mbx;
