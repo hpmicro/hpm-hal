@@ -19,13 +19,17 @@ use crate::sysctl;
 
 mod bus;
 mod control_pipe;
-mod device;
 mod endpoint;
 
 static IRQ_RESET: AtomicBool = AtomicBool::new(false);
 static IRQ_SUSPEND: AtomicBool = AtomicBool::new(false);
 static IRQ_TRANSFER_COMPLETED: AtomicBool = AtomicBool::new(false);
 static IRQ_PORT_CHANGE: AtomicBool = AtomicBool::new(false);
+
+const AW_NEW: AtomicWaker = AtomicWaker::new();
+static EP_IN_WAKERS: [AtomicWaker; ENDPOINT_COUNT] = [AW_NEW; ENDPOINT_COUNT];
+static EP_OUT_WAKERS: [AtomicWaker; ENDPOINT_COUNT] = [AW_NEW; ENDPOINT_COUNT];
+static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 
 #[cfg(usb_v67)]
 const ENDPOINT_COUNT: usize = 8;
@@ -282,21 +286,19 @@ struct QueueTransferDescriptorToken {
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub(crate) struct EndpointAllocData {
     pub(crate) info: EndpointInfo,
-    pub(crate) used_in: bool,
-    pub(crate) used_out: bool,
+    pub(crate) used: bool,
 }
 
-impl Default for EndpointAllocData {
-    fn default() -> Self {
+impl EndpointAllocData {
+    fn new(dir: Direction) -> Self {
         Self {
             info: EndpointInfo {
-                addr: EndpointAddress::from_parts(0, Direction::Out),
+                addr: EndpointAddress::from_parts(0, dir),
                 max_packet_size: 0,
                 ep_type: EndpointType::Bulk,
                 interval_ms: 0,
             },
-            used_in: false,
-            used_out: false,
+            used: false,
         }
     }
 }
@@ -304,7 +306,8 @@ impl Default for EndpointAllocData {
 pub struct UsbDriver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     info: &'static Info,
-    endpoints: [EndpointAllocData; ENDPOINT_COUNT],
+    endpoints_in: [EndpointAllocData; ENDPOINT_COUNT],
+    endpoints_out: [EndpointAllocData; ENDPOINT_COUNT],
 }
 
 impl<'d, T: Instance> UsbDriver<'d, T> {
@@ -398,28 +401,31 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
 
         T::add_resource_group(0);
 
+        // Initialize the bus so that it signals that power is available
+        BUS_WAKER.wake();
+
         UsbDriver {
             phantom: PhantomData,
             info: T::info(),
-            endpoints: [EndpointAllocData::default(); ENDPOINT_COUNT],
+            endpoints_in: [EndpointAllocData::new(Direction::In); ENDPOINT_COUNT],
+            endpoints_out: [EndpointAllocData::new(Direction::Out); ENDPOINT_COUNT],
         }
     }
 
     /// Find the free endpoint
     pub(crate) fn find_free_endpoint(&mut self, ep_type: EndpointType, dir: Direction) -> Option<usize> {
-        self.endpoints
-            .iter_mut()
+        let endpoint_list = match dir {
+            Direction::Out => &mut self.endpoints_out,
+            Direction::In => &mut self.endpoints_in,
+        };
+        endpoint_list
+            .iter()
             .enumerate()
             .find(|(i, ep)| {
                 if *i == 0 && ep_type != EndpointType::Control {
                     return false; // reserved for control pipe
                 }
-                let used = ep.used_out || ep.used_in;
-                let used_dir = match dir {
-                    Direction::Out => ep.used_out,
-                    Direction::In => ep.used_in,
-                };
-                !used || (ep.info.ep_type == ep_type && !used_dir)
+                !ep.used
             })
             .map(|(i, _)| i)
     }
@@ -432,7 +438,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
 
     type ControlPipe = ControlPipe<'a, T>;
 
-    type Bus = Bus;
+    type Bus = Bus<T>;
 
     /// Allocates an OUT endpoint.
     ///
@@ -460,8 +466,8 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             max_packet_size,
             interval_ms,
         };
-        self.endpoints[ep_idx].used_out = true;
-        self.endpoints[ep_idx].info = ep.clone();
+        self.endpoints_out[ep_idx].used = true;
+        self.endpoints_out[ep_idx].info = ep.clone();
         Ok(Endpoint {
             info: ep,
             usb_info: self.info,
@@ -494,8 +500,8 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             max_packet_size,
             interval_ms,
         };
-        self.endpoints[ep_idx].used_out = true;
-        self.endpoints[ep_idx].info = ep.clone();
+        self.endpoints_in[ep_idx].used = true;
+        self.endpoints_in[ep_idx].info = ep.clone();
         Ok(Endpoint {
             info: ep,
             usb_info: self.info,
@@ -521,20 +527,29 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         assert_eq!(ep_out.info.addr.index(), 0);
         assert_eq!(ep_in.info.addr.index(), 0);
 
-        let mut eps: [EndpointInfo; ENDPOINT_COUNT] = [EndpointInfo {
-            addr: EndpointAddress::from(0),
+        let mut endpoints_in: [EndpointInfo; ENDPOINT_COUNT] = [EndpointInfo {
+            addr: EndpointAddress::from_parts(0, Direction::In),
+            ep_type: EndpointType::Bulk,
+            max_packet_size: 0,
+            interval_ms: 0,
+        }; ENDPOINT_COUNT];
+        let mut endpoints_out: [EndpointInfo; ENDPOINT_COUNT] = [EndpointInfo {
+            addr: EndpointAddress::from_parts(0, Direction::In),
             ep_type: EndpointType::Bulk,
             max_packet_size: 0,
             interval_ms: 0,
         }; ENDPOINT_COUNT];
         for i in 0..ENDPOINT_COUNT {
-            eps[i] = self.endpoints[i].info;
+            endpoints_in[i] = self.endpoints_in[i].info;
+            endpoints_out[i] = self.endpoints_out[i].info;
         }
         let mut bus = Bus {
+            _phantom: PhantomData,
             info: self.info,
-            endpoints: eps,
+            endpoints_in,
+            endpoints_out,
             delay: McycleDelay::new(sysctl::clocks().cpu0.0),
-            state: T::state(),
+            inited: false,
         };
 
         // Init the usb bus
@@ -543,7 +558,6 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         {
             let r = self.info.regs;
             // Set endpoint list address
-            // FIXME: the addr should be 2K bytes aligned
             unsafe {
                 r.endptlistaddr()
                     .modify(|w| w.set_epbase(DCD_DATA.qhd.as_ptr() as u32 & 0xFFFFF800))
@@ -565,16 +579,16 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         (
             bus,
             Self::ControlPipe {
-                phantom: PhantomData,
+                _phantom: PhantomData,
                 max_packet_size: control_max_packet_size as usize,
                 ep_in,
                 ep_out,
-                state: T::state(),
             },
         )
     }
 }
 
+#[derive(Debug)]
 pub enum Error {
     InvalidQtdNum,
 }
@@ -583,9 +597,7 @@ pub(super) struct Info {
     regs: crate::pac::usb::Usb,
 }
 
-// TODO: USB STATE?
 struct State {
-    #[allow(unused)]
     waker: AtomicWaker,
 }
 
@@ -634,7 +646,6 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Interru
 }
 
 pub unsafe fn on_interrupt<T: Instance>() {
-    defmt::info!("USB interrupt");
     let r = T::info().regs;
 
     // Get triggered interrupts
@@ -643,20 +654,23 @@ pub unsafe fn on_interrupt<T: Instance>() {
 
     // Clear triggered interrupts status bits
     let triggered_interrupts = status.0 & enabled_interrupts.0;
-    r.usbsts().write(|w| w.0 = w.0 & (!triggered_interrupts));
+    r.usbsts().modify(|w| w.0 = w.0 & (!triggered_interrupts));
+
+    let status = Usbsts(triggered_interrupts);
 
     // Disabled interrupt sources
     if status.0 == 0 {
         return;
     }
 
+    // defmt::info!("USB interrupt: {:b}", status.0);
     // Reset event
     if status.uri() {
         // Set IRQ_RESET signal
         IRQ_RESET.store(true, Ordering::Relaxed);
 
         // Wake main thread. Then the reset event will be processed in Bus::poll()
-        T::state().waker.wake();
+        BUS_WAKER.wake();
     }
 
     // Suspend event
@@ -665,12 +679,11 @@ pub unsafe fn on_interrupt<T: Instance>() {
         IRQ_SUSPEND.store(true, Ordering::Relaxed);
 
         // Wake main thread. Then the suspend event will be processed in Bus::poll()
-        T::state().waker.wake();
+        BUS_WAKER.wake();
     }
 
     // Port change event
     if status.pci() {
-        defmt::info!("Port change event!");
         if r.portsc1().read().ccs() {
             // Connected
         } else {
@@ -684,24 +697,26 @@ pub unsafe fn on_interrupt<T: Instance>() {
         let ep_status = r.endptstat().read();
         // Clear the status by rewrite those bits
         r.endptstat().modify(|w| w.0 = w.0);
+
         let ep_setup_status = r.endptsetupstat().read();
         if ep_setup_status.0 > 0 {
-            // Setup received, clear setup status first
-            r.endptsetupstat().modify(|w| w.0 = w.0);
-            // Get qhd0
-            let qhd0 = unsafe { DCD_DATA.qhd[0] };
-            // TODO: usbd_event_ep0_setup_complete_handler
+            EP_OUT_WAKERS[0].wake();
         }
 
         if ep_status.0 > 0 {
             // Transfer completed
-            // TODO: for each endpoint, check endpoint bit
+            for i in 1..ENDPOINT_COUNT {
+                if ep_status.erbr() & (1 << i) > 0 {
+                    // OUT endpoint
+                    EP_OUT_WAKERS[i].wake();
+                }
+                if ep_status.etbr() & (1 << i) > 0 {
+                    // IN endpoint
+                    EP_IN_WAKERS[i].wake();
+                }
+            }
         }
-
-        // TODO: WAKE ENDPOINTS
     }
-
-    T::state().waker.wake();
 }
 
 pin_trait!(DmPin, Instance);

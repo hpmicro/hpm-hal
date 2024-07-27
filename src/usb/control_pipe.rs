@@ -8,14 +8,13 @@ use hpm_metapac::usb::regs::Endptsetupstat;
 
 use super::endpoint::Endpoint;
 use super::Instance;
-use crate::usb::{init_qhd, EpConfig, State, DCD_DATA};
+use crate::usb::{init_qhd, EpConfig, DCD_DATA, EP_OUT_WAKERS};
 
 pub struct ControlPipe<'d, T: Instance> {
-    pub(crate) phantom: PhantomData<&'d mut T>,
+    pub(crate) _phantom: PhantomData<&'d mut T>,
     pub(crate) max_packet_size: usize,
     pub(crate) ep_in: Endpoint,
     pub(crate) ep_out: Endpoint,
-    pub(crate) state: &'static State,
 }
 
 impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
@@ -42,19 +41,22 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         // Set USB interrupt enable
         r.usbintr().modify(|w| w.set_ue(true));
         info!("Waiting for setup packet");
-        poll_fn(|cx| {
-            self.state.waker.register(cx.waker());
+        let _ = poll_fn(|cx| {
+            EP_OUT_WAKERS[0].register(cx.waker());
 
-            if r.usbsts().read().ui() {
+            // Setup received, clear setup status first
+            if r.endptsetupstat().read().0 != 0 {
                 info!("Got setup packet");
-                r.usbsts().write(|w| w.set_ui(true)); // W1C
+                r.endptsetupstat().modify(|w| w.0 = w.0);
                 return Poll::Ready(Ok::<(), ()>(()));
             }
+
+            info!("No setup packet yet");
             Poll::Pending
         })
         .await;
         // .unwrap();
-        while !r.usbsts().read().ui() {}
+        // while !r.usbsts().read().ui() {}
         info!("Got setup packet");
 
         // 2. Read setup packet from qhd buffer
