@@ -24,50 +24,56 @@ This crate is a working-in-progress and not ready for use.
 - Blank: Not implemented
 - +: Async support
 
-### TODO
+### Peripherals
 
-- Peripherals:
-  - [x] Basic rt code: linker, startup
-    - [x] vectored interrupt handling
-    - [x] L1C support
-    - [ ] PMP for noncacheable memory
-    - [ ] CPU1 support - how to?
-  - [x] Embassy time driver using MCHTMR
-  - [x] SYSCTL init
-    - [x] Resource group handling
-  - [x] PLL setting
-  - [x] GPIO, Flex, Input, Output, Async
-  - [x] DMA, both HDMA and XDMA
-    - [x] DMA v2
-    - [x] DMA v1
-  - [x] UART
-    - [x] Blocking driver
-    - [x] Async driver
-    - [ ] Ring buffer based async
-  - [x] I2C
-    - [x] Blocking driver
-    - [x] Async driver
-  - [x] SPI driver
-    - [x] QSPI driver
-    - [x] Blocking
-    - [x] Async using DMA
-  - [x] ADC driver
-    - [x] ADC16
-      - blocking one-shot
-      - blocking periodic
-      - [ ] sequence mode
-      - [ ] preemption mode
-    - [ ] ADC12, and differential mode
-  - [x] RTC, with alarm driver and optional chrono datetime
-  - [x] MBX
-    - [x] blocking and async, message mode and fifo mode
-    - [ ] DMA driver?
-  - [x] FEMC
-    - [x] SDRAM init
-- Long term Plans
-  - [ ] andes-riscv for specific CSRs
-  - [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
-  - [ ] power domain handling
+- [x] Basic rt code: linker, startup
+  - [x] vectored interrupt handling
+  - [x] L1C support
+  - [ ] PMP for noncacheable memory
+  - [ ] CPU1 support - how to?
+- [x] Embassy time driver using MCHTMR
+- [x] SYSCTL init
+  - [x] Resource group handling
+- [x] PLL setting
+- [x] GPIO, Flex, Input, Output, Async
+- [x] DMA, both HDMA and XDMA
+  - [x] DMA v2
+  - [x] DMA v1
+- [x] UART
+  - [x] Blocking driver
+  - [x] Async driver
+  - [ ] Ring buffer based async
+- [x] I2C
+  - [x] Blocking driver
+  - [x] Async driver
+- [x] SPI driver
+  - [x] QSPI driver
+  - [x] Blocking
+  - [x] Async using DMA
+- [x] ADC driver
+  - [x] ADC16
+    - blocking one-shot
+    - blocking periodic
+    - [ ] sequence mode
+    - [ ] preemption mode
+  - [ ] ADC12, and differential mode
+- [x] DAC driver
+  - [x] direct mode
+  - [ ] step mode
+  - [ ] buffer mode
+  - [ ] trigger mode
+- [x] RTC, with alarm driver and optional chrono datetime
+- [x] MBX
+  - [x] blocking and async, message mode and fifo mode
+  - [ ] DMA driver?
+- [x] FEMC
+  - [x] SDRAM init
+
+### Long term Plans
+
+- [ ] andes-riscv for specific CSRs
+- [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
+- [ ] power domain handling
 
 ### Toolchain Support
 
