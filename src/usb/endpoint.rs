@@ -1,6 +1,10 @@
+use core::future::poll_fn;
+use core::task::Poll;
+
 use embassy_usb_driver::{EndpointAddress, EndpointIn, EndpointInfo, EndpointOut};
 use hpm_metapac::usb::regs::Endptprime;
 
+use crate::usb::{EP_OUT_WAKERS, EP_IN_WAKERS};
 use super::{Error, Info, QueueTransferDescriptor, DCD_DATA, QTD_COUNT_EACH_ENDPOINT};
 
 pub struct EpConfig {
@@ -111,30 +115,30 @@ impl Endpoint {
         }
     }
 
-    pub(crate) fn clean_stall(&mut self) {
-        let r = &self.usb_info.regs;
+    // pub(crate) fn clean_stall(&mut self) {
+    //     let r = &self.usb_info.regs;
 
-        r.endptctrl(self.info.addr.index() as usize).modify(|w| {
-            if self.info.addr.is_in() {
-                // Data toggle also need to be reset
-                w.set_txr(true);
-                w.set_txs(false);
-            } else {
-                w.set_rxr(true);
-                w.set_rxs(false);
-            }
-        });
-    }
+    //     r.endptctrl(self.info.addr.index() as usize).modify(|w| {
+    //         if self.info.addr.is_in() {
+    //             // Data toggle also need to be reset
+    //             w.set_txr(true);
+    //             w.set_txs(false);
+    //         } else {
+    //             w.set_rxr(true);
+    //             w.set_rxs(false);
+    //         }
+    //     });
+    // }
 
-    pub(crate) fn check_stall(&self) -> bool {
-        let r = &self.usb_info.regs;
+    // pub(crate) fn check_stall(&self) -> bool {
+    //     let r = &self.usb_info.regs;
 
-        if self.info.addr.is_in() {
-            r.endptctrl(self.info.addr.index() as usize).read().txs()
-        } else {
-            r.endptctrl(self.info.addr.index() as usize).read().rxs()
-        }
-    }
+    //     if self.info.addr.is_in() {
+    //         r.endptctrl(self.info.addr.index() as usize).read().txs()
+    //     } else {
+    //         r.endptctrl(self.info.addr.index() as usize).read().rxs()
+    //     }
+    // }
 }
 
 impl embassy_usb_driver::Endpoint for Endpoint {
@@ -144,20 +148,44 @@ impl embassy_usb_driver::Endpoint for Endpoint {
 
     async fn wait_enabled(&mut self) {
         defmt::info!("Endpoint::wait_enabled");
-        todo!();
+        let i = self.info.addr.index();
+        assert!(i != 0);
+        poll_fn(|cx| {
+            // TODO: Simplify the code
+            if self.info.addr.is_in() {
+                EP_IN_WAKERS[i].register(cx.waker());
+                // Check if the endpoint is enabled
+                if self.usb_info.regs.endptctrl(i).read().txe() {
+                    defmt::info!("Endpoint::wait_enabled: enabled");
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            } else {
+                EP_OUT_WAKERS[i].register(cx.waker());
+                // Check if the endpoint is enabled
+                if self.usb_info.regs.endptctrl(i).read().rxe() {
+                    defmt::info!("Endpoint::wait_enabled: enabled");
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            }
+        }).await;
+        defmt::info!("endpoint {} enabled", self.info.addr.index());
     }
 }
 
 impl EndpointOut for Endpoint {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, embassy_usb_driver::EndpointError> {
-        self.transfer(buf);
+        self.transfer(buf).unwrap();
         Ok(buf.len())
     }
 }
 
 impl EndpointIn for Endpoint {
     async fn write(&mut self, buf: &[u8]) -> Result<(), embassy_usb_driver::EndpointError> {
-        self.transfer(buf);
+        self.transfer(buf).unwrap();
         Ok(())
     }
 }

@@ -77,7 +77,7 @@ async fn main(_spawner: Spawner) -> ! {
     join(usb_fut, echo_fut).await;
 
     loop {
-
+        embassy_time::Timer::after_secs(1000).await;
     }
 }
 
