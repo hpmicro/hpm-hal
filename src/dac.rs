@@ -39,32 +39,54 @@ pub struct StepConfig {
     pub dir: StepDir,
     pub start: u16,
     pub end: u16,
+    /// Step number, 0-15.
     pub step: u8,
 }
 
 impl StepConfig {
-    pub fn oneshot(start: u16, end: u16, step: i8) -> Self {
-        if step < 0 {
-            StepConfig {
-                mode: RoundMode::STOP,
-                dir: StepDir::DOWN,
-                start,
-                end,
-                step: (-step) as u8,
+    fn fix_end_point(&mut self) {
+        if self.step == 0 {
+            return;
+        }
+        match self.dir {
+            StepDir::UP => {
+                let range = self.end - self.start + 1;
+                let nstep = range / (self.step as u16);
+                self.end = self.start + nstep * (self.step as u16);
             }
-        } else {
-            StepConfig {
-                mode: RoundMode::STOP,
-                dir: StepDir::UP,
-                start,
-                end,
-                step: step as u8,
+            StepDir::DOWN => {
+                let range = self.start - self.end + 1;
+                let nstep = range / (self.step as u16);
+                self.end = self.start - nstep * (self.step as u16);
             }
         }
     }
+    /// Create a one-shot step configuration. abs(step) must be less than 16.
+    pub fn oneshot(start: u16, end: u16, step: i8) -> Self {
+        let mut this = if step < 0 {
+            StepConfig {
+                mode: RoundMode::STOP,
+                dir: StepDir::DOWN,
+                start,
+                end,
+                step: (-step) as u8,
+            }
+        } else {
+            StepConfig {
+                mode: RoundMode::STOP,
+                dir: StepDir::UP,
+                start,
+                end,
+                step: step as u8,
+            }
+        };
+        this.fix_end_point();
+        this
+    }
 
+    /// Create a continuous step configuration. abs(step) must be less than 16.
     pub fn continuous(start: u16, end: u16, step: i8) -> Self {
-        if step < 0 {
+        let mut this = if step < 0 {
             StepConfig {
                 mode: RoundMode::RELOAD,
                 dir: StepDir::DOWN,
@@ -80,7 +102,9 @@ impl StepConfig {
                 end,
                 step: step as u8,
             }
-        }
+        };
+        this.fix_end_point();
+        this
     }
 }
 
@@ -151,8 +175,6 @@ impl<'d, T: Instance> Dac<'d, T> {
         let clk = clk_in / r.cfg1().read().ana_div_cfg();
 
         let div = clk.0 / freq.0;
-
-        defmt::info!("in freq {} div={}", clk, div);
 
         assert!(div <= 0xFFFF);
 
