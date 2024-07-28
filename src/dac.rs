@@ -8,9 +8,11 @@
 use core::marker::PhantomData;
 use core::ops;
 
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral};
+use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt;
+use crate::interrupt::typelevel::Interrupt as _;
 pub use crate::pac::dac::vals::{AnaDiv, DacMode, RoundMode, StepDir};
 use crate::time::Hertz;
 
@@ -115,29 +117,33 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        //  on_interrupt(T::info().regs, T::state());
+        // on_interrupt(T::info().regs, T::state());
 
         // PLIC ack is handled by typelevel Handler
     }
 }
 
 /// Driver for  DAC.
-pub struct Dac<'d, T: Instance> {
-    _perih: PeripheralRef<'d, T>,
+pub struct Dac<'d> {
+    info: &'static Info,
+    state: &'static State,
+    kernel_clock: Hertz,
+    _phantom: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Dac<'d, T> {
-    pub fn new(
+impl<'d> Dac<'d> {
+    pub fn new<T: Instance>(
         dac: impl Peripheral<P = T> + 'd,
         out: impl Peripheral<P = impl OutPin<T>> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(dac, out);
+        let _ = dac;
 
         out.set_as_analog();
         T::add_resource_group(0);
 
-        let r = T::regs();
+        let r = T::info().regs;
 
         // reset DAC output data
         r.cfg0_bak().modify(|w| w.set_sw_dac_data(0));
@@ -157,11 +163,16 @@ impl<'d, T: Instance> Dac<'d, T> {
         // set ANA_CLK_EN when direct and trig mode
         r.cfg1().modify(|w| w.set_ana_clk_en(true));
 
-        Self { _perih: dac }
+        Self {
+            info: T::info(),
+            state: T::state(),
+            kernel_clock: T::frequency(),
+            _phantom: PhantomData,
+        }
     }
 
     pub fn enable(&mut self, enable: bool) {
-        let r = T::regs();
+        let r = self.info.regs;
 
         r.ana_cfg0().modify(|w| w.set_dac12bit_en(enable));
     }
@@ -170,8 +181,8 @@ impl<'d, T: Instance> Dac<'d, T> {
     pub fn configure_output_frequency(&mut self, freq: Hertz) {
         assert!(freq.0 <= 1_000_000);
 
-        let clk_in = T::frequency();
-        let r = T::regs();
+        let clk_in = self.kernel_clock;
+        let r = self.info.regs;
         let clk = clk_in / r.cfg1().read().ana_div_cfg();
 
         let div = clk.0 / freq.0;
@@ -185,7 +196,7 @@ impl<'d, T: Instance> Dac<'d, T> {
         assert!(idx < 4);
         assert!(config.step < 16);
 
-        let r = T::regs();
+        let r = self.info.regs;
 
         r.step_cfg(idx).write(|w| {
             w.set_round_mode(config.mode);
@@ -199,7 +210,7 @@ impl<'d, T: Instance> Dac<'d, T> {
     pub fn trigger_step_mode(&mut self, idx: usize) {
         assert!(idx < 4);
 
-        let r = T::regs();
+        let r = self.info.regs;
 
         r.cfg0_bak().modify(|w| w.set_hw_trig_en(false)); // disable hw trigger
         r.cfg0().write_value(r.cfg0_bak().read());
@@ -213,7 +224,7 @@ impl<'d, T: Instance> Dac<'d, T> {
             panic!("DAC value out of range");
         }
 
-        let r = T::regs();
+        let r = self.info.regs;
 
         r.cfg0_bak().modify(|w| w.set_sw_dac_data(value));
 
@@ -222,14 +233,34 @@ impl<'d, T: Instance> Dac<'d, T> {
     }
 
     pub fn get_value(&self) -> u16 {
-        let r = T::regs();
+        let r = self.info.regs;
 
         r.cfg0_bak().read().sw_dac_data()
     }
 }
 
+// - MARK: Info and State
+
+struct State {
+    waker: AtomicWaker,
+}
+impl State {
+    const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
+        }
+    }
+}
+
+struct Info {
+    regs: crate::pac::dac::Dac,
+    interrupt: interrupt::Interrupt,
+}
+
+// - MARK: Instance
 trait SealedInstance {
-    fn regs() -> crate::pac::dac::Dac;
+    fn info() -> &'static Info;
+    fn state() -> &'static State;
 }
 
 /// DAC instance.
@@ -244,8 +275,17 @@ pin_trait!(OutPin, Instance);
 macro_rules! impl_dac {
     ($inst:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
-            fn regs() -> crate::pac::dac::Dac {
-                crate::pac::$inst
+            fn info() -> &'static Info {
+                static INFO: Info = Info {
+                    regs: crate::pac::$inst,
+                    interrupt: crate::interrupt::typelevel::$inst::IRQ,
+                };
+                &INFO
+            }
+
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
             }
         }
 
