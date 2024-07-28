@@ -648,6 +648,8 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Interru
 pub unsafe fn on_interrupt<T: Instance>() {
     let r = T::info().regs;
 
+    defmt::info!("IRQ");
+
     // Get triggered interrupts
     let status = r.usbsts().read();
     let enabled_interrupts: hpm_metapac::usb::regs::Usbintr = r.usbintr().read();
@@ -655,7 +657,6 @@ pub unsafe fn on_interrupt<T: Instance>() {
     // Clear triggered interrupts status bits
     let triggered_interrupts = status.0 & enabled_interrupts.0;
     r.usbsts().modify(|w| w.0 = w.0 & (!triggered_interrupts));
-
     let status = Usbsts(triggered_interrupts);
 
     // Disabled interrupt sources
@@ -668,6 +669,9 @@ pub unsafe fn on_interrupt<T: Instance>() {
     if status.uri() {
         // Set IRQ_RESET signal
         IRQ_RESET.store(true, Ordering::Relaxed);
+
+        r.usbintr().modify(|w| w.set_pce(false));
+        r.usbintr().modify(|w| w.set_ure(false));
 
         // Wake main thread. Then the reset event will be processed in Bus::poll()
         BUS_WAKER.wake();
