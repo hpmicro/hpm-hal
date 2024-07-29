@@ -60,8 +60,9 @@ This crate is a working-in-progress and not ready for use.
 - [x] DAC driver
   - [x] direct mode
   - [x] step mode
-  - [ ] buffer mode
-  - [ ] trigger mode
+  - [x] buffer mode
+  - [ ] buffer switch control using async
+  - [ ] hw trigger control
 - [x] RTC, with alarm driver and optional chrono datetime
 - [x] MBX
   - [x] blocking and async, message mode and fifo mode
