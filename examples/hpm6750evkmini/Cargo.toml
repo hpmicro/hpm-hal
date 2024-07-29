@@ -11,7 +11,7 @@ embedded-hal = "1.0.0"
 #    "hpm6750",
 #    "memory-x",
 #    "rt",
-#], git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-2b4efc081998998c40e41ad0f4918b918fa2b98f" }
+#], git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-5b7ef7966574b6805c46a0718335f852ab952d60" }
 
 hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm6750", "chrono"] }
 
