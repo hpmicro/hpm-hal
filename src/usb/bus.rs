@@ -10,7 +10,7 @@ use hpm_metapac::usb::regs::*;
 use riscv::delay::McycleDelay;
 
 use super::{init_qhd, Info, Instance, ENDPOINT_COUNT};
-use crate::usb::{reset_dcd_data, EpConfig, BUS_WAKER, IRQ_RESET, IRQ_SUSPEND};
+use crate::usb::{reset_dcd_data, EpConfig, BUS_WAKER, DCD_DATA, IRQ_RESET, IRQ_SUSPEND};
 
 pub struct Bus<T: Instance> {
     pub(crate) _phantom: PhantomData<T>,
@@ -43,6 +43,7 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
     /// return it. See [`Event`] for the list of events this method should return.
     async fn poll(&mut self) -> Event {
         defmt::info!("Bus::poll");
+
         poll_fn(|cx| {
             BUS_WAKER.register(cx.waker());
             let r = self.info.regs;
@@ -53,11 +54,14 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
                 return Poll::Ready(Event::PowerDetected);
             }
 
-            defmt::info!("WAKED POLL");
             if IRQ_RESET.load(Ordering::Acquire) {
                 IRQ_RESET.store(false, Ordering::Relaxed);
 
-                // TODO: Clear all existing ep data in regs
+                // Return setup packet
+                let setup_packet = unsafe { DCD_DATA.qhd[0].setup_request };
+
+                // Convert to slice
+                defmt::trace!("check setup_packet in reset: {:?}", setup_packet);
 
                 // Set device addr to 0
                 self.dcd_set_address(0);
@@ -77,7 +81,8 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
                 // Reset bus
                 self.device_bus_reset(64);
 
-                // TODO: Reset all eps and wake them all to make sure they are reset
+                // Set ue, enable usb transfer interrupt
+                r.usbintr().modify(|w| w.set_ue(true));
 
                 defmt::info!("poll: Reset");
                 return Poll::Ready(Event::Reset);
@@ -227,20 +232,19 @@ impl<T: Instance> Bus<T> {
         // This is because the default transfer type is control, according to hpm_sdk,
         // leaving an un-configured endpoint control will cause undefined behavior
         // for the data PID tracking on the active endpoint.
-        for i in 0..ENDPOINT_COUNT {
+        for i in 1..ENDPOINT_COUNT {
             r.endptctrl(i as usize).write(|w| {
                 w.set_txt(EndpointType::Bulk as u8);
                 w.set_rxt(EndpointType::Bulk as u8);
             });
         }
 
-        // Clear all registers
-        // TODO: CHECK: In hpm_sdk, are those registers REALLY cleared?
-        r.endptnak().write_value(Endptnak::default());
-        r.endptnaken().write_value(Endptnaken(0));
-        r.usbsts().write_value(Usbsts::default());
-        r.endptsetupstat().write_value(Endptsetupstat::default());
-        r.endptcomplete().write_value(Endptcomplete::default());
+        // Clear all registers(by writing 1 to any non-zero bits)
+        r.endptnak().modify(|w| w.0 = w.0);
+        r.endptnaken().modify(|w| w.0 = 0);
+        r.usbsts().modify(|w| w.0 = w.0);
+        r.endptsetupstat().modify(|w| w.0 = w.0);
+        r.endptcomplete().modify(|w| w.0 = w.0);
 
         while r.endptprime().read().0 != 0 {}
 
@@ -275,7 +279,7 @@ impl<T: Instance> Bus<T> {
             w.set_sts(false);
             // Parallel transceiver width
             w.set_ptw(false);
-            // TODO: Set fullspeed mode
+            // Forced fullspeed mode
             // w.set_pfsc(true);
         });
 

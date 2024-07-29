@@ -24,6 +24,13 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
 
     async fn setup(&mut self) -> [u8; 8] {
         defmt::info!("ControlPipe::setup");
+
+        // Return setup packet
+        let setup_packet = unsafe { DCD_DATA.qhd[0].setup_request };
+
+        // Convert to slice
+        defmt::trace!("check setup_packet in setup control pipe: {:?}", setup_packet);
+
         unsafe {
             init_qhd(&EpConfig {
                 // Must be EndpointType::Control
@@ -44,7 +51,6 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         let _ = poll_fn(|cx| {
             EP_OUT_WAKERS[0].register(cx.waker());
 
-            // Setup received, clear setup status first
             if r.endptsetupstat().read().0 != 0 {
                 info!("Got setup packet");
                 r.endptsetupstat().modify(|w| w.0 = w.0);

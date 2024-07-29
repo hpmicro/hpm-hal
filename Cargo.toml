@@ -43,7 +43,6 @@ embedded-hal-async = "1.0.0"
 chrono = { version = "0.4.38", default-features = false, optional = true }
 mcan = { version = "0.5.0", optional = true }
 
-xhci = "0.9.2"
 bitfield-struct = "0.8"
 
 [build-dependencies]
