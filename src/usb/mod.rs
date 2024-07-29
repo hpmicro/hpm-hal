@@ -57,13 +57,13 @@ pub(crate) unsafe fn reset_dcd_data(ep0_max_packet_size: u16) {
     DCD_DATA.qhd = [QueueHead::new(); ENDPOINT_COUNT as usize * 2];
     DCD_DATA.qtd = [QueueTransferDescriptor::new(); ENDPOINT_COUNT as usize * 2 * QTD_COUNT_EACH_ENDPOINT as usize];
 
+    // Set qhd for EP0
     DCD_DATA.qhd[0].cap.set_zero_length_termination(true);
     DCD_DATA.qhd[1].cap.set_zero_length_termination(true);
     DCD_DATA.qhd[0].cap.set_max_packet_size(ep0_max_packet_size);
     DCD_DATA.qhd[1].cap.set_max_packet_size(ep0_max_packet_size);
 
-    // Set the next pointer INVALID
-    // TODO: replacement?
+    // Set the next pointer INVALID(T=1)
     DCD_DATA.qhd[0].qtd_overlay.next = 1;
     DCD_DATA.qhd[1].qtd_overlay.next = 1;
 
@@ -74,9 +74,8 @@ pub(crate) unsafe fn reset_dcd_data(ep0_max_packet_size: u16) {
 pub(crate) unsafe fn init_qhd(ep_config: &EpConfig) {
     let ep_num = ep_config.ep_addr.index();
     let ep_idx = 2 * ep_num + ep_config.ep_addr.is_in() as usize;
-
     // Prepare queue head
-    DCD_DATA.qhd[ep_idx as usize] = QueueHead::default();
+    DCD_DATA.qhd[ep_idx as usize] = QueueHead::new();
     DCD_DATA.qhd[ep_idx as usize].cap.set_zero_length_termination(true);
     DCD_DATA.qhd[ep_idx as usize]
         .cap
@@ -648,14 +647,19 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Interru
 pub unsafe fn on_interrupt<T: Instance>() {
     let r = T::info().regs;
 
-    defmt::info!("IRQ");
-
     // Get triggered interrupts
     let status = r.usbsts().read();
-    let enabled_interrupts: hpm_metapac::usb::regs::Usbintr = r.usbintr().read();
+    let enabled_interrupts = r.usbintr().read();
 
     // Clear triggered interrupts status bits
     let triggered_interrupts = status.0 & enabled_interrupts.0;
+    defmt::info!(
+        "USBIRQ: usbsts: {:b}, usbintr: {:b}, trigger intr: {:b}",
+        status.0,
+        enabled_interrupts.0,
+        triggered_interrupts
+    );
+
     r.usbsts().modify(|w| w.0 = w.0 & (!triggered_interrupts));
     let status = Usbsts(triggered_interrupts);
 
@@ -670,7 +674,6 @@ pub unsafe fn on_interrupt<T: Instance>() {
         // Set IRQ_RESET signal
         IRQ_RESET.store(true, Ordering::Relaxed);
 
-        r.usbintr().modify(|w| w.set_pce(false));
         r.usbintr().modify(|w| w.set_ure(false));
 
         // Wake main thread. Then the reset event will be processed in Bus::poll()
@@ -689,6 +692,9 @@ pub unsafe fn on_interrupt<T: Instance>() {
     // Port change event
     if status.pci() {
         if r.portsc1().read().ccs() {
+            r.usbintr().modify(|w| w.set_pce(false));
+            // Wake main thread. Then the suspend event will be processed in Bus::poll()
+            BUS_WAKER.wake();
             // Connected
         } else {
             // Disconnected
