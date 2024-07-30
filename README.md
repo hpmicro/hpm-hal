@@ -9,14 +9,14 @@ This crate is a working-in-progress and not ready for use.
 
 ### MCU Family Support
 
-| MCU Family | PAC | Demo | Embassy | SYSCTL | GPIO | UART | I2C | SPI | DMA | TMR | ADC | USB |
-|------------|-----|------|---------|--------|------|------|-----|-----|-----|-----|-----|-----|
-| HPM6700    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     |     |     |
-| HPM6300    | ✓   | ✓    | ✓       | ✓      |      |      |     |     |     |     |     |     |
-| HPM6200    | ✓   |      |         |        |      |      |     |     |     |     |     |     |
-| HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     | ✓   |     |
-| HPM6800    | ✓   |      |         |        |      |      |     |     |     |     |     |     |
-| HPM6E00    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     |     |     |
+| MCU Family | PAC | Demo | Embassy | SYSCTL | GPIO | UART | I2C | SPI | DMA | TMR | ADC | USB | CAN |
+|------------|-----|------|---------|--------|------|------|-----|-----|-----|-----|-----|-----|-----|
+| HPM6700    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     |     |     |     |
+| HPM6300    | ✓   | ✓    | ✓       | ✓      |      |      |     |     |     |     |     |     |     |
+| HPM6200    | ✓   |      |         |        |      |      |     |     |     |     |     |     |     |
+| HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     | ✓   |     | ✓   |
+| HPM6800    | ✓   |      |         |        |      |      |     |     |     |     |     |     |     |
+| HPM6E00    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     |     |     |     |
 
 - ✓: Implemented
 - ?: Requires demo verification
@@ -69,6 +69,9 @@ This crate is a working-in-progress and not ready for use.
   - [ ] DMA driver?
 - [x] FEMC
   - [x] SDRAM init
+- [x] MCAN
+  - [x] basic `mcan` wrapper
+  - [ ] async driver
 
 ### Long term Plans
 
