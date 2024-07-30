@@ -257,8 +257,8 @@ fn main() {
         // DAC
         (("dac", "OUT"), quote!(crate::dac::OutPin)),
         // MCAN
-        (("mcan", "RX"), quote!(crate::mcan::RxPin)),
-        (("mcan", "TX"), quote!(crate::mcan::TxPin)),
+        (("mcan", "RXD"), quote!(crate::mcan::RxPin)),
+        (("mcan", "TXD"), quote!(crate::mcan::TxPin)),
         (("mcan", "STBY"), quote!(crate::mcan::StbyPin)),
         // FEMC
         (("femc", "A00"), quote!(crate::femc::A00Pin)),
