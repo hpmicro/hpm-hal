@@ -29,6 +29,8 @@ heapless = "0.8.0"
 micromath = "2.1.0"
 embedded-hal-bus = "0.2.0"
 assign-resources = "0.4.1"
+mcan = "0.5.0"
+embassy-sync = "0.6.0"
 
 
 [profile.release]

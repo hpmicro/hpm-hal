@@ -162,6 +162,12 @@ SECTIONS
     _sstack = .;
   } > REGION_STACK
 
+  .can (NOLOAD) :
+  {
+    *(.can .can.*);
+  } > REGION_CAN
+
+
   /* fake output .got section */
   /* Dynamic relocations are unsupported. This section is only used to detect
      relocatable code in the input files and raise an error if relocatable code
@@ -176,6 +182,7 @@ SECTIONS
   .eh_frame : { KEEP(*(.eh_frame)) } > REGION_TEXT
   .eh_frame_hdr : { *(.eh_frame_hdr) } > REGION_TEXT
 }
+
 
 /* Do not exceed this mark in the error messages above                                    | */
 ASSERT(ORIGIN(REGION_TEXT) % 4 == 0, "
