@@ -13,8 +13,8 @@ readme = "README.md"
 license = "MIT/Apache-2.0"
 
 [dependencies]
-# hpm-metapac = { path = "../hpm-data/build/hpm-metapac" }
-hpm-metapac = { version = "0.0.3", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-5b7ef7966574b6805c46a0718335f852ab952d60" }
+hpm-metapac = { path = "../hpm-data/build/hpm-metapac" }
+# hpm-metapac = { version = "0.0.3", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-5b7ef7966574b6805c46a0718335f852ab952d60" }
 
 riscv = { version = "0.11", features = ["critical-section-single-hart"] }
 embedded-hal = { version = "1.0.0" }
@@ -40,15 +40,16 @@ embedded-hal-nb = "1.0.0"
 embedded-io-async = "0.6.1"
 embedded-hal-async = "1.0.0"
 chrono = { version = "0.4.38", default-features = false, optional = true }
+mcan = { version = "0.5.0", optional = true }
 
 
 [build-dependencies]
-# hpm-metapac = { path = "../hpm-data/build/hpm-metapac", default-features = false, features = [
-#     "metadata",
-# ] }
-hpm-metapac = { version = "0.0.3", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-5b7ef7966574b6805c46a0718335f852ab952d60", default-features = false, features = [
+hpm-metapac = { path = "../hpm-data/build/hpm-metapac", default-features = false, features = [
     "metadata",
 ] }
+# hpm-metapac = { version = "0.0.3", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-5b7ef7966574b6805c46a0718335f852ab952d60", default-features = false, features = [
+#     "metadata",
+# ] }
 proc-macro2 = "1.0.85"
 quote = "1.0.15"
 
@@ -67,10 +68,12 @@ embassy = [
     "dep:futures-util",
 ]
 
+mcan = ["dep:mcan"]
+
 hpm5301 = ["hpm-metapac/hpm5301"]
-hpm5321 = ["hpm-metapac/hpm5321"]
+hpm5321 = ["hpm-metapac/hpm5321", "mcan"]
 hpm5331 = ["hpm-metapac/hpm5331"]
-hpm5361 = ["hpm-metapac/hpm5361"]
+hpm5361 = ["hpm-metapac/hpm5361", "mcan"]
 hpm6220 = ["hpm-metapac/hpm6220"]
 hpm6240 = ["hpm-metapac/hpm6240"]
 hpm6260 = ["hpm-metapac/hpm6260"]

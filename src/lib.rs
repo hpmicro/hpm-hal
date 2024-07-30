@@ -52,6 +52,8 @@ pub mod dac;
 pub mod gpio;
 pub mod i2c;
 pub mod mbx;
+#[cfg(mcan)]
+pub mod mcan;
 pub mod spi;
 pub mod uart;
 

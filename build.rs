@@ -254,7 +254,12 @@ fn main() {
         (("spi", "MISO"), quote!(crate::spi::MisoPin)),
         (("spi", "DAT2"), quote!(crate::spi::D2Pin)),
         (("spi", "DAT3"), quote!(crate::spi::D3Pin)),
+        // DAC
         (("dac", "OUT"), quote!(crate::dac::OutPin)),
+        // MCAN
+        (("mcan", "RX"), quote!(crate::mcan::RxPin)),
+        (("mcan", "TX"), quote!(crate::mcan::TxPin)),
+        (("mcan", "STBY"), quote!(crate::mcan::StbyPin)),
         // FEMC
         (("femc", "A00"), quote!(crate::femc::A00Pin)),
         (("femc", "A01"), quote!(crate::femc::A01Pin)),
