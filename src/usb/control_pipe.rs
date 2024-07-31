@@ -8,7 +8,7 @@ use hpm_metapac::usb::regs::Endptsetupstat;
 
 use super::endpoint::Endpoint;
 use super::Instance;
-use crate::usb::{init_qhd, EpConfig, DCD_DATA, EP_OUT_WAKERS};
+use crate::usb::{DCD_DATA, EP_OUT_WAKERS};
 
 pub struct ControlPipe<'d, T: Instance> {
     pub(crate) _phantom: PhantomData<&'d mut T>,
@@ -26,23 +26,24 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         defmt::info!("ControlPipe::setup");
 
         // Return setup packet
-        let setup_packet = unsafe { DCD_DATA.qhd[0].setup_request };
+        let setup_packet = unsafe { DCD_DATA.qhd_list.qhd(0).get_setup_request() };
 
         // Convert to slice
         defmt::trace!("check setup_packet in setup control pipe: {:?}", setup_packet);
 
-        unsafe {
-            init_qhd(&EpConfig {
-                // Must be EndpointType::Control
-                transfer: self.ep_out.info.ep_type as u8,
-                ep_addr: self.ep_out.info.addr,
-                max_packet_size: self.ep_out.info.max_packet_size,
-            })
-        }
+        // FIXME: remove it?
+        // unsafe {
+        //     init_qhd(&EpConfig {
+        //         // Must be EndpointType::Control
+        //         transfer: self.ep_out.info.ep_type as u8,
+        //         ep_addr: self.ep_out.info.addr,
+        //         max_packet_size: self.ep_out.info.max_packet_size,
+        //     })
+        // }
 
         let r = T::info().regs;
 
-        // TODO: 1. Wait for SETUP packet(interrupt here)
+        // 1. Wait for SETUP packet(interrupt here)
         // Clear interrupt status
         r.usbsts().modify(|w| w.set_ui(false));
         // Set USB interrupt enable
@@ -52,17 +53,13 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
             EP_OUT_WAKERS[0].register(cx.waker());
 
             if r.endptsetupstat().read().0 != 0 {
-                info!("Got setup packet");
                 r.endptsetupstat().modify(|w| w.0 = w.0);
                 return Poll::Ready(Ok::<(), ()>(()));
             }
 
-            info!("No setup packet yet");
             Poll::Pending
         })
         .await;
-        // .unwrap();
-        // while !r.usbsts().read().ui() {}
         info!("Got setup packet");
 
         // 2. Read setup packet from qhd buffer
@@ -71,11 +68,11 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         r.endptsetupstat().write_value(Endptsetupstat::default());
 
         // Return setup packet
-        let setup_packet = unsafe { DCD_DATA.qhd[0].setup_request };
+        let setup_packet = unsafe { DCD_DATA.qhd_list.qhd(0).get_setup_request() };
 
         // Convert to slice
         defmt::trace!("setup_packet: {:?}", setup_packet);
-        setup_packet.0.to_le_bytes()
+        setup_packet
     }
 
     async fn data_out(

@@ -13,6 +13,11 @@ use embedded_hal::delay::DelayNs;
 use endpoint::{Endpoint, EpConfig};
 use hpm_metapac::usb::regs::Usbsts;
 use riscv::delay::McycleDelay;
+use types::{Qhd, QhdList, Qtd, QtdList};
+#[cfg(hpm53)]
+use types_v53 as types;
+#[cfg(hpm62)]
+use types_v62 as types;
 
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::sysctl;
@@ -20,6 +25,10 @@ use crate::sysctl;
 mod bus;
 mod control_pipe;
 mod endpoint;
+#[cfg(hpm53)]
+mod types_v53;
+#[cfg(hpm62)]
+mod types_v62;
 
 static IRQ_RESET: AtomicBool = AtomicBool::new(false);
 static IRQ_SUSPEND: AtomicBool = AtomicBool::new(false);
@@ -38,196 +47,120 @@ const ENDPOINT_COUNT: usize = 16;
 
 const QTD_COUNT_EACH_ENDPOINT: usize = 8;
 const QHD_BUFFER_COUNT: usize = 5;
+const QHD_SIZE: usize = 64;
+const QTD_SIZE: usize = 32;
+
+static mut QHD_LIST_DATA: QhdListData = QhdListData([0; QHD_SIZE * ENDPOINT_COUNT * 2]);
+static mut QTD_LIST_DATA: QtdListData = QtdListData([0; QTD_SIZE * ENDPOINT_COUNT * 2 * QTD_COUNT_EACH_ENDPOINT]);
 static mut DCD_DATA: DcdData = DcdData {
-    qhd: [QueueHead::new(); ENDPOINT_COUNT as usize * 2],
-    qtd: [QueueTransferDescriptor::new(); ENDPOINT_COUNT as usize * 2 * QTD_COUNT_EACH_ENDPOINT as usize],
+    qhd_list: unsafe { QhdList::from_ptr(QHD_LIST_DATA.0.as_ptr() as *mut _) },
+    qtd_list: unsafe { QtdList::from_ptr(QTD_LIST_DATA.0.as_ptr() as *mut _) },
 };
 
 #[repr(C, align(2048))]
+pub struct QhdListData([u8; QHD_SIZE * ENDPOINT_COUNT * 2]);
+
+pub struct QtdListData([u8; QTD_SIZE * ENDPOINT_COUNT * 2 * QTD_COUNT_EACH_ENDPOINT]);
+
 pub struct DcdData {
-    /// Queue head
-    /// NON-CACHABLE
-    pub(crate) qhd: [QueueHead; ENDPOINT_COUNT as usize * 2],
-    /// Queue element transfer descriptor
-    /// NON-CACHABLE
-    pub(crate) qtd: [QueueTransferDescriptor; ENDPOINT_COUNT as usize * 2 * QTD_COUNT_EACH_ENDPOINT as usize],
+    /// List of queue head
+    pub(crate) qhd_list: QhdList,
+    /// List of queue transfer descriptor
+    pub(crate) qtd_list: QtdList,
+}
+
+impl Qhd {
+    pub(crate) fn reset(&mut self) {
+        self.cap().write(|w| w.0 = 0);
+        self.cur_dtd().write(|w| w.0 = 0);
+        self.next_dtd().write(|w| w.0 = 0);
+        self.qtd_token().write(|w| w.0 = 0);
+        self.current_offset().write(|w| w.0 = 0);
+        for buf_idx in 0..5 {
+            self.buffer(buf_idx).write(|w| w.0 = 0);
+        }
+        self.setup_buffer(0).write(|w| w.0 = 0);
+        self.setup_buffer(1).write(|w| w.0 = 0);
+    }
+
+    pub(crate) fn get_setup_request(&self) -> [u8; 8] {
+        let mut buf = [0_u8; 8];
+        buf[0..4].copy_from_slice(&self.setup_buffer(0).read().0.to_le_bytes());
+        buf[4..8].copy_from_slice(&self.setup_buffer(1).read().0.to_le_bytes());
+        buf
+    }
 }
 
 pub(crate) unsafe fn reset_dcd_data(ep0_max_packet_size: u16) {
-    DCD_DATA.qhd = [QueueHead::new(); ENDPOINT_COUNT as usize * 2];
-    DCD_DATA.qtd = [QueueTransferDescriptor::new(); ENDPOINT_COUNT as usize * 2 * QTD_COUNT_EACH_ENDPOINT as usize];
+    // Clear all qhd data
+    for i in 0..ENDPOINT_COUNT as usize * 2 {
+        DCD_DATA.qhd_list.qhd(i).reset();
+    }
 
-    // Set qhd for EP0
-    DCD_DATA.qhd[0].cap.set_zero_length_termination(true);
-    DCD_DATA.qhd[1].cap.set_zero_length_termination(true);
-    DCD_DATA.qhd[0].cap.set_max_packet_size(ep0_max_packet_size);
-    DCD_DATA.qhd[1].cap.set_max_packet_size(ep0_max_packet_size);
+    // TODO: QTD data
+    for i in 0..ENDPOINT_COUNT as usize * 2 * QTD_COUNT_EACH_ENDPOINT as usize {
+        DCD_DATA.qtd_list.qtd(i).reset();
+    }
+
+    // Set qhd for EP0 and EP1
+    DCD_DATA.qhd_list.qhd(0).cap().modify(|w| {
+        w.set_max_packet_size(ep0_max_packet_size);
+        w.set_zero_length_termination(true);
+        // IOS is set for control OUT endpoint
+        w.set_ios(true);
+    });
+    DCD_DATA.qhd_list.qhd(1).cap().modify(|w| {
+        w.set_max_packet_size(ep0_max_packet_size);
+        w.set_zero_length_termination(true);
+    });
 
     // Set the next pointer INVALID(T=1)
-    DCD_DATA.qhd[0].qtd_overlay.next = 1;
-    DCD_DATA.qhd[1].qtd_overlay.next = 1;
-
-    // Set for OUT only
-    DCD_DATA.qhd[0].cap.set_int_on_setup(true);
+    DCD_DATA.qhd_list.qhd(0).next_dtd().write(|w| w.set_t(true));
+    DCD_DATA.qhd_list.qhd(1).next_dtd().write(|w| w.set_t(true));
 }
 
 pub(crate) unsafe fn init_qhd(ep_config: &EpConfig) {
     let ep_num = ep_config.ep_addr.index();
     let ep_idx = 2 * ep_num + ep_config.ep_addr.is_in() as usize;
     // Prepare queue head
-    DCD_DATA.qhd[ep_idx as usize] = QueueHead::new();
-    DCD_DATA.qhd[ep_idx as usize].cap.set_zero_length_termination(true);
-    DCD_DATA.qhd[ep_idx as usize]
-        .cap
-        .set_max_packet_size(ep_config.max_packet_size & 0x7FF);
-    // Set next to invalid, T=1
-    DCD_DATA.qhd[ep_idx as usize].qtd_overlay.next = 1;
-    if ep_config.transfer == EndpointType::Isochronous as u8 {
-        DCD_DATA.qhd[ep_idx as usize]
-            .cap
-            .set_iso_mult(((ep_config.max_packet_size >> 11) & 0x3) as u8 + 1);
-    }
-    if ep_config.transfer == EndpointType::Control as u8 {
-        DCD_DATA.qhd[ep_idx as usize].cap.set_int_on_setup(true);
-    }
-}
+    DCD_DATA.qhd_list.qhd(ep_idx).reset();
 
-impl Default for DcdData {
-    fn default() -> Self {
-        Self {
-            qhd: [QueueHead::default(); ENDPOINT_COUNT as usize * 2],
-            qtd: [QueueTransferDescriptor::default(); ENDPOINT_COUNT as usize * 2 * 8],
+    DCD_DATA.qhd_list.qhd(ep_idx).cap().write(|w| {
+        w.set_max_packet_size(ep_config.max_packet_size);
+        w.set_zero_length_termination(true);
+        if ep_config.transfer == EndpointType::Isochronous as u8 {
+            w.set_iso_mult(((ep_config.max_packet_size >> 11) & 0x3) as u8 + 1);
         }
-    }
-}
-
-pub(crate) struct QueueHeadV2([u8; 48]);
-
-#[derive(Clone, Copy, Default)]
-#[repr(align(32))]
-pub(crate) struct QueueHead {
-    // Capabilities and characteristics
-    pub(crate) cap: CapabilityAndCharacteristics,
-    // Current qTD pointer
-    pub(crate) qtd_addr: u32,
-
-    // Transfer overlay
-    pub(crate) qtd_overlay: QueueTransferDescriptor,
-
-    pub(crate) setup_request: ControlRequest,
-    // Due to the fact QHD is 64 bytes aligned but occupies only 48 bytes
-    // thus there are 16 bytes padding free that we can make use of.
-    // _reserved: [u8; 16],
-}
-
-impl QueueHead {
-    const fn new() -> Self {
-        Self {
-            cap: CapabilityAndCharacteristics::new(),
-            qtd_addr: 0,
-            qtd_overlay: QueueTransferDescriptor::new(),
-            setup_request: ControlRequest::new(),
+        if ep_config.transfer == EndpointType::Control as u8 {
+            w.set_ios(true);
         }
-    }
+    });
 
-    pub(crate) fn set_next_overlay(&mut self, next: u32) {
-        self.qtd_overlay.next = next;
-    }
+    DCD_DATA.qhd_list.qhd(ep_idx).next_dtd().write(|w| w.set_t(true));
 }
 
-#[bitfield(u64)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub(crate) struct ControlRequest {
-    #[bits(8)]
-    request_type: u8,
-    #[bits(8)]
-    request: u8,
-    #[bits(16)]
-    value: u16,
-    #[bits(16)]
-    index: u16,
-    #[bits(16)]
-    length: u16,
-}
-
-#[bitfield(u32)]
-pub(crate) struct CapabilityAndCharacteristics {
-    #[bits(15)]
-    /// Number of packets executed per transaction descriptor.
-    ///
-    /// - 00: Execute N transactions as demonstrated by the
-    /// USB variable length protocol where N is computed using
-    /// Max_packet_length and the Total_bytes field in the dTD
-    /// - 01: Execute one transaction
-    /// - 10: Execute two transactions
-    /// - 11: Execute three transactions
-    ///
-    /// Remark: Non-isochronous endpoints must set MULT = 00.
-    ///
-    /// Remark: Isochronous endpoints must set MULT = 01, 10, or 11 as needed.
-    num_packets_per_td: u16,
-
-    /// Interrupt on setup.
-    ///
-    /// This bit is used on control type endpoints to indicate if
-    /// USBINT is set in response to a setup being received.
-    #[bits(1)]
-    int_on_setup: bool,
-
-    #[bits(11)]
-    max_packet_size: u16,
-
-    #[bits(2)]
-    _reserved: u8,
-
-    #[bits(1)]
-    zero_length_termination: bool,
-
-    #[bits(2)]
-    iso_mult: u8,
-}
-#[derive(Clone, Copy, Default)]
-#[repr(C, align(32))]
-pub(crate) struct QueueTransferDescriptor {
-    // Next point
-    next: u32,
-
-    token: QueueTransferDescriptorToken,
-
-    /// Buffer Page Pointer List
-    ///
-    /// Each element in the list is a 4K page aligned, physical memory address.
-    /// The lower 12 bits in each pointer are reserved (except for the first one)
-    /// as each memory pointer must reference the start of a 4K page
-    buffer: [u32; QHD_BUFFER_COUNT],
-
-    /// DCD Area
-    expected_bytes: u16,
-
-    _reserved: [u8; 2],
-}
-
-impl QueueTransferDescriptor {
-    const fn new() -> Self {
-        QueueTransferDescriptor {
-            next: 0,
-            token: QueueTransferDescriptorToken::new(),
-            buffer: [0; QHD_BUFFER_COUNT],
-            expected_bytes: 0,
-            _reserved: [0; 2],
+impl Qtd {
+    pub(crate) fn reset(&mut self) {
+        self.current_offset().write(|w| w.0 = 0);
+        self.next_dtd().write(|w| w.0 = 0);
+        self.qtd_token().write(|w| w.0 = 0);
+        for i in 0..QHD_BUFFER_COUNT {
+            self.buffer(i).write(|w| w.0 = 0);
         }
+        self.expected_bytes().write(|w| w.0 = 0);
     }
 
     pub(crate) fn reinit_with(&mut self, data: &[u8], transfer_bytes: usize) {
         // Initialize qtd
-        self.next = 0;
-        self.token = QueueTransferDescriptorToken::new();
-        self.buffer = [0; QHD_BUFFER_COUNT];
-        self.expected_bytes = 0;
+        self.reset();
 
-        self.token.set_active(true);
-        self.token.set_total_bytes(transfer_bytes as u16);
-        self.expected_bytes = transfer_bytes as u16;
+        self.qtd_token().modify(|w| {
+            w.set_total_bytes(transfer_bytes as u16);
+            w.set_active(true)
+        });
+
+        self.expected_bytes()
+            .modify(|w| w.set_expected_bytes(transfer_bytes as u16));
 
         // According to the UM, buffer[0] is the start address of the transfer data.
         // Buffer[0] has two parts: buffer[0] & 0xFFFFF000 is the address, and buffer[0] & 0x00000FFF is the offset.
@@ -242,15 +175,15 @@ impl QueueTransferDescriptor {
         }
 
         // Fill data into qtd
-        self.buffer[0] = data.as_ptr() as u32;
+        self.buffer(0)
+            .write(|w| w.set_buffer((data.as_ptr() as u32 & 0xFFFFF000) >> 12));
+        self.current_offset()
+            .write(|w| w.set_current_offset((data.as_ptr() as u32 & 0x00000FFF) as u16));
         for i in 1..QHD_BUFFER_COUNT {
-            // Fill address of next 4K bytes
-            self.buffer[i] |= (self.buffer[i - 1] & 0xFFFFF000) + 4096;
+            // Fill address of next 4K bytes, note the addr is already shifted, so we just +1
+            let addr = self.buffer(i - 1).read().buffer();
+            self.buffer(i).write(|w| w.set_buffer(addr + 1));
         }
-    }
-
-    pub(crate) fn set_token_int_on_complete(&mut self, value: bool) {
-        self.token.set_int_on_complete(value);
     }
 }
 
@@ -559,7 +492,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             // Set endpoint list address
             unsafe {
                 r.endptlistaddr()
-                    .modify(|w| w.set_epbase(DCD_DATA.qhd.as_ptr() as u32 & 0xFFFFF800))
+                    .modify(|w| w.set_epbase(DCD_DATA.qhd_list.as_ptr() as u32 >> 11))
             };
 
             // Clear status
@@ -653,14 +586,9 @@ pub unsafe fn on_interrupt<T: Instance>() {
 
     // Clear triggered interrupts status bits
     let triggered_interrupts = status.0 & enabled_interrupts.0;
-    defmt::info!(
-        "USBIRQ: usbsts: {:b}, usbintr: {:b}, trigger intr: {:b}",
-        status.0,
-        enabled_interrupts.0,
-        triggered_interrupts
-    );
 
-    r.usbsts().modify(|w| w.0 = w.0 & (!triggered_interrupts));
+    // TODO: Check all other interrupts are cleared
+    // r.usbsts().modify(|w| w.0 = w.0 & (!triggered_interrupts));
     let status = Usbsts(triggered_interrupts);
 
     // Disabled interrupt sources
@@ -704,12 +632,15 @@ pub unsafe fn on_interrupt<T: Instance>() {
     // Transfer complete event
     if status.ui() {
         defmt::info!("Transfer complete event!");
+
+        r.usbintr().modify(|w| w.set_ue(false));
         let ep_status = r.endptstat().read();
         // Clear the status by rewrite those bits
         r.endptstat().modify(|w| w.0 = w.0);
 
         let ep_setup_status = r.endptsetupstat().read();
         if ep_setup_status.0 > 0 {
+            defmt::info!("ep_setup_status: {:b}", ep_setup_status.0);
             EP_OUT_WAKERS[0].wake();
         }
 

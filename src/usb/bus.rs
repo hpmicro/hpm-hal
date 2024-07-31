@@ -58,7 +58,7 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
                 IRQ_RESET.store(false, Ordering::Relaxed);
 
                 // Return setup packet
-                let setup_packet = unsafe { DCD_DATA.qhd[0].setup_request };
+                let setup_packet = unsafe { DCD_DATA.qhd_list.qhd(0).get_setup_request() };
 
                 // Convert to slice
                 defmt::trace!("check setup_packet in reset: {:?}", setup_packet);
