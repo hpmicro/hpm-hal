@@ -3,13 +3,13 @@
 #![feature(type_alias_impl_trait)]
 #![feature(abi_riscv_interrupt)]
 
+use defmt::info;
 use embassy_executor::Spawner;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
-use hal::usb::{UsbDriver, Instance};
 use futures_util::future::join;
-use defmt::info;
+use hal::usb::{Instance, UsbDriver};
 use hpm_hal::{bind_interrupts, peripherals};
 use {defmt_rtt as _, hpm_hal as hal, riscv_rt as _};
 
@@ -77,7 +77,7 @@ async fn main(_spawner: Spawner) -> ! {
     join(usb_fut, echo_fut).await;
 
     loop {
-        embassy_time::Timer::after_secs(1000).await;
+        embassy_time::Timer::after_millis(500).await;
     }
 }
 

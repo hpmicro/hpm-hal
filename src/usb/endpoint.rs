@@ -4,8 +4,12 @@ use core::task::Poll;
 use embassy_usb_driver::{EndpointAddress, EndpointIn, EndpointInfo, EndpointOut};
 use hpm_metapac::usb::regs::Endptprime;
 
-use crate::usb::{EP_OUT_WAKERS, EP_IN_WAKERS};
-use super::{Error, Info, QueueTransferDescriptor, DCD_DATA, QTD_COUNT_EACH_ENDPOINT};
+#[cfg(hpm53)]
+use super::types_v53::Qtd;
+#[cfg(hpm62)]
+use super::types_v62::Qtd;
+use super::{Error, Info, DCD_DATA, QTD_COUNT_EACH_ENDPOINT};
+use crate::usb::{EP_IN_WAKERS, EP_OUT_WAKERS};
 
 pub struct EpConfig {
     /// Endpoint type
@@ -50,13 +54,13 @@ impl Endpoint {
         // data = core_local_mem_to_sys_address(data);
 
         // Add all data to the circular queue
-        let mut prev_qtd: Option<QueueTransferDescriptor> = None;
-        let mut first_qtd: Option<QueueTransferDescriptor> = None;
+        let mut prev_qtd: Option<Qtd> = None;
+        let mut first_qtd: Option<Qtd> = None;
         let mut i = 0;
         let mut data_offset = 0;
         let mut remaining_bytes = data.len();
         loop {
-            let mut qtd = unsafe { DCD_DATA.qtd[ep_idx * QTD_COUNT_EACH_ENDPOINT + i] };
+            let mut qtd = unsafe { DCD_DATA.qtd_list.qtd(ep_idx * QTD_COUNT_EACH_ENDPOINT + i) };
             i += 1;
 
             // If the transfer size > 0x4000, then there should be multiple qtds in the linked list
@@ -67,7 +71,7 @@ impl Endpoint {
                 remaining_bytes = 0;
                 data.len()
             };
-            
+
             // TODO: use data address for multi-core
             // Check hpm_sdk: static inline uint32_t core_local_mem_to_sys_address()
 
@@ -76,14 +80,16 @@ impl Endpoint {
 
             // Last chunk of the data
             if remaining_bytes == 0 {
-                qtd.set_token_int_on_complete(true);
+                qtd.qtd_token().write(|w| w.set_ioc(true));
             }
 
             data_offset += transfer_bytes;
 
             // Set qtd linked list
-            if let Some(mut prev_qtd) = prev_qtd {
-                prev_qtd.next = &qtd as *const _ as u32;
+            if let Some(prev_qtd) = prev_qtd {
+                prev_qtd
+                    .next_dtd()
+                    .modify(|w| w.set_next_dtd_addr(&qtd as *const _ as u32 >> 5));
             } else {
                 first_qtd = Some(qtd);
             }
@@ -97,7 +103,11 @@ impl Endpoint {
 
         // Link qtd to qhd
         unsafe {
-            DCD_DATA.qhd[ep_idx].qtd_overlay.next = &(first_qtd.unwrap()) as *const _ as u32;
+            DCD_DATA
+                .qhd_list
+                .qhd(ep_idx)
+                .next_dtd()
+                .modify(|w| w.set_next_dtd_addr(&first_qtd.unwrap() as *const _ as u32 >> 5));
         }
 
         // Start transfer
@@ -171,7 +181,8 @@ impl embassy_usb_driver::Endpoint for Endpoint {
                     Poll::Pending
                 }
             }
-        }).await;
+        })
+        .await;
         defmt::info!("endpoint {} enabled", self.info.addr.index());
     }
 }

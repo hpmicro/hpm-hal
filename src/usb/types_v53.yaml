@@ -1,0 +1,187 @@
+block/qhd_list:
+  description: List of queue head blocks for hpm USB device
+  items:
+    - name: QHD
+      description: Queue head block for hpm USB device
+      byte_offset: 0
+      array:
+        len: 32
+        stride: 64
+      block: qhd
+block/qtd_list:
+  description: List of queue transfer descriptors for hpm USB device
+  items:
+    - name: QTD
+      description: Queue transfer descriptor for hpm USB device
+      byte_offset: 0
+      array:
+        len: 256
+        stride: 32
+      block: qtd
+block/qhd:
+  description: Queue head block for hpm USB device
+  items:
+    - name: cap
+      description: Capabilities and characteristics
+      byte_offset: 0
+      fieldset: CAP
+    - name: CUR_DTD
+      description: Current dtd address
+      byte_offset: 4
+      fieldset: CUR_DTD
+    - name: NEXT_DTD
+      description: Next dtd address and termination control
+      byte_offset: 8
+      fieldset: NEXT_DTD
+    - name: QTD_TOKEN
+      description: Other fields in queue transfer descriptor
+      byte_offset: 12
+      fieldset: QTD_TOKEN
+    - name: BUFFER
+      description: Buffer pointer
+      byte_offset: 16
+      fieldset: BUFFER
+      array:
+        len: 5
+        stride: 4
+    - name: CURRENT_OFFSET
+      description: Current offset in buffer
+      byte_offset: 16
+      fieldset: CURRENT_OFFSET
+    - name: SETUP_BUFFER
+      description: Buffer for setup packet
+      byte_offset: 40
+      fieldset: SETUP_BUFFER
+      array:
+        len: 2
+        stride: 4
+block/qtd:
+  description: Queue transfer descriptor for hpm USB device
+  items:
+    - name: NEXT_DTD
+      description: Next dtd address and termination control
+      byte_offset: 0
+      fieldset: NEXT_DTD
+    - name: QTD_TOKEN
+      description: Other fields in queue transfer descriptor
+      byte_offset: 4
+      fieldset: QTD_TOKEN
+    - name: BUFFER
+      description: Buffer pointer
+      byte_offset: 8
+      fieldset: BUFFER
+      array:
+        len: 5
+        stride: 4
+    - name: CURRENT_OFFSET
+      description: Current offset in buffer
+      byte_offset: 8
+      fieldset: CURRENT_OFFSET
+    - name: EXPECTED_BYTES
+      description: Number of bytes expected to transfer
+      byte_offset: 28
+      fieldset: EXPECTED_BYTES
+fieldset/CAP:
+  description: Capabilities and characteristics
+  fields:
+    - name: IOS
+      description: Interrupt on setup packet
+      bit_offset: 15
+      bit_size: 1
+    - name: MAX_PACKET_SIZE
+      description: Maximum packet size
+      bit_offset: 16
+      bit_size: 11
+    - name: ZERO_LENGTH_TERMINATION
+      description: Zero length termination
+      bit_offset: 29
+      bit_size: 1
+    - name: ISO_MULT
+      description: Isochronous mult
+      bit_offset: 30
+      bit_size: 2
+fieldset/CUR_DTD:
+  description: Current dtd address
+  fields:
+    - name: CUR_DTD_ADDR
+      description: 32-byte aligned address for current dtd, only bits 5-32 are valid
+      bit_offset: 5
+      bit_size: 27
+fieldset/NEXT_DTD:
+  description: Next dtd address and termination control
+  fields:
+    - name: T
+      description: Terminate bit, 1 represents current DTD is the last one
+      bit_offset: 0
+      bit_size: 1
+    - name: NEXT_DTD_ADDR
+      description: 32-byte aligned address for next dtd, only bits 5-32 are valid
+      bit_offset: 5
+      bit_size: 27
+fieldset/QTD_TOKEN:
+  descritpion: Other fields in queue transfer descriptor
+  fields:
+    - name: STATUS
+      description: Status and control
+      bit_offset: 0
+      bit_size: 8
+    - name: ACTIVE
+      description: Whether current dtd is active
+      bit_offset: 7
+      bit_size: 1
+    - name: HALTED
+      description: Whether current dtd is halted
+      bit_offset: 6
+      bit_size: 1
+    - name: BUFFER_ERR
+      description: Buffer error, underrun(IN) or overrun(OUT)
+      bit_offset: 5
+      bit_size: 1
+    - name: TRANSACTION_ERR
+      description: Transaction error
+      bit_offset: 3
+      bit_size: 1
+    - name: MULTO
+      description: Multiplier
+      bit_offset: 10 
+      bit_size: 2
+    - name: C_PAGE
+      description: Current page
+      bit_offset: 12
+      bit_size: 3
+    - name: IOC
+      description: Interrupt on complete
+      bit_offset: 15
+      bit_size: 1
+    - name: TOTAL_BYTES
+      description: Total bytes to transfer
+      bit_offset: 16
+      bit_size: 15
+fieldset/BUFFER:
+  descritpion: 4K aligned buffer pointer
+  fields:
+    - name: BUFFER
+      description: 4K aligned buffer pointer
+      bit_offset: 12
+      bit_size: 20
+fieldset/CURRENT_OFFSET:
+  descritpion: Current offset in buffer
+  fields:
+    - name: CURRENT_OFFSET
+      description: Current offset in buffer
+      bit_offset: 0
+      bit_size: 12
+fieldset/SETUP_BUFFER:
+  descritpion: Buffer for setup packet
+  fields:
+    - name: SETUP_BUFFER
+      description: Buffer for setup packet 
+      bit_offset: 0
+      bit_size: 32
+fieldset/EXPECTED_BYTES:
+  descritpion: Number of bytes expected to transfer
+  fields:
+    - name: EXPECTED_BYTES
+      description: Number of bytes expected to transfer
+      bit_offset: 0
+      bit_size: 16

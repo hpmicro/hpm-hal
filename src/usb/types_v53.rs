@@ -21,50 +21,50 @@ impl Qhd {
     }
     #[doc = "Capabilities and characteristics"]
     #[inline(always)]
-    pub const fn cap(self) -> crate::common::Reg<regs::Cap, crate::common::RW> {
-        unsafe { crate::common::Reg::from_ptr(self.ptr.add(0x0usize) as _) }
+    pub const fn cap(self) -> common::Reg<regs::Cap, common::RW> {
+        unsafe { common::Reg::from_ptr(self.ptr.add(0x0usize) as _) }
     }
     #[doc = "Current dtd address"]
     #[inline(always)]
-    pub const fn cur_dtd(self) -> crate::common::Reg<regs::CurDtd, crate::common::RW> {
-        unsafe { crate::common::Reg::from_ptr(self.ptr.add(0x04usize) as _) }
+    pub const fn cur_dtd(self) -> common::Reg<regs::CurDtd, common::RW> {
+        unsafe { common::Reg::from_ptr(self.ptr.add(0x04usize) as _) }
     }
     #[doc = "Next dtd address and termination control"]
     #[inline(always)]
-    pub const fn next_dtd(self) -> crate::common::Reg<regs::NextDtd, crate::common::RW> {
-        unsafe { crate::common::Reg::from_ptr(self.ptr.add(0x08usize) as _) }
+    pub const fn next_dtd(self) -> common::Reg<regs::NextDtd, common::RW> {
+        unsafe { common::Reg::from_ptr(self.ptr.add(0x08usize) as _) }
     }
     #[doc = "Other fields in queue transfer descriptor"]
     #[inline(always)]
-    pub const fn qtd_token(self) -> crate::common::Reg<regs::QtdToken, crate::common::RW> {
-        unsafe { crate::common::Reg::from_ptr(self.ptr.add(0x0cusize) as _) }
+    pub const fn qtd_token(self) -> common::Reg<regs::QtdToken, common::RW> {
+        unsafe { common::Reg::from_ptr(self.ptr.add(0x0cusize) as _) }
     }
     #[doc = "Buffer pointer"]
     #[inline(always)]
-    pub const fn buffer(self, n: usize) -> crate::common::Reg<regs::Buffer, crate::common::RW> {
+    pub const fn buffer(self, n: usize) -> common::Reg<regs::Buffer, common::RW> {
         assert!(n < 5usize);
-        unsafe { crate::common::Reg::from_ptr(self.ptr.add(0x10usize + n * 4usize) as _) }
+        unsafe { common::Reg::from_ptr(self.ptr.add(0x10usize + n * 4usize) as _) }
     }
     #[doc = "Current offset in buffer"]
     #[inline(always)]
-    pub const fn current_offset(self) -> crate::common::Reg<regs::CurrentOffset, crate::common::RW> {
-        unsafe { crate::common::Reg::from_ptr(self.ptr.add(0x10usize) as _) }
+    pub const fn current_offset(self) -> common::Reg<regs::CurrentOffset, common::RW> {
+        unsafe { common::Reg::from_ptr(self.ptr.add(0x10usize) as _) }
     }
     #[doc = "Buffer for setup packet"]
     #[inline(always)]
-    pub const fn setup_buffer(self, n: usize) -> crate::common::Reg<regs::SetupBuffer, crate::common::RW> {
+    pub const fn setup_buffer(self, n: usize) -> common::Reg<regs::SetupBuffer, common::RW> {
         assert!(n < 2usize);
-        unsafe { crate::common::Reg::from_ptr(self.ptr.add(0x28usize + n * 4usize) as _) }
+        unsafe { common::Reg::from_ptr(self.ptr.add(0x28usize + n * 4usize) as _) }
     }
 }
 #[doc = "List of queue head blocks for hpm USB device"]
 #[derive(Copy, Clone, Eq, PartialEq)]
-pub struct Qhdlist {
+pub struct QhdList {
     ptr: *mut u8,
 }
-unsafe impl Send for Qhdlist {}
-unsafe impl Sync for Qhdlist {}
-impl Qhdlist {
+unsafe impl Send for QhdList {}
+unsafe impl Sync for QhdList {}
+impl QhdList {
     #[inline(always)]
     pub const unsafe fn from_ptr(ptr: *mut ()) -> Self {
         Self { ptr: ptr as _ }
@@ -77,7 +77,73 @@ impl Qhdlist {
     #[inline(always)]
     pub const fn qhd(self, n: usize) -> Qhd {
         assert!(n < 32usize);
-        unsafe { Qhd::from_ptr(self.ptr.add(0x0usize + n * 48usize) as _) }
+        unsafe { Qhd::from_ptr(self.ptr.add(0x0usize + n * 64usize) as _) }
+    }
+}
+#[doc = "Queue transfer descriptor for hpm USB device"]
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct Qtd {
+    ptr: *mut u8,
+}
+unsafe impl Send for Qtd {}
+unsafe impl Sync for Qtd {}
+impl Qtd {
+    #[inline(always)]
+    pub const unsafe fn from_ptr(ptr: *mut ()) -> Self {
+        Self { ptr: ptr as _ }
+    }
+    #[inline(always)]
+    pub const fn as_ptr(&self) -> *mut () {
+        self.ptr as _
+    }
+    #[doc = "Next dtd address and termination control"]
+    #[inline(always)]
+    pub const fn next_dtd(self) -> common::Reg<regs::NextDtd, common::RW> {
+        unsafe { common::Reg::from_ptr(self.ptr.add(0x0usize) as _) }
+    }
+    #[doc = "Other fields in queue transfer descriptor"]
+    #[inline(always)]
+    pub const fn qtd_token(self) -> common::Reg<regs::QtdToken, common::RW> {
+        unsafe { common::Reg::from_ptr(self.ptr.add(0x04usize) as _) }
+    }
+    #[doc = "Buffer pointer"]
+    #[inline(always)]
+    pub const fn buffer(self, n: usize) -> common::Reg<regs::Buffer, common::RW> {
+        assert!(n < 5usize);
+        unsafe { common::Reg::from_ptr(self.ptr.add(0x08usize + n * 4usize) as _) }
+    }
+    #[doc = "Current offset in buffer"]
+    #[inline(always)]
+    pub const fn current_offset(self) -> common::Reg<regs::CurrentOffset, common::RW> {
+        unsafe { common::Reg::from_ptr(self.ptr.add(0x08usize) as _) }
+    }
+    #[doc = "Number of bytes expected to transfer"]
+    #[inline(always)]
+    pub const fn expected_bytes(self) -> common::Reg<regs::ExpectedBytes, common::RW> {
+        unsafe { common::Reg::from_ptr(self.ptr.add(0x1cusize) as _) }
+    }
+}
+#[doc = "List of queue transfer descriptors for hpm USB device"]
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct QtdList {
+    ptr: *mut u8,
+}
+unsafe impl Send for QtdList {}
+unsafe impl Sync for QtdList {}
+impl QtdList {
+    #[inline(always)]
+    pub const unsafe fn from_ptr(ptr: *mut ()) -> Self {
+        Self { ptr: ptr as _ }
+    }
+    #[inline(always)]
+    pub const fn as_ptr(&self) -> *mut () {
+        self.ptr as _
+    }
+    #[doc = "Queue transfer descriptor for hpm USB device"]
+    #[inline(always)]
+    pub const fn qtd(self, n: usize) -> Qtd {
+        assert!(n < 256usize);
+        unsafe { Qtd::from_ptr(self.ptr.add(0x0usize + n * 32usize) as _) }
     }
 }
 pub mod common {
@@ -281,6 +347,28 @@ pub mod regs {
             CurrentOffset(0)
         }
     }
+    #[repr(transparent)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
+    pub struct ExpectedBytes(pub u32);
+    impl ExpectedBytes {
+        #[doc = "Number of bytes expected to transfer"]
+        #[inline(always)]
+        pub const fn expected_bytes(&self) -> u16 {
+            let val = (self.0 >> 0usize) & 0xffff;
+            val as u16
+        }
+        #[doc = "Number of bytes expected to transfer"]
+        #[inline(always)]
+        pub fn set_expected_bytes(&mut self, val: u16) {
+            self.0 = (self.0 & !(0xffff << 0usize)) | (((val as u32) & 0xffff) << 0usize);
+        }
+    }
+    impl Default for ExpectedBytes {
+        #[inline(always)]
+        fn default() -> ExpectedBytes {
+            ExpectedBytes(0)
+        }
+    }
     #[doc = "Next dtd address and termination control"]
     #[repr(transparent)]
     #[derive(Copy, Clone, Eq, PartialEq)]
@@ -329,6 +417,50 @@ pub mod regs {
         #[inline(always)]
         pub fn set_status(&mut self, val: u8) {
             self.0 = (self.0 & !(0xff << 0usize)) | (((val as u32) & 0xff) << 0usize);
+        }
+        #[doc = "Transaction error"]
+        #[inline(always)]
+        pub const fn transaction_err(&self) -> bool {
+            let val = (self.0 >> 3usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Transaction error"]
+        #[inline(always)]
+        pub fn set_transaction_err(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 3usize)) | (((val as u32) & 0x01) << 3usize);
+        }
+        #[doc = "Buffer error, underrun(IN) or overrun(OUT)"]
+        #[inline(always)]
+        pub const fn buffer_err(&self) -> bool {
+            let val = (self.0 >> 5usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Buffer error, underrun(IN) or overrun(OUT)"]
+        #[inline(always)]
+        pub fn set_buffer_err(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 5usize)) | (((val as u32) & 0x01) << 5usize);
+        }
+        #[doc = "Whether current dtd is halted"]
+        #[inline(always)]
+        pub const fn halted(&self) -> bool {
+            let val = (self.0 >> 6usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Whether current dtd is halted"]
+        #[inline(always)]
+        pub fn set_halted(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 6usize)) | (((val as u32) & 0x01) << 6usize);
+        }
+        #[doc = "Whether current dtd is active"]
+        #[inline(always)]
+        pub const fn active(&self) -> bool {
+            let val = (self.0 >> 7usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Whether current dtd is active"]
+        #[inline(always)]
+        pub fn set_active(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 7usize)) | (((val as u32) & 0x01) << 7usize);
         }
         #[doc = "Multiplier"]
         #[inline(always)]
