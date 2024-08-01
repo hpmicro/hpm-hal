@@ -10,7 +10,6 @@ use {defmt_rtt as _, hpm_hal as hal};
 
 #[embassy_executor::task(pool_size = 3)]
 async fn blink(pin: AnyPin, interval_ms: u32) {
-    // all leds are active low
     let mut led = Output::new(pin, Level::Low, Default::default());
 
     loop {

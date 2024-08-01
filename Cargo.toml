@@ -13,8 +13,8 @@ readme = "README.md"
 license = "MIT/Apache-2.0"
 
 [dependencies]
-hpm-metapac = { path = "../hpm-data/build/hpm-metapac" }
-# hpm-metapac = { version = "0.0.3", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-5b7ef7966574b6805c46a0718335f852ab952d60" }
+# hpm-metapac = { path = "../hpm-data/build/hpm-metapac" }
+hpm-metapac = { version = "0.0.3", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-6740ca6fd1ed6d9bb57944b42aa299761b974713" }
 
 riscv = { version = "0.11", features = ["critical-section-single-hart"] }
 embedded-hal = { version = "1.0.0" }
@@ -44,12 +44,12 @@ mcan = { version = "0.5.0", optional = true }
 
 
 [build-dependencies]
-hpm-metapac = { path = "../hpm-data/build/hpm-metapac", default-features = false, features = [
-    "metadata",
-] }
-# hpm-metapac = { version = "0.0.3", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-5b7ef7966574b6805c46a0718335f852ab952d60", default-features = false, features = [
+# hpm-metapac = { path = "../hpm-data/build/hpm-metapac", default-features = false, features = [
 #     "metadata",
 # ] }
+hpm-metapac = { version = "0.0.3", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-6740ca6fd1ed6d9bb57944b42aa299761b974713", default-features = false, features = [
+    "metadata",
+] }
 proc-macro2 = "1.0.85"
 quote = "1.0.15"
 
@@ -75,11 +75,11 @@ hpm5321 = ["hpm-metapac/hpm5321", "mcan"]
 hpm5331 = ["hpm-metapac/hpm5331"]
 hpm5361 = ["hpm-metapac/hpm5361", "mcan"]
 hpm6220 = ["hpm-metapac/hpm6220"]
-hpm6240 = ["hpm-metapac/hpm6240"]
-hpm6260 = ["hpm-metapac/hpm6260"]
-hpm6264 = ["hpm-metapac/hpm6264"]
-hpm6280 = ["hpm-metapac/hpm6280"]
-hpm6284 = ["hpm-metapac/hpm6284"]
+hpm6240 = ["hpm-metapac/hpm6240", "mcan"]
+hpm6260 = ["hpm-metapac/hpm6260", "mcan"]
+hpm6264 = ["hpm-metapac/hpm6264", "mcan"]
+hpm6280 = ["hpm-metapac/hpm6280", "mcan"]
+hpm6284 = ["hpm-metapac/hpm6284", "mcan"]
 hpm6320 = ["hpm-metapac/hpm6320"]
 hpm6330 = ["hpm-metapac/hpm6330"]
 hpm6340 = ["hpm-metapac/hpm6340"]
@@ -95,10 +95,10 @@ hpm64g0 = ["hpm-metapac/hpm64g0"]
 hpm6730 = ["hpm-metapac/hpm6730"]
 hpm6750 = ["hpm-metapac/hpm6750"]
 hpm6754 = ["hpm-metapac/hpm6754"]
-hpm6830 = ["hpm-metapac/hpm6830"]
-hpm6850 = ["hpm-metapac/hpm6850"]
-hpm6880 = ["hpm-metapac/hpm6880"]
-hpm6e50 = ["hpm-metapac/hpm6e50"]
-hpm6e60 = ["hpm-metapac/hpm6e60"]
-hpm6e70 = ["hpm-metapac/hpm6e70"]
-hpm6e80 = ["hpm-metapac/hpm6e80"]
+hpm6830 = ["hpm-metapac/hpm6830", "mcan"]
+hpm6850 = ["hpm-metapac/hpm6850", "mcan"]
+hpm6880 = ["hpm-metapac/hpm6880", "mcan"]
+hpm6e50 = ["hpm-metapac/hpm6e50", "mcan"]
+hpm6e60 = ["hpm-metapac/hpm6e60", "mcan"]
+hpm6e70 = ["hpm-metapac/hpm6e70", "mcan"]
+hpm6e80 = ["hpm-metapac/hpm6e80", "mcan"]
