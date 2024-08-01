@@ -4,7 +4,6 @@ use core::task::Poll;
 use defmt::info;
 use embassy_usb_driver::EndpointError;
 use futures_util::future::poll_fn;
-use hpm_metapac::usb::regs::Endptsetupstat;
 
 use super::endpoint::Endpoint;
 use super::Instance;
@@ -25,49 +24,31 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
     async fn setup(&mut self) -> [u8; 8] {
         defmt::info!("ControlPipe::setup");
 
-        // Return setup packet
-        let setup_packet = unsafe { DCD_DATA.qhd_list.qhd(0).get_setup_request() };
-
-        // Convert to slice
-        defmt::trace!("check setup_packet in setup control pipe: {:?}", setup_packet);
-
-        // FIXME: remove it?
-        // unsafe {
-        //     init_qhd(&EpConfig {
-        //         // Must be EndpointType::Control
-        //         transfer: self.ep_out.info.ep_type as u8,
-        //         ep_addr: self.ep_out.info.addr,
-        //         max_packet_size: self.ep_out.info.max_packet_size,
-        //     })
-        // }
-
         let r = T::info().regs;
 
-        // 1. Wait for SETUP packet(interrupt here)
-        // Clear interrupt status
+        // Wait for SETUP packet(interrupt here)
+        // Clear interrupt status and enable USB interrupt first
         r.usbsts().modify(|w| w.set_ui(false));
-        // Set USB interrupt enable
         r.usbintr().modify(|w| w.set_ue(true));
         info!("Waiting for setup packet");
         let _ = poll_fn(|cx| {
             EP_OUT_WAKERS[0].register(cx.waker());
 
             if r.endptsetupstat().read().0 != 0 {
+                // See hpm_sdk/middleware/cherryusb/port/hpm/usb_dc_hpm.c: 285L
+                // Clean endpoint setup status
                 r.endptsetupstat().modify(|w| w.0 = w.0);
                 return Poll::Ready(Ok::<(), ()>(()));
             }
 
             Poll::Pending
         })
-        .await;
+        .await
+        .unwrap();
+
         info!("Got setup packet");
 
-        // 2. Read setup packet from qhd buffer
-        // See hpm_sdk/middleware/cherryusb/port/hpm/usb_dc_hpm.c: 285L
-        // TODO: clear setup status, should we clear ALL?
-        r.endptsetupstat().write_value(Endptsetupstat::default());
-
-        // Return setup packet
+        // Read setup packet from qhd
         let setup_packet = unsafe { DCD_DATA.qhd_list.qhd(0).get_setup_request() };
 
         // Convert to slice
@@ -93,6 +74,7 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         _last: bool,
     ) -> Result<(), embassy_usb_driver::EndpointError> {
         defmt::info!("ControlPipe::datain");
+        // TODO: data_in: it's already chunked by max_packet_size
         self.ep_in.transfer(data).map_err(|_e| EndpointError::BufferOverflow)?;
         Ok(())
     }
