@@ -1,7 +1,6 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use bitfield_struct::bitfield;
 use bus::Bus;
 use control_pipe::ControlPipe;
 #[cfg(feature = "usb-pin-reuse-hpm5300")]
@@ -47,20 +46,21 @@ const ENDPOINT_COUNT: usize = 16;
 
 const QTD_COUNT_EACH_ENDPOINT: usize = 8;
 const QHD_BUFFER_COUNT: usize = 5;
-const QHD_SIZE: usize = 64;
-const QTD_SIZE: usize = 32;
+const QHD_ITEM_SIZE: usize = 64;
+const QTD_ITEM_SIZE: usize = 32;
 
-static mut QHD_LIST_DATA: QhdListData = QhdListData([0; QHD_SIZE * ENDPOINT_COUNT * 2]);
-static mut QTD_LIST_DATA: QtdListData = QtdListData([0; QTD_SIZE * ENDPOINT_COUNT * 2 * QTD_COUNT_EACH_ENDPOINT]);
+static mut QHD_LIST_DATA: QhdListData = QhdListData([0; QHD_ITEM_SIZE * ENDPOINT_COUNT * 2]);
+static mut QTD_LIST_DATA: QtdListData = QtdListData([0; QTD_ITEM_SIZE * ENDPOINT_COUNT * 2 * QTD_COUNT_EACH_ENDPOINT]);
 static mut DCD_DATA: DcdData = DcdData {
     qhd_list: unsafe { QhdList::from_ptr(QHD_LIST_DATA.0.as_ptr() as *mut _) },
     qtd_list: unsafe { QtdList::from_ptr(QTD_LIST_DATA.0.as_ptr() as *mut _) },
 };
 
 #[repr(C, align(2048))]
-pub struct QhdListData([u8; QHD_SIZE * ENDPOINT_COUNT * 2]);
+pub struct QhdListData([u8; QHD_ITEM_SIZE * ENDPOINT_COUNT * 2]);
 
-pub struct QtdListData([u8; QTD_SIZE * ENDPOINT_COUNT * 2 * QTD_COUNT_EACH_ENDPOINT]);
+#[repr(C, align(32))]
+pub struct QtdListData([u8; QTD_ITEM_SIZE * ENDPOINT_COUNT * 2 * QTD_COUNT_EACH_ENDPOINT]);
 
 pub struct DcdData {
     /// List of queue head
@@ -92,12 +92,10 @@ impl Qhd {
 }
 
 pub(crate) unsafe fn reset_dcd_data(ep0_max_packet_size: u16) {
-    // Clear all qhd data
+    // Clear all qhd and qtd data
     for i in 0..ENDPOINT_COUNT as usize * 2 {
         DCD_DATA.qhd_list.qhd(i).reset();
     }
-
-    // TODO: QTD data
     for i in 0..ENDPOINT_COUNT as usize * 2 * QTD_COUNT_EACH_ENDPOINT as usize {
         DCD_DATA.qtd_list.qtd(i).reset();
     }
@@ -170,7 +168,7 @@ impl Qtd {
         // That's why the buffer[1-4] is filled with a `& 0xFFFFF000`.
         // To be convenient, if the data length is larger than 4K, we require the data address to be 4K bytes aligned.
         if transfer_bytes > 0x1000 && data.as_ptr() as u32 % 0x1000 != 0 {
-            // defmt::error!("The buffer[1-4] must be 4K bytes aligned");
+            defmt::error!("The buffer[1-4] must be 4K bytes aligned");
             return;
         }
 
@@ -179,40 +177,18 @@ impl Qtd {
             .write(|w| w.set_buffer((data.as_ptr() as u32 & 0xFFFFF000) >> 12));
         self.current_offset()
             .write(|w| w.set_current_offset((data.as_ptr() as u32 & 0x00000FFF) as u16));
+        defmt::info!(
+            "data_addr: {:x}, buffer0: {:x}, current_offset: {:x}",
+            data.as_ptr() as u32,
+            self.buffer(0).read().buffer(),
+            self.current_offset().read().0
+        );
         for i in 1..QHD_BUFFER_COUNT {
             // Fill address of next 4K bytes, note the addr is already shifted, so we just +1
             let addr = self.buffer(i - 1).read().buffer();
             self.buffer(i).write(|w| w.set_buffer(addr + 1));
         }
     }
-}
-
-#[bitfield(u32)]
-struct QueueTransferDescriptorToken {
-    #[bits(3)]
-    _r1: u8,
-    #[bits(1)]
-    xact_err: bool,
-    #[bits(1)]
-    _r2: bool,
-    #[bits(1)]
-    buffer_err: bool,
-    #[bits(1)]
-    halted: bool,
-    #[bits(1)]
-    active: bool,
-    #[bits(2)]
-    _r3: u8,
-    #[bits(2)]
-    iso_mult_override: u8,
-    #[bits(3)]
-    _r4: u8,
-    #[bits(1)]
-    int_on_complete: bool,
-    #[bits(15)]
-    total_bytes: u16,
-    #[bits(1)]
-    _r5: bool,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -249,53 +225,6 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
         #[cfg(feature = "usb-pin-reuse-hpm5300")] dp: impl Peripheral<P = impl DpPin<T>> + 'd,
     ) -> Self {
         unsafe { T::Interrupt::enable() };
-        // TODO: Initialization
-        //
-        // For HPM5300 series, DP/DM are reused with PA24/PA25.
-        // To use USB, the func_ctl of PA24/PA25 should be set to ANALOG,
-        // set IOC of PY00/01/02 aka USB0_ID, USB0_OC, USB0_PWR to USB,
-        // and config PIOC of PY00/01/02 as well.
-        //
-        // C code:
-        //
-        // ```c
-        // void init_usb_pins(void)
-        // {
-        //     HPM_IOC->PAD[IOC_PAD_PA24].FUNC_CTL = IOC_PAD_FUNC_CTL_ANALOG_MASK;
-        //     HPM_IOC->PAD[IOC_PAD_PA25].FUNC_CTL = IOC_PAD_FUNC_CTL_ANALOG_MASK;
-        //
-        //     /* USB0_ID */
-        //     HPM_IOC->PAD[IOC_PAD_PY00].FUNC_CTL = IOC_PY00_FUNC_CTL_USB0_ID;
-        //     /* USB0_OC */
-        //     HPM_IOC->PAD[IOC_PAD_PY01].FUNC_CTL = IOC_PY01_FUNC_CTL_USB0_OC;
-        //     /* USB0_PWR */
-        //     HPM_IOC->PAD[IOC_PAD_PY02].FUNC_CTL = IOC_PY02_FUNC_CTL_USB0_PWR;
-        //
-        //     /* PY port IO needs to configure PIOC as well */
-        //     HPM_PIOC->PAD[IOC_PAD_PY00].FUNC_CTL = PIOC_PY00_FUNC_CTL_SOC_GPIO_Y_00;
-        //     HPM_PIOC->PAD[IOC_PAD_PY01].FUNC_CTL = PIOC_PY01_FUNC_CTL_SOC_GPIO_Y_01;
-        //     HPM_PIOC->PAD[IOC_PAD_PY02].FUNC_CTL = PIOC_PY02_FUNC_CTL_SOC_GPIO_Y_02;
-        // }
-        // ```
-        //
-        // After that, power ctrl polarity of vbus should be set
-        //
-        // ```c
-        // // vbus high level enable
-        // ptr->OTG_CTRL0 |= USB_OTG_CTRL0_OTG_POWER_MASK_MASK;
-        // ```
-        //
-        // Then wait for 100ms.
-        //
-        // Since QFN48/LQFP64 have no vbus pin, there's an extra step: call `usb_phy_using_internal_vbus` to enable internal vbus
-        //
-        // ```c
-        // static inline void usb_phy_using_internal_vbus(USB_Type *ptr)
-        // {
-        //     ptr->PHY_CTRL0 |= (USB_PHY_CTRL0_VBUS_VALID_OVERRIDE_MASK | USB_PHY_CTRL0_SESS_VALID_OVERRIDE_MASK)
-        //                     | (USB_PHY_CTRL0_VBUS_VALID_OVERRIDE_EN_MASK | USB_PHY_CTRL0_SESS_VALID_OVERRIDE_EN_MASK);
-        // }
-        // ```
 
         let r = T::info().regs;
 
@@ -310,9 +239,6 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
             dp.set_as_analog();
             dm.set_as_analog();
         }
-
-        // TODO: Set ID/OC/PWR in host mode
-        //
 
         // Set vbus high level enable
         let r = T::info().regs;
@@ -459,6 +385,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         assert_eq!(ep_out.info.addr.index(), 0);
         assert_eq!(ep_in.info.addr.index(), 0);
 
+        // Prepare endpoints info
         let mut endpoints_in: [EndpointInfo; ENDPOINT_COUNT] = [EndpointInfo {
             addr: EndpointAddress::from_parts(0, Direction::In),
             ep_type: EndpointType::Bulk,
@@ -471,10 +398,13 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             max_packet_size: 0,
             interval_ms: 0,
         }; ENDPOINT_COUNT];
-        for i in 0..ENDPOINT_COUNT {
+        endpoints_in[0] = ep_in.info;
+        endpoints_out[0] = ep_out.info;
+        for i in 1..ENDPOINT_COUNT {
             endpoints_in[i] = self.endpoints_in[i].info;
             endpoints_out[i] = self.endpoints_out[i].info;
         }
+
         let mut bus = Bus {
             _phantom: PhantomData,
             info: self.info,
@@ -484,9 +414,10 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             inited: false,
         };
 
-        // Init the usb bus
+        // Init the usb phy and device controller
         bus.dcd_init();
 
+        // Set ENDPTLISTADDR, enable interrupts
         {
             let r = self.info.regs;
             // Set endpoint list address
@@ -496,8 +427,8 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             };
 
             // Clear status
+            r.usbsts().write(|w| w.0 = 0);
             // Enable interrupt mask
-            r.usbsts().write_value(Usbsts::default());
             r.usbintr().write(|w| {
                 w.set_ue(true);
                 w.set_uee(true);
@@ -506,6 +437,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             });
         }
 
+        // Start to run usb device
         bus.dcd_connect();
 
         (
@@ -596,7 +528,6 @@ pub unsafe fn on_interrupt<T: Instance>() {
         return;
     }
 
-    // defmt::info!("USB interrupt: {:b}", status.0);
     // Reset event
     if status.uri() {
         // Set IRQ_RESET signal

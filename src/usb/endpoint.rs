@@ -49,8 +49,14 @@ impl Endpoint {
         if qtd_num > 8 {
             return Err(Error::InvalidQtdNum);
         }
+        defmt::info!(
+            "Current ep num: {}, ep idx: {}, needed qtd num: {}",
+            ep_num,
+            ep_idx,
+            qtd_num
+        );
 
-        // Convert data's address, TODO: how to do it in Rust?
+        // TODO: Convert data's address to coressponding core
         // data = core_local_mem_to_sys_address(data);
 
         // Add all data to the circular queue
@@ -76,6 +82,7 @@ impl Endpoint {
             // Check hpm_sdk: static inline uint32_t core_local_mem_to_sys_address()
 
             // Initialize qtd with the data
+            defmt::info!("data_offset: {}, num transfer_bytes: {}", data_offset, transfer_bytes);
             qtd.reinit_with(&data[data_offset..], transfer_bytes);
 
             // Last chunk of the data
