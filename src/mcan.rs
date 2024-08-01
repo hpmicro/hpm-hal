@@ -1,4 +1,6 @@
 //! M_CAN driver, using the `mcan` crate.
+//!
+//! Families: HPM63, HPM62, HPM68, HPM6E.
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
@@ -6,6 +8,13 @@ use crate::gpio::AnyPin;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::time::Hertz;
+
+#[cfg(any(hpm53, hpm68))]
+const AHB_SRAM: *const () = 0xf0400000 as *const ();
+#[cfg(hpm62)]
+const AHB_SRAM: *const () = 0xF0300000 as *const ();
+#[cfg(hpm6e)]
+const AHB_SRAM: *const () = 0xF0200000 as *const ();
 
 /// CAN peripheral dependencies, for use with `mcan` crate.
 #[allow(unused)]
@@ -43,8 +52,7 @@ impl<'d, T: Instance> Dependencies<'d, T> {
 
 unsafe impl<'d, T: Instance + mcan::core::CanId> mcan::core::Dependencies<T> for Dependencies<'d, T> {
     fn eligible_message_ram_start(&self) -> *const () {
-        // FIXME: AHB_SRAM addr
-        0xf0400000 as *const ()
+        AHB_SRAM
     }
 
     fn host_clock(&self) -> mcan::core::fugit::HertzU32 {
