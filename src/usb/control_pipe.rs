@@ -27,14 +27,14 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         let r = T::info().regs;
 
         // Wait for SETUP packet(interrupt here)
-        // Clear interrupt status and enable USB interrupt first
-        r.usbsts().modify(|w| w.set_ui(false));
+        // Clear interrupt status(by writing 1) and enable USB interrupt first
+        r.usbsts().modify(|w| w.set_ui(true));
+        // r.usbsts().modify(|w| w.set_ui(false));
+        while r.usbsts().read().ui() {}
         r.usbintr().modify(|w| w.set_ue(true));
-        info!("Waiting for setup packet");
         let _ = poll_fn(|cx| {
             EP_OUT_WAKERS[0].register(cx.waker());
-
-            if r.endptsetupstat().read().0 != 0 {
+            if r.endptsetupstat().read().endptsetupstat() != 0 {
                 // See hpm_sdk/middleware/cherryusb/port/hpm/usb_dc_hpm.c: 285L
                 // Clean endpoint setup status
                 r.endptsetupstat().modify(|w| w.0 = w.0);
@@ -51,8 +51,11 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         // Read setup packet from qhd
         let setup_packet = unsafe { DCD_DATA.qhd_list.qhd(0).get_setup_request() };
 
+        // Clear interrupt status and enable USB interrupt
+        r.usbsts().modify(|w| w.set_ui(true));
+        while r.usbsts().read().ui() {}
+        r.usbintr().modify(|w| w.set_ue(true));
         // Convert to slice
-        defmt::trace!("setup_packet: {:?}", setup_packet);
         setup_packet
     }
 
@@ -74,8 +77,16 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         _last: bool,
     ) -> Result<(), embassy_usb_driver::EndpointError> {
         defmt::info!("ControlPipe::datain");
-        // TODO: data_in: it's already chunked by max_packet_size
+        // if data.len() > 64 {
+        //     panic!("data_in: data.len() > 64");
+        // }
+        // self.ep_in.buffer[0..data.len()].copy_from_slice(data);
+        // self.ep_in
+        //     .transfer2(data.len())
+        //     .map_err(|_e| EndpointError::BufferOverflow)?;
         self.ep_in.transfer(data).map_err(|_e| EndpointError::BufferOverflow)?;
+
+        // self.ep_out.transfer2(0).unwrap();
         Ok(())
     }
 
