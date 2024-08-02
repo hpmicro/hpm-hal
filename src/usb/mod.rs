@@ -100,7 +100,7 @@ pub(crate) unsafe fn reset_dcd_data(ep0_max_packet_size: u16) {
         DCD_DATA.qtd_list.qtd(i).reset();
     }
 
-    // Set qhd for EP0 and EP1
+    // Set qhd for EP0(qhd0&1)
     DCD_DATA.qhd_list.qhd(0).cap().modify(|w| {
         w.set_max_packet_size(ep0_max_packet_size);
         w.set_zero_length_termination(true);
@@ -120,11 +120,12 @@ pub(crate) unsafe fn reset_dcd_data(ep0_max_packet_size: u16) {
 pub(crate) unsafe fn init_qhd(ep_config: &EpConfig) {
     let ep_num = ep_config.ep_addr.index();
     let ep_idx = 2 * ep_num + ep_config.ep_addr.is_in() as usize;
+
     // Prepare queue head
     DCD_DATA.qhd_list.qhd(ep_idx).reset();
 
-    DCD_DATA.qhd_list.qhd(ep_idx).cap().write(|w| {
-        w.set_max_packet_size(ep_config.max_packet_size);
+    DCD_DATA.qhd_list.qhd(ep_idx).cap().modify(|w| {
+        w.set_max_packet_size(ep_config.max_packet_size & 0x7FF);
         w.set_zero_length_termination(true);
         if ep_config.transfer == EndpointType::Isochronous as u8 {
             w.set_iso_mult(((ep_config.max_packet_size >> 11) & 0x3) as u8 + 1);
@@ -134,7 +135,7 @@ pub(crate) unsafe fn init_qhd(ep_config: &EpConfig) {
         }
     });
 
-    DCD_DATA.qhd_list.qhd(ep_idx).next_dtd().write(|w| w.set_t(true));
+    DCD_DATA.qhd_list.qhd(ep_idx).next_dtd().modify(|w| w.set_t(true));
 }
 
 impl Qtd {
@@ -154,7 +155,8 @@ impl Qtd {
 
         self.qtd_token().modify(|w| {
             w.set_total_bytes(transfer_bytes as u16);
-            w.set_active(true)
+            w.set_active(true);
+            w.set_ioc(true);
         });
 
         self.expected_bytes()
@@ -172,21 +174,20 @@ impl Qtd {
             return;
         }
 
+        if transfer_bytes < 0x4000 {
+            self.next_dtd().modify(|w| w.set_t(true));
+        }
+
         // Fill data into qtd
         self.buffer(0)
-            .write(|w| w.set_buffer((data.as_ptr() as u32 & 0xFFFFF000) >> 12));
+            .modify(|w| w.set_buffer((data.as_ptr() as u32 & 0xFFFFF000) >> 12));
         self.current_offset()
-            .write(|w| w.set_current_offset((data.as_ptr() as u32 & 0x00000FFF) as u16));
-        defmt::info!(
-            "data_addr: {:x}, buffer0: {:x}, current_offset: {:x}",
-            data.as_ptr() as u32,
-            self.buffer(0).read().buffer(),
-            self.current_offset().read().0
-        );
+            .modify(|w| w.set_current_offset((data.as_ptr() as u32 & 0x00000FFF) as u16));
+
         for i in 1..QHD_BUFFER_COUNT {
             // Fill address of next 4K bytes, note the addr is already shifted, so we just +1
             let addr = self.buffer(i - 1).read().buffer();
-            self.buffer(i).write(|w| w.set_buffer(addr + 1));
+            self.buffer(i).modify(|w| w.set_buffer(addr + 1));
         }
     }
 }
@@ -226,6 +227,8 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
     ) -> Self {
         unsafe { T::Interrupt::enable() };
 
+        T::add_resource_group(0);
+
         let r = T::info().regs;
 
         // Disable dp/dm pulldown
@@ -240,8 +243,9 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
             dm.set_as_analog();
         }
 
-        // Set vbus high level enable
         let r = T::info().regs;
+
+        // Set power control polarity, aka vbus high level enable
         r.otg_ctrl0().modify(|w| w.set_otg_power_mask(true));
 
         // Wait for 100ms
@@ -256,8 +260,6 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
             w.set_vbus_valid_override_en(true);
             w.set_sess_valid_override_en(true);
         });
-
-        T::add_resource_group(0);
 
         // Initialize the bus so that it signals that power is available
         BUS_WAKER.wake();
@@ -329,6 +331,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         Ok(Endpoint {
             info: ep,
             usb_info: self.info,
+            buffer: [0; 64],
         })
     }
 
@@ -363,6 +366,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         Ok(Endpoint {
             info: ep,
             usb_info: self.info,
+            buffer: [0; 64],
         })
     }
 
@@ -422,12 +426,14 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             let r = self.info.regs;
             // Set endpoint list address
             unsafe {
+                defmt::info!("Setting ENDPTLISTADDR: {:x}", DCD_DATA.qhd_list.as_ptr());
                 r.endptlistaddr()
                     .modify(|w| w.set_epbase(DCD_DATA.qhd_list.as_ptr() as u32 >> 11))
             };
 
             // Clear status
-            r.usbsts().write(|w| w.0 = 0);
+            r.usbsts().modify(|w| w.0 = w.0);
+
             // Enable interrupt mask
             r.usbintr().write(|w| {
                 w.set_ue(true);
@@ -528,6 +534,8 @@ pub unsafe fn on_interrupt<T: Instance>() {
         return;
     }
 
+    defmt::info!("GOT IRQ: {:b}", r.usbsts().read().0);
+
     // Reset event
     if status.uri() {
         // Set IRQ_RESET signal
@@ -562,27 +570,43 @@ pub unsafe fn on_interrupt<T: Instance>() {
 
     // Transfer complete event
     if status.ui() {
-        defmt::info!("Transfer complete event!");
+        // Clear endpoint complete status
+        r.endptcomplete().modify(|w| w.0 = w.0);
 
+        // Disable USB transfer interrupt
         r.usbintr().modify(|w| w.set_ue(false));
         let ep_status = r.endptstat().read();
+        defmt::info!(
+            "Transfer complete interrupt: endptstat: {:b}, endptsetupstat: {:b}, endptcomplete: {:b}, endptprime: {:b}, endptflust: {:b}",
+            r.endptstat().read().0,
+            r.endptsetupstat().read().0,
+            r.endptcomplete().read().0,
+            r.endptprime().read().0,
+            r.endptflush().read().0,
+        );
+        check_qtd(8);
         // Clear the status by rewrite those bits
         r.endptstat().modify(|w| w.0 = w.0);
 
-        let ep_setup_status = r.endptsetupstat().read();
-        if ep_setup_status.0 > 0 {
-            defmt::info!("ep_setup_status: {:b}", ep_setup_status.0);
+        if r.endptsetupstat().read().endptsetupstat() > 0 {
+            defmt::info!(
+                "Setup transfer complete: 0b{:b}",
+                r.endptsetupstat().read().endptsetupstat()
+            );
             EP_OUT_WAKERS[0].wake();
         }
 
-        if ep_status.0 > 0 {
+        if r.endptcomplete().read().0 > 0 {
+            defmt::info!("ep transfer complete: {:b}", r.endptcomplete().read().0);
             // Transfer completed
             for i in 1..ENDPOINT_COUNT {
                 if ep_status.erbr() & (1 << i) > 0 {
+                    defmt::info!("wake {} OUT ep", i);
                     // OUT endpoint
                     EP_OUT_WAKERS[i].wake();
                 }
                 if ep_status.etbr() & (1 << i) > 0 {
+                    defmt::info!("wake {} IN ep", i);
                     // IN endpoint
                     EP_IN_WAKERS[i].wake();
                 }
@@ -593,3 +617,19 @@ pub unsafe fn on_interrupt<T: Instance>() {
 
 pin_trait!(DmPin, Instance);
 pin_trait!(DpPin, Instance);
+
+unsafe fn check_qtd(idx: usize) {
+    let qtd = DCD_DATA.qtd_list.qtd(idx);
+    defmt::info!(
+        "QTD {}: terminate: {}, next_dtd: {:x}, ioc: {}, c_page: {}, active: {}, halted: {}, xfer_err: {}, status: {:b}",
+        idx,
+        qtd.next_dtd().read().t(),
+        qtd.next_dtd().read().next_dtd_addr(),
+        qtd.qtd_token().read().ioc(),
+        qtd.qtd_token().read().c_page(),
+        qtd.qtd_token().read().active(),
+        qtd.qtd_token().read().halted(),
+        qtd.qtd_token().read().transaction_err(),
+        qtd.qtd_token().read().status(),
+    );
+}

@@ -10,7 +10,7 @@ use hpm_metapac::usb::regs::*;
 use riscv::delay::McycleDelay;
 
 use super::{init_qhd, Info, Instance, ENDPOINT_COUNT};
-use crate::usb::{reset_dcd_data, EpConfig, BUS_WAKER, DCD_DATA, IRQ_RESET, IRQ_SUSPEND};
+use crate::usb::{reset_dcd_data, EpConfig, BUS_WAKER, IRQ_RESET, IRQ_SUSPEND};
 
 pub struct Bus<T: Instance> {
     pub(crate) _phantom: PhantomData<T>,
@@ -57,12 +57,6 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
             if IRQ_RESET.load(Ordering::Acquire) {
                 IRQ_RESET.store(false, Ordering::Relaxed);
 
-                // Return setup packet
-                let setup_packet = unsafe { DCD_DATA.qhd_list.qhd(0).get_setup_request() };
-
-                // Convert to slice
-                defmt::trace!("check setup_packet in reset: {:?}", setup_packet);
-
                 // Set device addr to 0
                 self.dcd_set_address(0);
 
@@ -83,6 +77,7 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
 
                 // Set ue, enable usb transfer interrupt
                 r.usbintr().modify(|w| w.set_ue(true));
+                r.usbintr().modify(|w| w.set_ure(false));
 
                 defmt::info!("poll: Reset");
                 return Poll::Ready(Event::Reset);
@@ -162,8 +157,7 @@ impl<T: Instance> Bus<T> {
         // Enable dp/dm pulldown
         // In hpm_sdk, this operation is done by `ptr->PHY_CTRL0 &= ~0x001000E0u`.
         // But there's corresponding bits in register, so we write the register directly here.
-        let phy_ctrl0 = r.phy_ctrl0().read().0 & (!0x001000E0);
-        r.phy_ctrl0().write_value(PhyCtrl0(phy_ctrl0));
+        r.phy_ctrl0().modify(|w| w.0 = w.0 & (!(0x001000E0)));
 
         r.otg_ctrl0().modify(|w| {
             w.set_otg_utmi_suspendm_sw(false);
@@ -248,7 +242,7 @@ impl<T: Instance> Bus<T> {
 
         while r.endptprime().read().0 != 0 {}
 
-        r.endptflush().write_value(Endptflush(0xFFFFFFFF));
+        r.endptflush().modify(|w| w.0 = 0xFFFFFFFF);
 
         while r.endptflush().read().0 != 0 {}
     }
@@ -267,6 +261,8 @@ impl<T: Instance> Bus<T> {
         // Set mode to device IMMEDIATELY after reset
         r.usbmode().modify(|w| w.set_cm(0b10));
 
+        assert_eq!(r.usbmode().read().cm(), 0b10);
+
         r.usbmode().modify(|w| {
             // Set little endian
             w.set_es(false);
@@ -279,7 +275,7 @@ impl<T: Instance> Bus<T> {
             w.set_sts(false);
             // Parallel transceiver width
             w.set_ptw(false);
-            // Forced fullspeed mode
+            // Forced fullspeed mode, c_sdk commented this line out, use it only when the device runs in full speed mode
             // w.set_pfsc(true);
         });
 
@@ -384,13 +380,12 @@ impl<T: Instance> Bus<T> {
                 w.set_txt(0);
                 w.set_txe(true);
                 w.set_txr(true);
-                // TODO: Better impl? For example, make transfer a bitfield struct
-                w.0 |= (ep_config.transfer as u32) << 18;
+                w.set_txt(ep_config.transfer as u8);
             } else {
                 w.set_rxt(0);
                 w.set_rxe(true);
                 w.set_rxr(true);
-                w.0 |= (ep_config.transfer as u32) << 2;
+                w.set_rxt(ep_config.transfer as u8);
             }
         });
     }
