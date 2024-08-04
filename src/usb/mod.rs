@@ -13,9 +13,9 @@ use endpoint::{Endpoint, EpConfig};
 use hpm_metapac::usb::regs::Usbsts;
 use riscv::delay::McycleDelay;
 use types::{Qhd, QhdList, Qtd, QtdList};
-#[cfg(hpm53)]
+#[cfg(any(hpm53, hpm68, hpm6e))]
 use types_v53 as types;
-#[cfg(hpm62)]
+#[cfg(any(hpm67, hpm63, hpm62))]
 use types_v62 as types;
 
 use crate::interrupt::typelevel::Interrupt as _;
@@ -24,9 +24,9 @@ use crate::sysctl;
 mod bus;
 mod control_pipe;
 mod endpoint;
-#[cfg(hpm53)]
+#[cfg(any(hpm53, hpm68, hpm6e))]
 mod types_v53;
-#[cfg(hpm62)]
+#[cfg(any(hpm67, hpm63, hpm62))]
 mod types_v62;
 
 static IRQ_RESET: AtomicBool = AtomicBool::new(false);
@@ -113,6 +113,7 @@ pub(crate) unsafe fn reset_dcd_data(ep0_max_packet_size: u16) {
     });
 
     // Set the next pointer INVALID(T=1)
+    // TODO: Double check here with c_sdk
     DCD_DATA.qhd_list.qhd(0).next_dtd().write(|w| w.set_t(true));
     DCD_DATA.qhd_list.qhd(1).next_dtd().write(|w| w.set_t(true));
 }
@@ -156,7 +157,6 @@ impl Qtd {
         self.qtd_token().modify(|w| {
             w.set_total_bytes(transfer_bytes as u16);
             w.set_active(true);
-            w.set_ioc(true);
         });
 
         self.expected_bytes()
@@ -176,6 +176,12 @@ impl Qtd {
 
         if transfer_bytes < 0x4000 {
             self.next_dtd().modify(|w| w.set_t(true));
+        }
+
+        if transfer_bytes == 0 {
+            self.buffer(0).modify(|w| w.0 = 0);
+            self.current_offset().modify(|w| w.0 = 0);
+            return;
         }
 
         // Fill data into qtd
@@ -292,9 +298,9 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
 }
 
 impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
-    type EndpointOut = Endpoint;
+    type EndpointOut = Endpoint<'a, T>;
 
-    type EndpointIn = Endpoint;
+    type EndpointIn = Endpoint<'a, T>;
 
     type ControlPipe = ControlPipe<'a, T>;
 
@@ -329,8 +335,8 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         self.endpoints_out[ep_idx].used = true;
         self.endpoints_out[ep_idx].info = ep.clone();
         Ok(Endpoint {
+            _phantom: PhantomData,
             info: ep,
-            usb_info: self.info,
             buffer: [0; 64],
         })
     }
@@ -364,8 +370,8 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         self.endpoints_in[ep_idx].used = true;
         self.endpoints_in[ep_idx].info = ep.clone();
         Ok(Endpoint {
+            _phantom: PhantomData,
             info: ep,
-            usb_info: self.info,
             buffer: [0; 64],
         })
     }
@@ -397,7 +403,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             interval_ms: 0,
         }; ENDPOINT_COUNT];
         let mut endpoints_out: [EndpointInfo; ENDPOINT_COUNT] = [EndpointInfo {
-            addr: EndpointAddress::from_parts(0, Direction::In),
+            addr: EndpointAddress::from_parts(0, Direction::Out),
             ep_type: EndpointType::Bulk,
             max_packet_size: 0,
             interval_ms: 0,
@@ -427,8 +433,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             // Set endpoint list address
             unsafe {
                 defmt::info!("Setting ENDPTLISTADDR: {:x}", DCD_DATA.qhd_list.as_ptr());
-                r.endptlistaddr()
-                    .modify(|w| w.set_epbase(DCD_DATA.qhd_list.as_ptr() as u32 >> 11))
+                r.endptlistaddr().modify(|w| w.0 = DCD_DATA.qhd_list.as_ptr() as u32);
             };
 
             // Clear status
@@ -525,16 +530,18 @@ pub unsafe fn on_interrupt<T: Instance>() {
     // Clear triggered interrupts status bits
     let triggered_interrupts = status.0 & enabled_interrupts.0;
 
-    // TODO: Check all other interrupts are cleared
-    // r.usbsts().modify(|w| w.0 = w.0 & (!triggered_interrupts));
+    defmt::info!(
+        "GOT IRQ: {:b}, triggered: {:b}",
+        r.usbsts().read().0,
+        triggered_interrupts
+    );
     let status = Usbsts(triggered_interrupts);
+    r.usbsts().modify(|w| w.0 = w.0);
 
     // Disabled interrupt sources
     if status.0 == 0 {
         return;
     }
-
-    defmt::info!("GOT IRQ: {:b}", r.usbsts().read().0);
 
     // Reset event
     if status.uri() {
@@ -560,10 +567,12 @@ pub unsafe fn on_interrupt<T: Instance>() {
     if status.pci() {
         if r.portsc1().read().ccs() {
             r.usbintr().modify(|w| w.set_pce(false));
+            defmt::info!("Port change interrupt: connected");
             // Wake main thread. Then the suspend event will be processed in Bus::poll()
             BUS_WAKER.wake();
             // Connected
         } else {
+            defmt::info!("Port change interrupt: disconnected");
             // Disconnected
         }
     }
@@ -572,7 +581,6 @@ pub unsafe fn on_interrupt<T: Instance>() {
     if status.ui() {
         // Clear endpoint complete status
         r.endptcomplete().modify(|w| w.0 = w.0);
-
         // Disable USB transfer interrupt
         r.usbintr().modify(|w| w.set_ue(false));
         let ep_status = r.endptstat().read();
@@ -584,15 +592,11 @@ pub unsafe fn on_interrupt<T: Instance>() {
             r.endptprime().read().0,
             r.endptflush().read().0,
         );
-        check_qtd(8);
         // Clear the status by rewrite those bits
         r.endptstat().modify(|w| w.0 = w.0);
 
         if r.endptsetupstat().read().endptsetupstat() > 0 {
-            defmt::info!(
-                "Setup transfer complete: 0b{:b}",
-                r.endptsetupstat().read().endptsetupstat()
-            );
+            IRQ_TRANSFER_COMPLETED.store(true, Ordering::Relaxed);
             EP_OUT_WAKERS[0].wake();
         }
 
@@ -617,19 +621,3 @@ pub unsafe fn on_interrupt<T: Instance>() {
 
 pin_trait!(DmPin, Instance);
 pin_trait!(DpPin, Instance);
-
-unsafe fn check_qtd(idx: usize) {
-    let qtd = DCD_DATA.qtd_list.qtd(idx);
-    defmt::info!(
-        "QTD {}: terminate: {}, next_dtd: {:x}, ioc: {}, c_page: {}, active: {}, halted: {}, xfer_err: {}, status: {:b}",
-        idx,
-        qtd.next_dtd().read().t(),
-        qtd.next_dtd().read().next_dtd_addr(),
-        qtd.qtd_token().read().ioc(),
-        qtd.qtd_token().read().c_page(),
-        qtd.qtd_token().read().active(),
-        qtd.qtd_token().read().halted(),
-        qtd.qtd_token().read().transaction_err(),
-        qtd.qtd_token().read().status(),
-    );
-}

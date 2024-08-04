@@ -160,8 +160,8 @@ impl<T: Instance> Bus<T> {
         r.phy_ctrl0().modify(|w| w.0 = w.0 & (!(0x001000E0)));
 
         r.otg_ctrl0().modify(|w| {
-            w.set_otg_utmi_suspendm_sw(false);
             w.set_otg_utmi_reset_sw(true);
+            w.set_otg_utmi_suspendm_sw(false);
         });
 
         r.phy_ctrl1().modify(|w| {
@@ -188,7 +188,7 @@ impl<T: Instance> Bus<T> {
 
         // OTG utmi clock detection
         r.phy_status().modify(|w| w.set_utmi_clk_valid(true));
-        while r.phy_status().read().utmi_clk_valid() == false {}
+        while !r.phy_status().read().utmi_clk_valid() {}
 
         // Reset and set suspend
         r.phy_ctrl1().modify(|w| {
@@ -499,38 +499,6 @@ impl<T: Instance> Bus<T> {
             reset_dcd_data(ep0_max_packet_size);
         }
     }
-
-    // Used in `usb_dc_init`
-    // pub(crate) fn device_init(&mut self, int_mask: u32) {
-    //     defmt::info!("Bus::device_init");
-    //     // Clear dcd data first
-    //     unsafe {
-    //         DCD_DATA = DcdData::default();
-    //     }
-
-    //     // Initialize controller
-    //     self.dcd_init();
-
-    //     let r = &self.info.regs;
-    //     // Set endpoint list address
-    //     // TODO: Check if this is correct
-    //     let addr = unsafe { DCD_DATA.qhd.as_ptr() as u32 };
-    //     r.endptlistaddr().write(|w| w.set_epbase(addr));
-
-    //     // Clear status
-    //     r.usbsts().modify(|w| w.0 = 0);
-
-    //     // Enable interrupts
-    //     r.usbintr().modify(|w| w.0 = w.0 | int_mask);
-
-    //     // Connect
-    //     r.usbcmd().modify(|w| w.set_rs(true));
-    // }
-
-    // pub(crate) fn device_deinit(&mut self) {
-    //     defmt::info!("Bus::device_deinit");
-    //     self.dcd_deinit();
-    // }
 
     pub(crate) fn device_endpoint_close(&mut self, ep_addr: EndpointAddress) {
         defmt::info!("Bus::device_edpt_close");
