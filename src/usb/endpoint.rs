@@ -153,8 +153,6 @@ impl<'d, T: Instance> Endpoint<'d, T> {
         }
 
         unsafe {
-            DCD_DATA.qhd_list.qhd(ep_idx).next_dtd().modify(|w| w.set_t(true));
-
             DCD_DATA.qhd_list.qhd(ep_idx).next_dtd().modify(|w| {
                 w.set_next_dtd_addr(DCD_DATA.qtd_list.qtd(first_idx).as_ptr() as u32 >> 5);
                 // T **MUST** be set to 0
