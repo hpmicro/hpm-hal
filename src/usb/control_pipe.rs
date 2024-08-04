@@ -1,4 +1,5 @@
-use core::{marker::PhantomData, sync::atomic::Ordering};
+use core::marker::PhantomData;
+use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use defmt::info;

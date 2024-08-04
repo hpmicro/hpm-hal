@@ -153,6 +153,11 @@ impl<'d, T: Instance> Endpoint<'d, T> {
         }
 
         unsafe {
+            if ep_num == 0 {
+                DCD_DATA.qhd_list.qhd(ep_idx).cap().modify(|w| {
+                    w.set_ios(true);
+                });
+            }
             DCD_DATA.qhd_list.qhd(ep_idx).next_dtd().modify(|w| {
                 w.set_next_dtd_addr(DCD_DATA.qtd_list.qtd(first_idx).as_ptr() as u32 >> 5);
                 // T **MUST** be set to 0
@@ -164,7 +169,7 @@ impl<'d, T: Instance> Endpoint<'d, T> {
                 "ENDPTLISTADDR: {:x}
                 Check qhd after setting: qhd_idx: {}
                 1st word: mult: {}, zlt: {}, mps: {}, ios: {}
-                2nd word: {:x}
+                2nd word: cur dtd: {:x}
                 3rd word: next_dtd + t: {:x}
                 total_bytes: {}, ioc: {}, c_page: {}, multO: {}, status: 0b{:b}",
                 T::info().regs.endptlistaddr().read().0,
