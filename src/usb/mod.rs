@@ -32,7 +32,6 @@ mod types_v62;
 static IRQ_RESET: AtomicBool = AtomicBool::new(false);
 static IRQ_SUSPEND: AtomicBool = AtomicBool::new(false);
 static IRQ_TRANSFER_COMPLETED: AtomicBool = AtomicBool::new(false);
-static IRQ_PORT_CHANGE: AtomicBool = AtomicBool::new(false);
 
 const AW_NEW: AtomicWaker = AtomicWaker::new();
 static EP_IN_WAKERS: [AtomicWaker; ENDPOINT_COUNT] = [AW_NEW; ENDPOINT_COUNT];
@@ -337,7 +336,6 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         Ok(Endpoint {
             _phantom: PhantomData,
             info: ep,
-            buffer: [0; 64],
         })
     }
 
@@ -372,7 +370,6 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         Ok(Endpoint {
             _phantom: PhantomData,
             info: ep,
-            buffer: [0; 64],
         })
     }
 
@@ -579,8 +576,6 @@ pub unsafe fn on_interrupt<T: Instance>() {
 
     // Transfer complete event
     if status.ui() {
-        // Clear endpoint complete status
-        r.endptcomplete().modify(|w| w.0 = w.0);
         // Disable USB transfer interrupt
         r.usbintr().modify(|w| w.set_ue(false));
         let ep_status = r.endptstat().read();
@@ -592,8 +587,6 @@ pub unsafe fn on_interrupt<T: Instance>() {
             r.endptprime().read().0,
             r.endptflush().read().0,
         );
-        // Clear the status by rewrite those bits
-        r.endptstat().modify(|w| w.0 = w.0);
 
         if r.endptsetupstat().read().endptsetupstat() > 0 {
             IRQ_TRANSFER_COMPLETED.store(true, Ordering::Relaxed);
@@ -616,6 +609,8 @@ pub unsafe fn on_interrupt<T: Instance>() {
                 }
             }
         }
+        // Re-enable USB transfer interrupt
+        r.usbintr().modify(|w| w.set_ue(true));
     }
 }
 
