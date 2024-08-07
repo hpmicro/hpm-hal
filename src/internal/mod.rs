@@ -16,3 +16,8 @@ impl Iterator for BitIter {
         }
     }
 }
+
+/// Numbered pin trait
+pub trait NumberedPin {
+    fn num(&self) -> u8;
+}
