@@ -71,7 +71,8 @@ This crate is a working-in-progress and not ready for use.
   - [x] SDRAM init
 - [x] MCAN
   - [x] basic `mcan` wrapper
-  - [ ] async driver
+  - ~~[ ] async driver~~, better impl it in the App layer, see Mi motor demo
+  - [ ] TSU management
 
 ### Long term Plans
 
