@@ -106,7 +106,7 @@ The best reference is the examples in the `examples` directory and Github action
   - HPMIcro Manufacturing Tool
 - A RISC-V GCC toolchain if you perfer to use OpenOCD(only GDB is needed)
 - A Rust toolchain
-  - `rustup default nightly-2024-06-12` (locked because of bug [rust-embedded/riscv#196](https://github.com/rust-embedded/riscv/issues/196))
+  - `rustup default nightly`
   - `rustup target add riscv32imafc-unknown-none-elf`
 
 ### Guide
@@ -125,7 +125,7 @@ The best reference is the examples in the `examples` directory and Github action
 #### Step 1. Prepare Rust Toolchain
 
 ```bash
-rustup default nightly-2024-06-12
+rustup default nightly
 rustup target add riscv32imafc-unknown-none-elf
 ```
 
@@ -157,6 +157,8 @@ gh repo clone hpmicro-rs/hpm-hal
 cd examples/hpm5300evk
 cargo run --release --bin blinky
 ```
+
+> **Note**: Due to [rust-embedded/riscv#196](https://github.com/rust-embedded/riscv/issues/196), patched linker script should be used.
 
 ## License
 
