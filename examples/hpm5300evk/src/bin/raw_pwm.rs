@@ -94,7 +94,7 @@ fn main() -> ! {
     });
 
     pac::PWM1.cmpcfg(7).modify(|w| {
-        w.set_cmpmode(false);
+        w.set_cmpmode(vals::CmpMode::OUTPUT_COMPARE);
         w.set_cmpshdwupt(vals::ShadowUpdateTrigger::ON_MODIFY);
     }); // output
 
