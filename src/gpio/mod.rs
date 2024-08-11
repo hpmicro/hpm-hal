@@ -592,6 +592,28 @@ impl SealedPin for AnyPin {
 impl Pin for AnyPin {}
 
 // ====================
+// NoPin
+
+/// Placeholder for a signal that is not used.
+pub struct NoPin;
+impl_peripheral!(NoPin);
+impl SealedPin for NoPin {
+    fn pin_pad(&self) -> u16 {
+        0xFFFF
+    }
+    #[inline]
+    fn set_as_alt(&self, _alt_num: u8) {
+        // empty
+    }
+}
+impl Pin for NoPin {}
+impl From<NoPin> for AnyPin {
+    fn from(x: NoPin) -> Self {
+        unreachable!()
+    }
+}
+
+// ====================
 
 foreach_pin!(
     ($pin_name:ident, $pin_pad:expr) => {
