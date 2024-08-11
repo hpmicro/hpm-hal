@@ -6,8 +6,39 @@
 
 use embassy_time::Timer;
 use hpm_hal::gpio::{Level, NoPin, Output};
+use hpm_hal::interrupt::InterruptExt as _;
 use hpm_hal::pac::qei::vals;
-use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal};
+
+#[allow(non_snake_case)]
+#[no_mangle]
+unsafe extern "riscv-interrupt-m" fn QEI1() {
+    let r = hal::pac::QEI1;
+
+    let ph0 = r.phase_cnt().read().0;
+    let z_cnt = r.count_current().z().read().0;
+
+    let freq_in = hal::sysctl::clocks().ahb.0;
+    let cycle0_snap0 = r.cycle0_snap0().read().cycle0_snap0();
+    let cycle0_snap1 = r.cycle0_snap1().read().cycle0_snap1();
+
+    if cycle0_snap0 != 0 && cycle0_snap1 != 0 {
+        let speed0 = freq_in / cycle0_snap0;
+        let speed1 = freq_in / cycle0_snap1;
+
+        defmt::info!(
+            "z: {} ph: {} speed0: {} r/s  speed1: {} r/s",
+            z_cnt,
+            ph0,
+            speed0,
+            speed1
+        );
+    }
+
+    r.sr().modify(|w| w.set_pulse0f(true)); // clear interrupt flag. W1C
+
+    hal::interrupt::QEI1.complete();
+}
 
 #[embassy_executor::main(entry = "hpm_hal::entry")]
 async fn main(_spawner: embassy_executor::Spawner) -> ! {
@@ -64,8 +95,11 @@ async fn main(_spawner: embassy_executor::Spawner) -> ! {
     });
     r.readen().modify(|w| w.set_poscmpfen(true)); // load read trigger
 
-    r.pulse0_num().write(|w| w.0 = 64); // for speed detection
-    r.cycle0_num().write(|w| w.0 = 2); // for speed detection
+    r.pulse0_num().write(|w| w.0 = 10); // for speed detection
+                                        // r.cycle0_num().write(|w| w.0 = 0); // for speed detection
+
+    r.irqen().modify(|w| w.set_pulse0e(true));
+    unsafe { hal::interrupt::QEI1.enable() };
 
     r.cr().modify(|w| w.set_rstcnt(false)); // release reset
 
@@ -76,15 +110,19 @@ async fn main(_spawner: embassy_executor::Spawner) -> ! {
     loop {
         led.toggle();
 
-        let ph_cnt = r.phase_cnt().read().0;
-        let z_cnt = r.count_current().z().read().0;
-
-        defmt::info!("z: {} ph: {}", z_cnt, ph_cnt);
-
-        let line_speed = r.pulse0cycle_cnt().read().pulse0cycle_cnt();
-
-        defmt::info!("line_speed: {}", line_speed);
-
         Timer::after_millis(500).await;
     }
+}
+
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    let mut err = heapless::String::<1024>::new();
+
+    use core::fmt::Write as _;
+
+    write!(err, "panic: {}", info).ok();
+
+    defmt::info!("{}", err.as_str());
+
+    loop {}
 }
