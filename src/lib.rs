@@ -59,6 +59,8 @@ pub mod uart;
 
 #[cfg(femc)]
 pub mod femc;
+#[cfg(qei)]
+pub mod qei;
 #[cfg(rtc)]
 pub mod rtc;
 
