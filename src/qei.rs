@@ -1,8 +1,7 @@
 //! Quadrature Encoder Interface
 
-use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
-use crate::gpio::SealedPin;
 use crate::pac;
 
 #[allow(unused)]
