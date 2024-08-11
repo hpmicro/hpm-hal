@@ -47,10 +47,18 @@ pub fn clock_add_to_group(resource: usize, group: usize) {
     let offset = (resource - RESOURCE_START) % 32;
 
     if group == 0 {
+        if SYSCTL.group0(index).value().read().link() & (1 << offset) != 0 {
+            return;
+        }
         SYSCTL.group0(index).set().write(|w| w.set_link(1 << offset));
     } else {
-        #[cfg(any(hpm6e, hpm67, hpm62))]
-        SYSCTL.group1(index).set().write(|w| w.set_link(1 << offset));
+        #[cfg(ip_feature_dual_core)]
+        {
+            if SYSCTL.group1(index).value().read().link() & (1 << offset) != 0 {
+                return;
+            }
+            SYSCTL.group1(index).set().write(|w| w.set_link(1 << offset));
+        }
     }
 
     while SYSCTL.resource(resource).read().loc_busy() {}

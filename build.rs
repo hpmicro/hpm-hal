@@ -13,7 +13,15 @@ use quote::{format_ident, quote};
 // HPM_SOC_IP_FEATURE
 fn get_ip_features(chip_family: &str) -> &[&str] {
     match chip_family {
-        "hpm67" | "hpm64" => &["ADC16_HAS_TEMPSNS"],
+        "hpm67" => &[
+            "ADC16_HAS_TEMPSNS",
+            // custom
+            "DUAL_CORE",
+        ],
+        "hpm64" => &[
+            "ADC16_HAS_TEMPSNS", // custom
+            "DUAL_CORE",
+        ],
         "hpm63" => &["PWM_COUNTER_RESET"],
         "hpm62" => &[
             "UART_RX_IDLE_DETECT",
@@ -21,6 +29,7 @@ fn get_ip_features(chip_family: &str) -> &[&str] {
             "PWM_HRPWM",
             // custom
             "DMA_IDMISC",
+            "DUAL_CORE",
         ],
         "hpm53" => &[
             "GPTMR_MONITOR",
@@ -101,6 +110,7 @@ fn get_ip_features(chip_family: &str) -> &[&str] {
             "DMA_V2_SWAP_TABLE",
             "I2C_TRANSFER_COUNT_MAX_4096",
             "ADC_BUSMODE_ENABLE_CTRL_SUPPORT",
+            "DUAL_CORE",
         ],
         _ => panic!("Unknown chip family: {}", chip_family),
     }
@@ -260,6 +270,13 @@ fn main() {
         (("mcan", "RXD"), quote!(crate::mcan::RxPin)),
         (("mcan", "TXD"), quote!(crate::mcan::TxPin)),
         (("mcan", "STBY"), quote!(crate::mcan::StbyPin)),
+        // qei
+        (("qei", "A"), quote!(crate::qei::APin)),
+        (("qei", "B"), quote!(crate::qei::BPin)),
+        (("qei", "Z"), quote!(crate::qei::ZPin)),
+        (("qei", "F"), quote!(crate::qei::FaultPin)),
+        (("qei", "H0"), quote!(crate::qei::Home0Pin)),
+        (("qei", "H1"), quote!(crate::qei::Home1Pin)),
         // FEMC
         (("femc", "A00"), quote!(crate::femc::A00Pin)),
         (("femc", "A01"), quote!(crate::femc::A01Pin)),
