@@ -429,6 +429,7 @@ impl<'d> OutputOpenDrain<'d> {
     }
 }
 
+#[allow(unused)]
 pub(crate) trait SealedPin: Sized {
     /// The pad offset in IOC. The lower 5 bits are the pin number, and the higher bits are the port number.
     fn pin_pad(&self) -> u16;
@@ -608,7 +609,7 @@ impl SealedPin for NoPin {
 }
 impl Pin for NoPin {}
 impl From<NoPin> for AnyPin {
-    fn from(x: NoPin) -> Self {
+    fn from(_x: NoPin) -> Self {
         unreachable!()
     }
 }
