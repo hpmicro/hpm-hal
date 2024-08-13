@@ -1,4 +1,6 @@
-//! Quadrature Encoder Interface
+//! Quadrature Encoder Interface.
+//!
+// QEIv1 does not have any physical pins. All signals come from TRGM.
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
@@ -21,7 +23,10 @@ impl<'d, T: Instance> Qei<'d, T> {
     ) -> Qei<'d, T> {
         into_ref!(peri, a, b, z, fault, home0, home1);
 
+        #[cfg(hpm53)]
         crate::sysctl::clock_add_to_group(pac::resources::MOT0, 0);
+        #[cfg(hpm6e)]
+        T::add_resource_group(0);
 
         a.set_as_alt(a.alt_num());
         b.set_as_alt(b.alt_num());
@@ -43,7 +48,13 @@ pub(crate) trait SealedInstance {
 }
 
 #[allow(private_bounds)]
+#[cfg(hpm53)]
 pub trait Instance: SealedInstance + 'static {
+    /// Interrupt for this peripheral.
+    type Interrupt: crate::interrupt::typelevel::Interrupt;
+}
+#[cfg(hpm6e)]
+pub trait Instance: SealedInstance + crate::sysctl::ClockPeripheral + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
@@ -56,7 +67,8 @@ pin_trait!(FaultPin, Instance);
 pin_trait!(Home0Pin, Instance);
 pin_trait!(Home1Pin, Instance);
 
-// APin is not optional
+// APin is not optional.
+
 impl<T: Instance> BPin<T> for crate::gpio::NoPin {
     fn alt_num(&self) -> u8 {
         0
