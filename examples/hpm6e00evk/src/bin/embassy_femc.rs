@@ -29,208 +29,210 @@ macro_rules! println {
 }
 
 fn init_femc_pins() {
+    use pac::iomux::*;
+    use pac::pins::*;
     use pac::IOC;
 
-    IOC.pad(pac::pins::PD02)
+    IOC.pad(PD02)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD02_FUNC_CTL_FEMC_A_00));
-    IOC.pad(pac::pins::PD03)
+        .write(|w| w.set_alt_select(IOC_PD02_FUNC_CTL_FEMC_A_00));
+    IOC.pad(PD03)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD03_FUNC_CTL_FEMC_A_01));
-    IOC.pad(pac::pins::PD00)
+        .write(|w| w.set_alt_select(IOC_PD03_FUNC_CTL_FEMC_A_01));
+    IOC.pad(PD00)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD00_FUNC_CTL_FEMC_A_02));
-    IOC.pad(pac::pins::PD01)
+        .write(|w| w.set_alt_select(IOC_PD00_FUNC_CTL_FEMC_A_02));
+    IOC.pad(PD01)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD01_FUNC_CTL_FEMC_A_03));
-    IOC.pad(pac::pins::PC18)
+        .write(|w| w.set_alt_select(IOC_PD01_FUNC_CTL_FEMC_A_03));
+    IOC.pad(PC18)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC18_FUNC_CTL_FEMC_A_04));
-    IOC.pad(pac::pins::PC19)
+        .write(|w| w.set_alt_select(IOC_PC18_FUNC_CTL_FEMC_A_04));
+    IOC.pad(PC19)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC19_FUNC_CTL_FEMC_A_05));
-    IOC.pad(pac::pins::PC20)
+        .write(|w| w.set_alt_select(IOC_PC19_FUNC_CTL_FEMC_A_05));
+    IOC.pad(PC20)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC20_FUNC_CTL_FEMC_A_06));
-    IOC.pad(pac::pins::PC21)
+        .write(|w| w.set_alt_select(IOC_PC20_FUNC_CTL_FEMC_A_06));
+    IOC.pad(PC21)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC21_FUNC_CTL_FEMC_A_07));
-    IOC.pad(pac::pins::PC23)
+        .write(|w| w.set_alt_select(IOC_PC21_FUNC_CTL_FEMC_A_07));
+    IOC.pad(PC23)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC23_FUNC_CTL_FEMC_A_08));
-    IOC.pad(pac::pins::PC24)
+        .write(|w| w.set_alt_select(IOC_PC23_FUNC_CTL_FEMC_A_08));
+    IOC.pad(PC24)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC24_FUNC_CTL_FEMC_A_09));
-    IOC.pad(pac::pins::PD04)
+        .write(|w| w.set_alt_select(IOC_PC24_FUNC_CTL_FEMC_A_09));
+    IOC.pad(PD04)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD04_FUNC_CTL_FEMC_A_10));
-    IOC.pad(pac::pins::PC25)
+        .write(|w| w.set_alt_select(IOC_PD04_FUNC_CTL_FEMC_A_10));
+    IOC.pad(PC25)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC25_FUNC_CTL_FEMC_A_11)); /* SRAM: NWE */
-    IOC.pad(pac::pins::PC26)
+        .write(|w| w.set_alt_select(IOC_PC25_FUNC_CTL_FEMC_A_11)); /* SRAM: NWE */
+    IOC.pad(PC26)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC26_FUNC_CTL_FEMC_A_12)); /* SRAM: NOE */
+        .write(|w| w.set_alt_select(IOC_PC26_FUNC_CTL_FEMC_A_12)); /* SRAM: NOE */
 
-    IOC.pad(pac::pins::PD31)
+    IOC.pad(PD31)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD31_FUNC_CTL_FEMC_DQ_00));
-    IOC.pad(pac::pins::PD30)
+        .write(|w| w.set_alt_select(IOC_PD31_FUNC_CTL_FEMC_DQ_00));
+    IOC.pad(PD30)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD30_FUNC_CTL_FEMC_DQ_01));
-    IOC.pad(pac::pins::PD29)
+        .write(|w| w.set_alt_select(IOC_PD30_FUNC_CTL_FEMC_DQ_01));
+    IOC.pad(PD29)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD29_FUNC_CTL_FEMC_DQ_02));
-    IOC.pad(pac::pins::PD28)
+        .write(|w| w.set_alt_select(IOC_PD29_FUNC_CTL_FEMC_DQ_02));
+    IOC.pad(PD28)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD28_FUNC_CTL_FEMC_DQ_03));
-    IOC.pad(pac::pins::PD27)
+        .write(|w| w.set_alt_select(IOC_PD28_FUNC_CTL_FEMC_DQ_03));
+    IOC.pad(PD27)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD27_FUNC_CTL_FEMC_DQ_04));
-    IOC.pad(pac::pins::PD26)
+        .write(|w| w.set_alt_select(IOC_PD27_FUNC_CTL_FEMC_DQ_04));
+    IOC.pad(PD26)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD26_FUNC_CTL_FEMC_DQ_05));
-    IOC.pad(pac::pins::PD24)
+        .write(|w| w.set_alt_select(IOC_PD26_FUNC_CTL_FEMC_DQ_05));
+    IOC.pad(PD24)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD24_FUNC_CTL_FEMC_DQ_06));
-    IOC.pad(pac::pins::PD25)
+        .write(|w| w.set_alt_select(IOC_PD24_FUNC_CTL_FEMC_DQ_06));
+    IOC.pad(PD25)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD25_FUNC_CTL_FEMC_DQ_07));
-    IOC.pad(pac::pins::PD14)
+        .write(|w| w.set_alt_select(IOC_PD25_FUNC_CTL_FEMC_DQ_07));
+    IOC.pad(PD14)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD14_FUNC_CTL_FEMC_DQ_08));
-    IOC.pad(pac::pins::PD17)
+        .write(|w| w.set_alt_select(IOC_PD14_FUNC_CTL_FEMC_DQ_08));
+    IOC.pad(PD17)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD17_FUNC_CTL_FEMC_DQ_09));
-    IOC.pad(pac::pins::PD16)
+        .write(|w| w.set_alt_select(IOC_PD17_FUNC_CTL_FEMC_DQ_09));
+    IOC.pad(PD16)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD16_FUNC_CTL_FEMC_DQ_10));
-    IOC.pad(pac::pins::PD19)
+        .write(|w| w.set_alt_select(IOC_PD16_FUNC_CTL_FEMC_DQ_10));
+    IOC.pad(PD19)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD19_FUNC_CTL_FEMC_DQ_11));
-    IOC.pad(pac::pins::PD18)
+        .write(|w| w.set_alt_select(IOC_PD19_FUNC_CTL_FEMC_DQ_11));
+    IOC.pad(PD18)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD18_FUNC_CTL_FEMC_DQ_12));
-    IOC.pad(pac::pins::PD21)
+        .write(|w| w.set_alt_select(IOC_PD18_FUNC_CTL_FEMC_DQ_12));
+    IOC.pad(PD21)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD21_FUNC_CTL_FEMC_DQ_13));
-    IOC.pad(pac::pins::PD20)
+        .write(|w| w.set_alt_select(IOC_PD21_FUNC_CTL_FEMC_DQ_13));
+    IOC.pad(PD20)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD20_FUNC_CTL_FEMC_DQ_14));
-    IOC.pad(pac::pins::PD22)
+        .write(|w| w.set_alt_select(IOC_PD20_FUNC_CTL_FEMC_DQ_14));
+    IOC.pad(PD22)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD22_FUNC_CTL_FEMC_DQ_15));
-    IOC.pad(pac::pins::PC16)
+        .write(|w| w.set_alt_select(IOC_PD22_FUNC_CTL_FEMC_DQ_15));
+    IOC.pad(PC16)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC16_FUNC_CTL_FEMC_DQ_16));
-    IOC.pad(pac::pins::PC17)
+        .write(|w| w.set_alt_select(IOC_PC16_FUNC_CTL_FEMC_DQ_16));
+    IOC.pad(PC17)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC17_FUNC_CTL_FEMC_DQ_17));
-    IOC.pad(pac::pins::PC13)
+        .write(|w| w.set_alt_select(IOC_PC17_FUNC_CTL_FEMC_DQ_17));
+    IOC.pad(PC13)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC13_FUNC_CTL_FEMC_DQ_18));
-    IOC.pad(pac::pins::PC14)
+        .write(|w| w.set_alt_select(IOC_PC13_FUNC_CTL_FEMC_DQ_18));
+    IOC.pad(PC14)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC14_FUNC_CTL_FEMC_DQ_19));
-    IOC.pad(pac::pins::PC10)
+        .write(|w| w.set_alt_select(IOC_PC14_FUNC_CTL_FEMC_DQ_19));
+    IOC.pad(PC10)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC10_FUNC_CTL_FEMC_DQ_20));
-    IOC.pad(pac::pins::PC11)
+        .write(|w| w.set_alt_select(IOC_PC10_FUNC_CTL_FEMC_DQ_20));
+    IOC.pad(PC11)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC11_FUNC_CTL_FEMC_DQ_21));
-    IOC.pad(pac::pins::PC02)
+        .write(|w| w.set_alt_select(IOC_PC11_FUNC_CTL_FEMC_DQ_21));
+    IOC.pad(PC02)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC02_FUNC_CTL_FEMC_DQ_22));
-    IOC.pad(pac::pins::PC09)
+        .write(|w| w.set_alt_select(IOC_PC02_FUNC_CTL_FEMC_DQ_22));
+    IOC.pad(PC09)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC09_FUNC_CTL_FEMC_DQ_23));
-    IOC.pad(pac::pins::PC00)
+        .write(|w| w.set_alt_select(IOC_PC09_FUNC_CTL_FEMC_DQ_23));
+    IOC.pad(PC00)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC00_FUNC_CTL_FEMC_DQ_24));
-    IOC.pad(pac::pins::PC01)
+        .write(|w| w.set_alt_select(IOC_PC00_FUNC_CTL_FEMC_DQ_24));
+    IOC.pad(PC01)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC01_FUNC_CTL_FEMC_DQ_25));
-    IOC.pad(pac::pins::PC03)
+        .write(|w| w.set_alt_select(IOC_PC01_FUNC_CTL_FEMC_DQ_25));
+    IOC.pad(PC03)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC03_FUNC_CTL_FEMC_DQ_26));
-    IOC.pad(pac::pins::PC04)
+        .write(|w| w.set_alt_select(IOC_PC03_FUNC_CTL_FEMC_DQ_26));
+    IOC.pad(PC04)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC04_FUNC_CTL_FEMC_DQ_27));
-    IOC.pad(pac::pins::PC05)
+        .write(|w| w.set_alt_select(IOC_PC04_FUNC_CTL_FEMC_DQ_27));
+    IOC.pad(PC05)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC05_FUNC_CTL_FEMC_DQ_28));
-    IOC.pad(pac::pins::PC06)
+        .write(|w| w.set_alt_select(IOC_PC05_FUNC_CTL_FEMC_DQ_28));
+    IOC.pad(PC06)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC06_FUNC_CTL_FEMC_DQ_29));
-    IOC.pad(pac::pins::PC07)
+        .write(|w| w.set_alt_select(IOC_PC06_FUNC_CTL_FEMC_DQ_29));
+    IOC.pad(PC07)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC07_FUNC_CTL_FEMC_DQ_30));
-    IOC.pad(pac::pins::PC08)
+        .write(|w| w.set_alt_select(IOC_PC07_FUNC_CTL_FEMC_DQ_30));
+    IOC.pad(PC08)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC08_FUNC_CTL_FEMC_DQ_31));
+        .write(|w| w.set_alt_select(IOC_PC08_FUNC_CTL_FEMC_DQ_31));
 
-    IOC.pad(pac::pins::PD23)
+    IOC.pad(PD23)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD23_FUNC_CTL_FEMC_DM_0)); /* SRAM: NLB */
-    IOC.pad(pac::pins::PD15)
+        .write(|w| w.set_alt_select(IOC_PD23_FUNC_CTL_FEMC_DM_0)); /* SRAM: NLB */
+    IOC.pad(PD15)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD15_FUNC_CTL_FEMC_DM_1)); /* SRAM: NUB */
-    IOC.pad(pac::pins::PC12)
+        .write(|w| w.set_alt_select(IOC_PD15_FUNC_CTL_FEMC_DM_1)); /* SRAM: NUB */
+    IOC.pad(PC12)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC12_FUNC_CTL_FEMC_DM_2));
-    IOC.pad(pac::pins::PC15)
+        .write(|w| w.set_alt_select(IOC_PC12_FUNC_CTL_FEMC_DM_2));
+    IOC.pad(PC15)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC15_FUNC_CTL_FEMC_DM_3));
+        .write(|w| w.set_alt_select(IOC_PC15_FUNC_CTL_FEMC_DM_3));
 
-    IOC.pad(pac::pins::PX07).func_ctl().write(|w| {
-        w.set_alt_select(pac::iomux::IOC_PX07_FUNC_CTL_FEMC_DQS);
+    IOC.pad(PX07).func_ctl().write(|w| {
+        w.set_alt_select(IOC_PX07_FUNC_CTL_FEMC_DQS);
         w.set_loop_back(true);
     });
 
     /* SDRAM */
-    IOC.pad(pac::pins::PD05)
+    IOC.pad(PD05)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD05_FUNC_CTL_FEMC_BA0));
-    IOC.pad(pac::pins::PD06)
+        .write(|w| w.set_alt_select(IOC_PD05_FUNC_CTL_FEMC_BA0));
+    IOC.pad(PD06)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD06_FUNC_CTL_FEMC_BA1)); /* SRAM: NADV */
-    IOC.pad(pac::pins::PD10)
+        .write(|w| w.set_alt_select(IOC_PD06_FUNC_CTL_FEMC_BA1)); /* SRAM: NADV */
+    IOC.pad(PD10)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD10_FUNC_CTL_FEMC_RAS));
-    IOC.pad(pac::pins::PD13)
+        .write(|w| w.set_alt_select(IOC_PD10_FUNC_CTL_FEMC_RAS));
+    IOC.pad(PD13)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD13_FUNC_CTL_FEMC_CAS));
-    IOC.pad(pac::pins::PC28)
+        .write(|w| w.set_alt_select(IOC_PD13_FUNC_CTL_FEMC_CAS));
+    IOC.pad(PC28)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC28_FUNC_CTL_FEMC_CKE));
-    IOC.pad(pac::pins::PC27)
+        .write(|w| w.set_alt_select(IOC_PC28_FUNC_CTL_FEMC_CKE));
+    IOC.pad(PC27)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC27_FUNC_CTL_FEMC_CLK_0));
-    IOC.pad(pac::pins::PD12)
+        .write(|w| w.set_alt_select(IOC_PC27_FUNC_CTL_FEMC_CLK_0));
+    IOC.pad(PD12)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD12_FUNC_CTL_FEMC_WE));
-    IOC.pad(pac::pins::PD11)
+        .write(|w| w.set_alt_select(IOC_PD12_FUNC_CTL_FEMC_WE));
+    IOC.pad(PD11)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD11_FUNC_CTL_FEMC_CS_0));
-    IOC.pad(pac::pins::PD08)
+        .write(|w| w.set_alt_select(IOC_PD11_FUNC_CTL_FEMC_CS_0));
+    IOC.pad(PD08)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD08_FUNC_CTL_FEMC_CS_1));
+        .write(|w| w.set_alt_select(IOC_PD08_FUNC_CTL_FEMC_CS_1));
 
     /* SRAM */
-    IOC.pad(pac::pins::PC29)
+    IOC.pad(PC29)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC29_FUNC_CTL_FEMC_SCLK_0));
-    IOC.pad(pac::pins::PD07)
+        .write(|w| w.set_alt_select(IOC_PC29_FUNC_CTL_FEMC_SCLK_0));
+    IOC.pad(PD07)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PD07_FUNC_CTL_FEMC_SCLK_1));
-    IOC.pad(pac::pins::PC30)
+        .write(|w| w.set_alt_select(IOC_PD07_FUNC_CTL_FEMC_SCLK_1));
+    IOC.pad(PC30)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC30_FUNC_CTL_FEMC_SCS_0));
-    IOC.pad(pac::pins::PC31)
+        .write(|w| w.set_alt_select(IOC_PC30_FUNC_CTL_FEMC_SCS_0));
+    IOC.pad(PC31)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC31_FUNC_CTL_FEMC_SCS_1));
-    IOC.pad(pac::pins::PC22)
+        .write(|w| w.set_alt_select(IOC_PC31_FUNC_CTL_FEMC_SCS_1));
+    IOC.pad(PC22)
         .func_ctl()
-        .write(|w| w.set_alt_select(pac::iomux::IOC_PC22_FUNC_CTL_FEMC_SRDY));
+        .write(|w| w.set_alt_select(IOC_PC22_FUNC_CTL_FEMC_SRDY));
 }
 
 fn init_ext_ram() {
