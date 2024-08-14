@@ -45,10 +45,6 @@ pub mod dma;
 pub mod sysctl;
 
 // other peripherals
-#[cfg(adc16)]
-pub mod adc;
-#[cfg(dac)]
-pub mod dac;
 pub mod gpio;
 pub mod i2c;
 pub mod mbx;
@@ -59,10 +55,20 @@ pub mod uart;
 
 #[cfg(femc)]
 pub mod femc;
-#[cfg(qei)]
-pub mod qei;
 #[cfg(rtc)]
 pub mod rtc;
+
+// analog peripherals
+#[cfg(adc16)]
+pub mod adc;
+#[cfg(dac)]
+pub mod dac;
+
+// motor control peripherals
+#[cfg(qei)]
+pub mod qei;
+#[cfg(trgm)]
+pub mod trgm;
 
 #[cfg(feature = "rt")]
 pub mod rt;
