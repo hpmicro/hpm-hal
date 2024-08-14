@@ -23,9 +23,8 @@ impl<'d, T: Instance> Qei<'d, T> {
     ) -> Qei<'d, T> {
         into_ref!(peri, a, b, z, fault, home0, home1);
 
-        #[cfg(hpm53)]
         crate::sysctl::clock_add_to_group(pac::resources::MOT0, 0);
-        #[cfg(hpm6e)]
+        #[cfg(not(hpm53))]
         T::add_resource_group(0);
 
         a.set_as_alt(a.alt_num());
@@ -53,7 +52,7 @@ pub trait Instance: SealedInstance + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
-#[cfg(hpm6e)]
+#[cfg(not(hpm53))]
 pub trait Instance: SealedInstance + crate::sysctl::ClockPeripheral + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
