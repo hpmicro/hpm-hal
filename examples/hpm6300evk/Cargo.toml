@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# hpm-metapac = { version = "0.0.3", features = [
+# hpm-metapac = { version = "0.0.4", features = [
 #     "hpm6360",
 #     "memory-x",
 #     "rt",
-# ], git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-6740ca6fd1ed6d9bb57944b42aa299761b974713" }
+# ], git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-704f1d55a02949dfb420b05541057d3a6bb117f3" }
 hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm6360"] }
 defmt = "0.3.8"
 defmt-rtt = "0.4.1"
