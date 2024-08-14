@@ -1,6 +1,9 @@
 use super::*;
 use crate::pac::sysctl::vals::AnaClkMux;
 use crate::pac::SYSCTL;
+use crate::peripherals;
+
+// ANA clock structure of HPM67 is different from others
 
 macro_rules! impl_hpm67_ana_clock_periph {
     ($periph:ident, $ana_clock:ident, $resource:ident, $clock_reg:ident, $clock_idx:expr) => {
@@ -50,3 +53,27 @@ impl_hpm67_ana_clock_periph!(ADC1, ANA1, ADC1, adcclk, 1);
 impl_hpm67_ana_clock_periph!(ADC2, ANA2, ADC2, adcclk, 2);
 // Ref: hpm_sdk, ADC3 will use ANA2 clock
 impl_hpm67_ana_clock_periph!(ADC3, ANA2, ADC3, adcclk, 3);
+
+impl crate::sysctl::SealedClockPeripheral for peripherals::QEI0 {
+    const SYSCTL_CLOCK: usize = crate::pac::clocks::AHB;
+    const SYSCTL_RESOURCE: usize = crate::pac::resources::MOT0;
+}
+impl crate::sysctl::ClockPeripheral for peripherals::QEI0 {}
+
+impl crate::sysctl::SealedClockPeripheral for peripherals::QEI1 {
+    const SYSCTL_CLOCK: usize = crate::pac::clocks::AHB;
+    const SYSCTL_RESOURCE: usize = crate::pac::resources::MOT0;
+}
+impl crate::sysctl::ClockPeripheral for peripherals::QEI1 {}
+
+impl crate::sysctl::SealedClockPeripheral for peripherals::QEI2 {
+    const SYSCTL_CLOCK: usize = crate::pac::clocks::AHB;
+    const SYSCTL_RESOURCE: usize = crate::pac::resources::MOT2;
+}
+impl crate::sysctl::ClockPeripheral for peripherals::QEI2 {}
+
+impl crate::sysctl::SealedClockPeripheral for peripherals::QEI3 {
+    const SYSCTL_CLOCK: usize = crate::pac::clocks::AHB;
+    const SYSCTL_RESOURCE: usize = crate::pac::resources::MOT3;
+}
+impl crate::sysctl::ClockPeripheral for peripherals::QEI3 {}
