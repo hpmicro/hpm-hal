@@ -877,19 +877,23 @@ impl<'d, M: PeriMode> Spi<'d, M> {
     ) -> Result<(), Error> {
         let r = self.info.regs;
 
-        let len = read.len().max(write.len());
         self.configure_transfer(write.len(), read.len(), &config)?;
         self.set_word_size(W::CONFIG);
 
-        for i in 0..len {
-            while r.status().read().txfull() {}
-            let wb = write.get(i).copied().unwrap_or_default();
-            unsafe { ptr::write_volatile(r.data().as_ptr() as *mut W, wb) };
+        let mut i = 0;
+        let mut j = 0;
 
-            while r.status().read().rxempty() {}
-            let rb = unsafe { ptr::read_volatile(r.data().as_ptr() as *const W) };
-            if let Some(r) = read.get_mut(i) {
-                *r = rb;
+        while i < write.len() || j < read.len() {
+            let status = r.status().read();
+
+            if i < write.len() && !status.txfull() {
+                unsafe { ptr::write_volatile(r.data().as_ptr() as *mut W, write[i]) };
+                i += 1;
+            }
+
+            if j < read.len() && !status.rxempty() {
+                read[j] = unsafe { ptr::read_volatile(r.data().as_ptr() as *const W) };
+                j += 1;
             }
         }
 
@@ -907,14 +911,22 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         self.configure_transfer(words.len(), words.len(), &config)?;
         self.set_word_size(W::CONFIG);
 
-        for i in 0..words.len() {
-            while r.status().read().txfull() {}
-            let wb = words[i];
-            unsafe { ptr::write_volatile(r.data().as_ptr() as *mut W, wb) };
+        let mut i = 0;
+        let mut j = 0;
+        let len = words.len();
 
-            while r.status().read().rxempty() {}
-            let rb = unsafe { ptr::read_volatile(r.data().as_ptr() as *const W) };
-            words[i] = rb;
+        while i < len || j < len {
+            let status = r.status().read();
+
+            if i < len && !status.txfull() {
+                unsafe { ptr::write_volatile(r.data().as_ptr() as *mut W, words[i]) };
+                i += 1;
+            }
+
+            if j < i && j < len && !status.rxempty() {
+                words[j] = unsafe { ptr::read_volatile(r.data().as_ptr() as *const W) };
+                j += 1;
+            }
         }
 
         Ok(())
