@@ -4,7 +4,7 @@ use core::task::Poll;
 
 use embassy_usb_driver::{EndpointAddress, EndpointIn, EndpointInfo, EndpointOut};
 
-use super::{Error, DCD_DATA, QTD_COUNT_EACH_ENDPOINT};
+use super::{Error, DCD_DATA, QTD_COUNT_EACH_QHD};
 use crate::usb::{Instance, EP_IN_WAKERS, EP_OUT_WAKERS};
 
 pub struct EpConfig {
@@ -18,6 +18,7 @@ pub struct EpConfig {
 pub struct Endpoint<'d, T: Instance> {
     pub(crate) _phantom: PhantomData<&'d mut T>,
     pub(crate) info: EndpointInfo,
+    pub(crate) ready: bool,
 }
 
 impl<'d, T: Instance> Endpoint<'d, T> {
@@ -70,7 +71,7 @@ impl<'d, T: Instance> Endpoint<'d, T> {
         let mut data_offset = 0;
         let mut remaining_bytes = data.len();
         loop {
-            let qtd_idx = ep_idx * QTD_COUNT_EACH_ENDPOINT + i;
+            let qtd_idx = ep_idx * QTD_COUNT_EACH_QHD + i;
             i += 1;
 
             // If the transfer size > 0x4000, then there should be multiple qtds in the linked list
@@ -94,7 +95,7 @@ impl<'d, T: Instance> Endpoint<'d, T> {
             };
 
             // Last chunk of the data
-            if remaining_bytes == 0 && !self.info.addr.is_in() {
+            if remaining_bytes == 0 {
                 unsafe {
                     DCD_DATA.qtd_list.qtd(qtd_idx).qtd_token().modify(|w| w.set_ioc(true));
                 };
@@ -210,7 +211,7 @@ impl<'d, T: Instance> embassy_usb_driver::Endpoint for Endpoint<'d, T> {
 
     async fn wait_enabled(&mut self) {
         let i = self.info.addr.index();
-        defmt::info!("Endpoint({})::wait_enabled", i);
+        defmt::info!("Endpoint({})::IN?{}::wait_enabled", i, self.info.addr.is_in());
         assert!(i != 0);
         poll_fn(|cx| {
             let r = T::info().regs;
@@ -219,7 +220,6 @@ impl<'d, T: Instance> embassy_usb_driver::Endpoint for Endpoint<'d, T> {
                 EP_IN_WAKERS[i].register(cx.waker());
                 // Check if the endpoint is enabled
                 if r.endptctrl(i).read().txe() {
-                    defmt::info!("Endpoint::wait_enabled: enabled");
                     Poll::Ready(())
                 } else {
                     Poll::Pending
@@ -228,7 +228,6 @@ impl<'d, T: Instance> embassy_usb_driver::Endpoint for Endpoint<'d, T> {
                 EP_OUT_WAKERS[i].register(cx.waker());
                 // Check if the endpoint is enabled
                 if r.endptctrl(i).read().rxe() {
-                    defmt::info!("Endpoint::wait_enabled: enabled");
                     Poll::Ready(())
                 } else {
                     Poll::Pending
@@ -236,47 +235,67 @@ impl<'d, T: Instance> embassy_usb_driver::Endpoint for Endpoint<'d, T> {
             }
         })
         .await;
-        defmt::info!("endpoint {} enabled", i);
+        defmt::info!("endpoint {} IN?:{} enabled", i, self.info.addr.is_in());
+        self.ready = true;
     }
 }
 
 impl<'d, T: Instance> EndpointOut for Endpoint<'d, T> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, embassy_usb_driver::EndpointError> {
-        defmt::info!("EndpointOut::read: data: {=[u8]}", buf);
+        if !self.ready {
+            defmt::info!(
+                "EP {}, IN?:{}, not ready to read",
+                self.info.addr.index(),
+                self.info.addr.is_in()
+            );
+            return Err(embassy_usb_driver::EndpointError::Disabled);
+        }
         let ep_num = self.info.addr.index();
+        defmt::info!("EndpointOut::read on EP{}", ep_num);
         let r = T::info().regs;
+        self.transfer(buf).unwrap();
         poll_fn(|cx| {
             EP_OUT_WAKERS[ep_num].register(cx.waker());
 
-            if r.endptcomplete().read().0 & (1 << ep_num) != 0 {
+            if r.endptcomplete().read().erce() & (1 << ep_num) != 0 {
+                r.endptcomplete().modify(|w| w.set_erce(1 << ep_num));
                 Poll::Ready(())
             } else {
                 Poll::Pending
             }
         })
         .await;
-        self.transfer(buf).unwrap();
+        defmt::info!("EndpointOut::read: end transfer");
         Ok(buf.len())
     }
 }
 
 impl<'d, T: Instance> EndpointIn for Endpoint<'d, T> {
     async fn write(&mut self, buf: &[u8]) -> Result<(), embassy_usb_driver::EndpointError> {
-        defmt::info!("EndpointIn::write: data: {=[u8]}", buf);
+        if !self.ready {
+            defmt::info!(
+                "EP {}, IN?: {}, not ready to write",
+                self.info.addr.index(),
+                self.info.addr.is_in()
+            );
+            return Err(embassy_usb_driver::EndpointError::Disabled);
+        }
         let ep_num = self.info.addr.index();
-        let offset = ep_num + self.info.addr.is_in() as usize * 16;
+        defmt::info!("EndpointIn::write: data: {=[u8]}, to EP{}", buf, ep_num);
         let r = T::info().regs;
+        self.transfer(buf).unwrap();
         poll_fn(|cx| {
             EP_IN_WAKERS[ep_num].register(cx.waker());
             // It's IN endpoint, so check the bit 16 + offset
-            if r.endptcomplete().read().0 & (1 << (offset + 16)) != 0 {
+            if r.endptcomplete().read().etce() & (1 << ep_num) != 0 {
+                r.endptcomplete().modify(|w| w.set_etce(1 << ep_num));
                 Poll::Ready(())
             } else {
                 Poll::Pending
             }
         })
         .await;
-        self.transfer(buf).unwrap();
+        defmt::info!("EndpointOut::write: transfer finish");
         Ok(())
     }
 }

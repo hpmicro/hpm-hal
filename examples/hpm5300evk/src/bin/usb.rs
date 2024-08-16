@@ -5,7 +5,7 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
 use futures_util::future::join;
@@ -64,12 +64,13 @@ async fn main(_spawner: Spawner) -> ! {
 
     // Do stuff with the class!
     let echo_fut = async {
-        loop {
-            class.wait_connection().await;
+            // class.wait_connection().await;
+            let (mut sender, mut reader) = class.split();
+            sender.wait_connection().await;
+            reader.wait_connection().await;
             info!("Connected");
-            let _ = echo(&mut class).await;
+            let _ = echo(&mut reader, &mut sender).await;
             info!("Disconnected");
-        }
     };
 
     // Run everything concurrently.
@@ -92,13 +93,13 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo<'d, T: Instance + 'd>(class: &mut CdcAcmClass<'d, UsbDriver<'d, T>>) -> Result<(), Disconnected> {
+async fn echo<'d, T: Instance + 'd>(reader: &mut Receiver<'d, UsbDriver<'d, T>>, sender: &mut Sender<'d, UsbDriver<'d, T>>) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
-        let n = class.read_packet(&mut buf).await?;
+        let n = reader.read_packet(&mut buf).await?;
         let data = &buf[..n];
-        // info!("data: {:x}", data);
-        class.write_packet(data).await?;
+        info!("data: {:x}", data);
+        sender.write_packet(data).await?;
     }
 }
 
