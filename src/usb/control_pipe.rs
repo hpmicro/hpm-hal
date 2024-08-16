@@ -2,13 +2,12 @@ use core::marker::PhantomData;
 use core::sync::atomic::Ordering;
 use core::task::Poll;
 
-use defmt::info;
 use embassy_usb_driver::EndpointError;
 use futures_util::future::poll_fn;
 
 use super::endpoint::Endpoint;
 use super::Instance;
-use crate::usb::{DCD_DATA, EP_OUT_WAKERS, IRQ_TRANSFER_COMPLETED};
+use crate::usb::{DCD_DATA, EP_IN_WAKERS, EP_OUT_WAKERS, IRQ_TRANSFER_COMPLETED};
 
 pub struct ControlPipe<'d, T: Instance> {
     pub(crate) _phantom: PhantomData<&'d mut T>,
@@ -30,7 +29,6 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         // Wait for SETUP packet(interrupt here)
         // Clear interrupt status(by writing 1) and enable USB interrupt first
         r.usbsts().modify(|w| w.set_ui(true));
-        // r.usbsts().modify(|w| w.set_ui(false));
         while r.usbsts().read().ui() {}
         r.usbintr().modify(|w| w.set_ue(true));
         let _ = poll_fn(|cx| {
@@ -45,13 +43,12 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
 
             Poll::Pending
         })
-        .await
-        .unwrap();
-
-        info!("Got setup packet");
+        .await;
 
         // Read setup packet from qhd
         let setup_packet = unsafe { DCD_DATA.qhd_list.qhd(0).get_setup_request() };
+
+        // info!("Got setup packet: {:x}", setup_packet);
 
         // Clear interrupt status and enable USB interrupt
         r.usbsts().modify(|w| w.set_ui(true));
@@ -67,7 +64,6 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         _first: bool,
         _last: bool,
     ) -> Result<usize, embassy_usb_driver::EndpointError> {
-        defmt::info!("ControlPipe::dataout");
         self.ep_out.transfer(buf).map_err(|_e| EndpointError::BufferOverflow)?;
         Ok(buf.len())
     }
@@ -94,7 +90,23 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         defmt::info!("ControlPipe::accept");
         self.ep_in.transfer(&[]).unwrap();
 
-        defmt::trace!("control: accept OK");
+        let r = T::info().regs;
+        // TODO: wait for completion before returning, needed so set_address() doesn't happen early
+        let _ = poll_fn(|cx| {
+            EP_IN_WAKERS[0].register(cx.waker());
+            if r.endptcomplete().read().etce() & 1 > 0 {
+                // Clear the flag
+                r.endptcomplete().modify(|w| w.set_etce(1));
+                return Poll::Ready(Ok::<(), ()>(()));
+            }
+
+            defmt::info!("ControlPipe: accept pending");
+
+            Poll::Pending
+        })
+        .await
+        .unwrap();
+        defmt::trace!("ControlPipe: accept OK");
     }
 
     async fn reject(&mut self) {
