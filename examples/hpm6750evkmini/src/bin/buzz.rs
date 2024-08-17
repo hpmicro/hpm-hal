@@ -12,6 +12,7 @@ use embedded_io::Write as _;
 use hal::gpio::{AnyPin, Flex, Pin};
 use hal::{pac, peripherals};
 use hpm_hal::mode::Blocking;
+use hpm_hal::pac::pwm::vals;
 use riscv_semihosting::hio;
 use {defmt_rtt as _, hpm_hal as hal};
 
@@ -177,8 +178,8 @@ async fn main(spawner: Spawner) -> ! {
     });
 
     pac::PWM3.cmpcfg(7).modify(|w| {
-        w.set_cmpmode(false);
-        w.set_cmpshdwupt(pac::pwm::vals::ShadowUpdateTrigger::ON_MODIFY);
+        w.set_cmpmode(vals::CmpMode::OUTPUT_COMPARE);
+        w.set_cmpshdwupt(vals::ShadowUpdateTrigger::ON_MODIFY);
     }); // output
 
     pac::PWM3.cmp(7).modify(|w| {
@@ -189,7 +190,7 @@ async fn main(spawner: Spawner) -> ! {
     // shadow latch
     pac::PWM3
         .shcr()
-        .modify(|w| w.set_cntshdwupt(pac::pwm::vals::ShadowUpdateTrigger::ON_MODIFY));
+        .modify(|w| w.set_cntshdwupt(vals::ShadowUpdateTrigger::ON_MODIFY));
 
     pac::PWM3.gcr().modify(|w| {
         w.set_cen(true);
