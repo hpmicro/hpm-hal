@@ -2,6 +2,7 @@
 #![no_std]
 #![feature(type_alias_impl_trait)]
 #![feature(abi_riscv_interrupt)]
+#![feature(impl_trait_in_assoc_type)]
 
 use core::sync::atomic::{AtomicBool, Ordering};
 

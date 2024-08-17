@@ -4,12 +4,17 @@ target = "riscv32imafc-unknown-none-elf"
 [target.riscv32imafc-unknown-none-elf]
 # runner = 'riscv64-unknown-elf-gdb -x ../../openocd.gdb'
 runner = [
-    "probe-rs", "run",
-    "--chip", "HPM5361",
-    "--chip-description-path", "../../HPMicro.yaml",
-#    "--chip-description-path", "../../../flash-algo/target/definition.yaml",
-    "--protocol","jtag",
-    "--log-format", "{t} {L} {F}:{l} {s}",
+    "probe-rs",
+    "run",
+    "--chip",
+    "HPM5361",
+    "--chip-description-path",
+    "../../HPMicro.yaml",
+    # "--chip-description-path", "../../../flash-algo/target/definition.yaml",
+    "--protocol",
+    "jtag",
+    "--log-format",
+    "{t} {L} {F}:{l} {s}",
 ]
 
 rustflags = [
