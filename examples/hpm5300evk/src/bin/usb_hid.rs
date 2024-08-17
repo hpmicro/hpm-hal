@@ -7,7 +7,6 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::{info, warn};
 use embassy_executor::Spawner;
-use embassy_futures::select::select;
 use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Handler};
@@ -74,7 +73,7 @@ async fn main(_spawner: Spawner) -> ! {
     };
 
     let state = STATE.init(State::new());
-    let mut hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, state, config);
+    let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, state, config);
 
     // Build the builder.
     let mut usb = builder.build();
@@ -84,18 +83,13 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut button = Input::new(p.PA03, Pull::Down);
 
-    // pin!(hid_ready);
-    let hid_ready = hid.ready();
-    select(usb_fut, hid_ready).await;
-    let usb_fut = usb.run();
     let (reader, mut writer) = hid.split();
 
     // Do stuff with the class!
     let in_fut = async {
         loop {
-            // info!("Waiting for HIGH on pin 16");
-            // button.wait_for_high().await;
-            // info!("HIGH DETECTED");
+            info!("Waiting for Button");
+            button.wait_for_high().await;
             // Create a report with the A key pressed. (no shift modifier)
             let report = KeyboardReport {
                 keycodes: [4, 0, 0, 0, 0, 0],
@@ -108,8 +102,8 @@ async fn main(_spawner: Spawner) -> ! {
                 Ok(()) => {}
                 Err(e) => warn!("Failed to send report: {:?}", e),
             };
-            embassy_time::Timer::after_millis(200).await;
-            // button.wait_for_low().await;
+            embassy_time::Timer::after_millis(100).await;
+            button.wait_for_low().await;
             let report = KeyboardReport {
                 keycodes: [0, 0, 0, 0, 0, 0],
                 leds: 0,
@@ -120,8 +114,7 @@ async fn main(_spawner: Spawner) -> ! {
                 Ok(()) => {}
                 Err(e) => warn!("Failed to send report: {:?}", e),
             };
-            embassy_time::Timer::after_secs(1).await;
-            info!("Wrote report");
+            embassy_time::Timer::after_millis(100).await;
         }
     };
 
@@ -132,9 +125,8 @@ async fn main(_spawner: Spawner) -> ! {
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
     join(usb_fut, join(in_fut, out_fut)).await;
-    // join(usb_fut, in_fut).await;
-    defmt::info!("USB task finished");
     loop {
+        defmt::info!("USB task finished");
         embassy_time::Timer::after_millis(500).await;
     }
 }
