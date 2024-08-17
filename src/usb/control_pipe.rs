@@ -56,7 +56,20 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         _first: bool,
         _last: bool,
     ) -> Result<usize, embassy_usb_driver::EndpointError> {
+        let r = T::info().regs;
         self.ep_out.transfer(buf).map_err(|_e| EndpointError::BufferOverflow)?;
+        let _ = poll_fn(|cx| {
+            EP_OUT_WAKERS[0].register(cx.waker());
+            if r.endptcomplete().read().erce() & 1 > 0 {
+                // Clear the flag
+                r.endptcomplete().modify(|w| w.set_erce(1));
+                return Poll::Ready(Ok::<(), ()>(()));
+            }
+
+            Poll::Pending
+        })
+        .await
+        .unwrap();
         Ok(buf.len())
     }
 
@@ -66,7 +79,28 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         _first: bool,
         last: bool,
     ) -> Result<(), embassy_usb_driver::EndpointError> {
-        self.ep_in.transfer(data).map_err(|_e| EndpointError::BufferOverflow)?;
+        // defmt::info!(
+        //     "ControlPipe::data_in: len={}, last={}, data={:?}",
+        //     data.len(),
+        //     last,
+        //     data
+        // );
+        let r = T::info().regs;
+        self.ep_in.transfer(data).unwrap();
+
+        let _ = poll_fn(|cx| {
+            EP_IN_WAKERS[0].register(cx.waker());
+            if r.endptcomplete().read().etce() & 1 > 0 {
+                // Clear the flag
+                r.endptcomplete().modify(|w| w.set_etce(1));
+                return Poll::Ready(Ok::<(), ()>(()));
+            }
+
+            Poll::Pending
+        })
+        .await
+        .unwrap();
+
         if last {
             self.ep_out.transfer(&[]).unwrap();
         }
@@ -77,9 +111,9 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
     ///
     /// Causes the STATUS packet for the current request to be ACKed.
     async fn accept(&mut self) {
+        let r = T::info().regs;
         self.ep_in.transfer(&[]).unwrap();
 
-        let r = T::info().regs;
         let _ = poll_fn(|cx| {
             EP_IN_WAKERS[0].register(cx.waker());
             if r.endptcomplete().read().etce() & 1 > 0 {
@@ -95,15 +129,13 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
     }
 
     async fn reject(&mut self) {
-        defmt::info!("ControlPipe::reject");
+        // defmt::info!("ControlPipe::reject");
         // Reject, set IN+OUT to stall
         self.ep_in.set_stall();
         self.ep_out.set_stall();
     }
 
     async fn accept_set_address(&mut self, addr: u8) {
-        defmt::info!("ControlPipe::accept_set_address: {}", addr);
-
         let r = T::info().regs;
         r.deviceaddr().modify(|w| {
             w.set_usbadr(addr);
