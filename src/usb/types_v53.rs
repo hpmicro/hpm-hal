@@ -2,6 +2,7 @@
 #![allow(clippy::identity_op)]
 #![allow(clippy::unnecessary_cast)]
 #![allow(clippy::erasing_op)]
+#![allow(unused)]
 
 #[doc = "Queue head block for hpm USB device"]
 #[derive(Copy, Clone, Eq, PartialEq)]

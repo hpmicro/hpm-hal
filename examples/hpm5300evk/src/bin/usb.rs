@@ -55,7 +55,7 @@ async fn main(_spawner: Spawner) -> ! {
     );
 
     // Create classes on the builder.
-    let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
+    let class = CdcAcmClass::new(&mut builder, &mut state, 64);
 
     // Build the builder.
     let mut usb = builder.build();
@@ -65,17 +65,16 @@ async fn main(_spawner: Spawner) -> ! {
 
     // Do stuff with the class!
     let echo_fut = async {
-            // class.wait_connection().await;
-            let (mut sender, mut reader) = class.split();
-            sender.wait_connection().await;
-            reader.wait_connection().await;
-            info!("Connected");
-            let _ = echo(&mut reader, &mut sender).await;
-            info!("Disconnected");
+        // class.wait_connection().await;
+        let (mut sender, mut reader) = class.split();
+        sender.wait_connection().await;
+        reader.wait_connection().await;
+        info!("Connected");
+        let _ = echo(&mut reader, &mut sender).await;
+        info!("Disconnected");
     };
 
     // Run everything concurrently.
-    // If we had made everything `'static` above instead, we could do this using separate tasks instead.
     join(usb_fut, echo_fut).await;
 
     loop {
@@ -94,13 +93,18 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo<'d, T: Instance + 'd>(reader: &mut Receiver<'d, UsbDriver<'d, T>>, sender: &mut Sender<'d, UsbDriver<'d, T>>) -> Result<(), Disconnected> {
+async fn echo<'d, T: Instance + 'd>(
+    reader: &mut Receiver<'d, UsbDriver<'d, T>>,
+    sender: &mut Sender<'d, UsbDriver<'d, T>>,
+) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
         let n = reader.read_packet(&mut buf).await?;
         let data = &buf[..n];
-        info!("data: {:x}", data);
+        info!("echo data: {:x}, len: {}", data, n);
         sender.write_packet(data).await?;
+        // Clear bufffer
+        buf = [0; 64];
     }
 }
 

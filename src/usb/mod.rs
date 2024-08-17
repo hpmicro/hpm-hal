@@ -31,7 +31,6 @@ mod types_v62;
 
 static IRQ_RESET: AtomicBool = AtomicBool::new(false);
 static IRQ_SUSPEND: AtomicBool = AtomicBool::new(false);
-static IRQ_TRANSFER_COMPLETED: AtomicBool = AtomicBool::new(false);
 
 const AW_NEW: AtomicWaker = AtomicWaker::new();
 static EP_IN_WAKERS: [AtomicWaker; ENDPOINT_COUNT] = [AW_NEW; ENDPOINT_COUNT];
@@ -112,7 +111,6 @@ pub(crate) unsafe fn reset_dcd_data(ep0_max_packet_size: u16) {
     });
 
     // Set the next pointer INVALID(T=1)
-    // TODO: Double check here with c_sdk
     DCD_DATA.qhd_list.qhd(0).next_dtd().write(|w| w.set_t(true));
     DCD_DATA.qhd_list.qhd(1).next_dtd().write(|w| w.set_t(true));
 }
@@ -337,7 +335,6 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         Ok(Endpoint {
             _phantom: PhantomData,
             info: ep,
-            ready: false,
         })
     }
 
@@ -373,7 +370,6 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         Ok(Endpoint {
             _phantom: PhantomData,
             info: ep,
-            ready: false,
         })
     }
 
@@ -474,13 +470,13 @@ pub(super) struct Info {
 }
 
 struct State {
-    waker: AtomicWaker,
+    _waker: AtomicWaker,
 }
 
 impl State {
     const fn new() -> Self {
         Self {
-            waker: AtomicWaker::new(),
+            _waker: AtomicWaker::new(),
         }
     }
 }
@@ -582,17 +578,15 @@ pub unsafe fn on_interrupt<T: Instance>() {
     if status.ui() {
         // Disable USB transfer interrupt
         r.usbintr().modify(|w| w.set_ue(false));
-        defmt::info!(
-            "Transfer complete interrupt: endptstat: {:b}, endptsetupstat: {:b}, endptcomplete: {:b}, endptprime: {:b}, endptflust: {:b}",
-            r.endptstat().read().0,
-            r.endptsetupstat().read().0,
-            r.endptcomplete().read().0,
-            r.endptprime().read().0,
-            r.endptflush().read().0,
-        );
+        // defmt::info!(
+        //     "Transfer complete interrupt: endptstat: {:b}, endptsetupstat: {:b}, endptcomplete_receive: {:b}, endptcomplete_send: {:b}",
+        //     r.endptstat().read().0,
+        //     r.endptsetupstat().read().0,
+        //     r.endptcomplete().read().erce(),
+        //     r.endptcomplete().read().etce(),
+        // );
 
         if r.endptsetupstat().read().endptsetupstat() > 0 {
-            IRQ_TRANSFER_COMPLETED.store(true, Ordering::Relaxed);
             EP_OUT_WAKERS[0].wake();
         }
 
@@ -694,12 +688,10 @@ pub unsafe fn on_interrupt<T: Instance>() {
             // Transfer completed
             for i in 0..ENDPOINT_COUNT {
                 if r.endptcomplete().read().erce() & (1 << i) > 0 {
-                    defmt::info!("wake {} OUT ep", i);
                     // OUT endpoint
                     EP_OUT_WAKERS[i].wake();
                 }
                 if r.endptcomplete().read().etce() & (1 << i) > 0 {
-                    defmt::info!("wake {} IN ep", i);
                     // IN endpoint
                     EP_IN_WAKERS[i].wake();
                 }
