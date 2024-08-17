@@ -329,7 +329,6 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             max_packet_size,
             interval_ms,
         };
-        defmt::info!("Allocating ep_out: {:?}", ep);
         self.endpoints_out[ep_idx].used = true;
         self.endpoints_out[ep_idx].info = ep.clone();
         Ok(Endpoint {
@@ -364,7 +363,6 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             max_packet_size,
             interval_ms,
         };
-        defmt::info!("Allocating ep_in: {:?}", ep);
         self.endpoints_in[ep_idx].used = true;
         self.endpoints_in[ep_idx].info = ep.clone();
         Ok(Endpoint {
@@ -429,7 +427,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             let r = self.info.regs;
             // Set endpoint list address
             unsafe {
-                defmt::info!("Setting ENDPTLISTADDR: {:x}", DCD_DATA.qhd_list.as_ptr());
+                // defmt::info!("Setting ENDPTLISTADDR: {:x}", DCD_DATA.qhd_list.as_ptr());
                 r.endptlistaddr().modify(|w| w.0 = DCD_DATA.qhd_list.as_ptr() as u32);
             };
 
@@ -564,7 +562,7 @@ pub unsafe fn on_interrupt<T: Instance>() {
     if status.pci() {
         if r.portsc1().read().ccs() {
             r.usbintr().modify(|w| w.set_pce(false));
-            defmt::info!("Port change interrupt: connected");
+            // defmt::info!("Port change interrupt: connected");
             // Wake main thread. Then the suspend event will be processed in Bus::poll()
             BUS_WAKER.wake();
             // Connected
@@ -688,11 +686,11 @@ pub unsafe fn on_interrupt<T: Instance>() {
             // Transfer completed
             for i in 0..ENDPOINT_COUNT {
                 if r.endptcomplete().read().erce() & (1 << i) > 0 {
-                    // OUT endpoint
+                    // Wake OUT endpoint
                     EP_OUT_WAKERS[i].wake();
                 }
                 if r.endptcomplete().read().etce() & (1 << i) > 0 {
-                    // IN endpoint
+                    // Wake IN endpoint
                     EP_IN_WAKERS[i].wake();
                 }
             }

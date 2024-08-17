@@ -23,18 +23,12 @@ pub struct Bus<T: Instance> {
 
 impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
     /// Enable the USB peripheral.
-    async fn enable(&mut self) {
-        // FIXME: dcd init and dcd connect are called when initializing the Bus
-        // What should be done here?
-        defmt::info!("Bus::enable");
-    }
+    async fn enable(&mut self) {}
 
     /// Disable and powers down the USB peripheral.
     async fn disable(&mut self) {
-        defmt::info!("Bus::disable");
-        // TODO: dcd deinit or phy deinit?
+        // defmt::info!("Bus::disable");
         self.dcd_deinit();
-        // self.phy_deinit();
     }
 
     /// Wait for a bus-related event.
@@ -102,7 +96,12 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
 
     /// Enable or disable an endpoint.
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
-        defmt::info!("Bus::endpoint_set_enabled");
+        // defmt::info!(
+        //     "Bus::endpoint_set_enabled: ep_num: {}, ep_dir: {}, enabled: {}",
+        //     ep_addr.index(),
+        //     ep_addr.direction(),
+        //     enabled
+        // );
         if enabled {
             let endpoint_list = if ep_addr.direction() == Direction::In {
                 self.endpoints_in
@@ -111,6 +110,7 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
             };
             let ep_data = endpoint_list[ep_addr.index()];
             assert!(ep_data.addr == ep_addr);
+            // defmt::info!("opening ep: {:?}", ep_data);
             self.endpoint_open(EpConfig {
                 transfer: ep_data.ep_type as u8,
                 ep_addr,
@@ -125,7 +125,7 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
     ///
     /// If the endpoint is an OUT endpoint, it should be prepared to receive data again.
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        defmt::info!("Bus::endpoint_set_stalled");
+        // defmt::info!("Bus::endpoint_set_stalled: {}", stalled);
         if stalled {
             self.device_endpoint_stall(ep_addr);
         } else {
@@ -276,7 +276,7 @@ impl<T: Instance> Bus<T> {
             // Parallel transceiver width
             w.set_ptw(false);
             // Forced fullspeed mode, c_sdk commented this line out, use it only when the device runs in full speed mode
-            // TODO: Currently, the device can only be recognized at fs mode. 
+            // TODO: Currently, the device can only be recognized at fs mode.
             // How to switch to hs mode?
             w.set_pfsc(true);
         });
@@ -494,7 +494,7 @@ impl<T: Instance> Bus<T> {
     // }
 
     pub(crate) fn device_bus_reset(&mut self, ep0_max_packet_size: u16) {
-        defmt::info!("Bus::device_bus_reset");
+        // defmt::info!("Bus::device_bus_reset");
         self.dcd_bus_reset();
 
         unsafe {

@@ -210,8 +210,6 @@ impl<'d, T: Instance> embassy_usb_driver::Endpoint for Endpoint<'d, T> {
 
     async fn wait_enabled(&mut self) {
         let i = self.info.addr.index();
-        defmt::info!("Endpoint({})::IN?{}::wait_enabled", i, self.info.addr.is_in());
-        assert!(i != 0);
         poll_fn(|cx| {
             let r = T::info().regs;
             // TODO: Simplify the code
@@ -234,7 +232,6 @@ impl<'d, T: Instance> embassy_usb_driver::Endpoint for Endpoint<'d, T> {
             }
         })
         .await;
-        defmt::info!("endpoint {} IN?:{} enabled", i, self.info.addr.is_in());
     }
 }
 
@@ -271,7 +268,7 @@ impl<'d, T: Instance> EndpointIn for Endpoint<'d, T> {
         self.transfer(buf).unwrap();
         poll_fn(|cx| {
             EP_IN_WAKERS[ep_num].register(cx.waker());
-            // It's IN endpoint, so check the bit 16 + offset
+            // It's IN endpoint, so check the etce
             if r.endptcomplete().read().etce() & (1 << ep_num) != 0 {
                 r.endptcomplete().modify(|w| w.set_etce(1 << ep_num));
                 Poll::Ready(())
