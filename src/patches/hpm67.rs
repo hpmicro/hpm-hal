@@ -62,7 +62,7 @@ impl crate::sysctl::ClockPeripheral for peripherals::QEI0 {}
 
 impl crate::sysctl::SealedClockPeripheral for peripherals::QEI1 {
     const SYSCTL_CLOCK: usize = crate::pac::clocks::AHB;
-    const SYSCTL_RESOURCE: usize = crate::pac::resources::MOT0;
+    const SYSCTL_RESOURCE: usize = crate::pac::resources::MOT1;
 }
 impl crate::sysctl::ClockPeripheral for peripherals::QEI1 {}
 
