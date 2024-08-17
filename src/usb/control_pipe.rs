@@ -1,5 +1,4 @@
 use core::marker::PhantomData;
-use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use embassy_usb_driver::EndpointError;
@@ -7,7 +6,7 @@ use futures_util::future::poll_fn;
 
 use super::endpoint::Endpoint;
 use super::Instance;
-use crate::usb::{DCD_DATA, EP_IN_WAKERS, EP_OUT_WAKERS, IRQ_TRANSFER_COMPLETED};
+use crate::usb::{DCD_DATA, EP_IN_WAKERS, EP_OUT_WAKERS};
 
 pub struct ControlPipe<'d, T: Instance> {
     pub(crate) _phantom: PhantomData<&'d mut T>,
@@ -22,8 +21,6 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
     }
 
     async fn setup(&mut self) -> [u8; 8] {
-        defmt::info!("ControlPipe::setup");
-
         let r = T::info().regs;
 
         // Wait for SETUP packet(interrupt here)
@@ -33,11 +30,10 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         r.usbintr().modify(|w| w.set_ue(true));
         let _ = poll_fn(|cx| {
             EP_OUT_WAKERS[0].register(cx.waker());
-            if IRQ_TRANSFER_COMPLETED.load(Ordering::Acquire) {
-                IRQ_TRANSFER_COMPLETED.store(false, Ordering::Relaxed);
-                // See hpm_sdk/middleware/cherryusb/port/hpm/usb_dc_hpm.c: 285L
-                // Clean endpoint setup status
-                r.endptsetupstat().modify(|w| w.0 = w.0);
+            if r.endptsetupstat().read().0 & 1 > 0 {
+                // Clear the flag
+                r.endptsetupstat().modify(|w| w.set_endptsetupstat(1));
+                r.endptcomplete().modify(|w| w.set_erce(1));
                 return Poll::Ready(Ok::<(), ()>(()));
             }
 
@@ -45,17 +41,13 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         })
         .await;
 
-        // Read setup packet from qhd
-        let setup_packet = unsafe { DCD_DATA.qhd_list.qhd(0).get_setup_request() };
-
-        // info!("Got setup packet: {:x}", setup_packet);
-
         // Clear interrupt status and enable USB interrupt
         r.usbsts().modify(|w| w.set_ui(true));
         while r.usbsts().read().ui() {}
         r.usbintr().modify(|w| w.set_ue(true));
-        // Convert to slice
-        setup_packet
+
+        // Read setup packet from qhd
+        unsafe { DCD_DATA.qhd_list.qhd(0).get_setup_request() }
     }
 
     async fn data_out(
@@ -74,8 +66,6 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         _first: bool,
         last: bool,
     ) -> Result<(), embassy_usb_driver::EndpointError> {
-        defmt::info!("ControlPipe::datain");
-
         self.ep_in.transfer(data).map_err(|_e| EndpointError::BufferOverflow)?;
         if last {
             self.ep_out.transfer(&[]).unwrap();
@@ -87,11 +77,9 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
     ///
     /// Causes the STATUS packet for the current request to be ACKed.
     async fn accept(&mut self) {
-        defmt::info!("ControlPipe::accept");
         self.ep_in.transfer(&[]).unwrap();
 
         let r = T::info().regs;
-        // TODO: wait for completion before returning, needed so set_address() doesn't happen early
         let _ = poll_fn(|cx| {
             EP_IN_WAKERS[0].register(cx.waker());
             if r.endptcomplete().read().etce() & 1 > 0 {
@@ -100,13 +88,10 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
                 return Poll::Ready(Ok::<(), ()>(()));
             }
 
-            defmt::info!("ControlPipe: accept pending");
-
             Poll::Pending
         })
         .await
         .unwrap();
-        defmt::trace!("ControlPipe: accept OK");
     }
 
     async fn reject(&mut self) {

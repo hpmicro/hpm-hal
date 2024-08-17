@@ -18,7 +18,6 @@ pub struct EpConfig {
 pub struct Endpoint<'d, T: Instance> {
     pub(crate) _phantom: PhantomData<&'d mut T>,
     pub(crate) info: EndpointInfo,
-    pub(crate) ready: bool,
 }
 
 impl<'d, T: Instance> Endpoint<'d, T> {
@@ -127,29 +126,29 @@ impl<'d, T: Instance> Endpoint<'d, T> {
         // Link qtd to qhd
         let first_idx = first_qtd.unwrap();
         // unsafe {
-        //     defmt::info!(
-        //         "Check first qtd idx: {}, addr: {:x} and content:
-        //         next_dtd_word: 0x{:x}
-        //         total_bytes: {}, ioc: {}, c_page: {}, multO: {}, status: 0b{:b}
-        //         Buffer0 + offset: {:x}
-        //         Buffer1 : {:x}
-        //         Buffer2 : {:x}
-        //         Buffer3 : {:x}
-        //         Buffer4 : {:x}",
-        //         first_idx,
-        //         DCD_DATA.qtd_list.qtd(first_idx).as_ptr() as u32,
-        //         DCD_DATA.qtd_list.qtd(first_idx).next_dtd().read().0,
-        //         DCD_DATA.qtd_list.qtd(first_idx).qtd_token().read().total_bytes(),
-        //         DCD_DATA.qtd_list.qtd(first_idx).qtd_token().read().ioc(),
-        //         DCD_DATA.qtd_list.qtd(first_idx).qtd_token().read().c_page(),
-        //         DCD_DATA.qtd_list.qtd(first_idx).qtd_token().read().multo(),
-        //         DCD_DATA.qtd_list.qtd(first_idx).qtd_token().read().status(),
-        //         DCD_DATA.qtd_list.qtd(first_idx).buffer(0).read().0,
-        //         DCD_DATA.qtd_list.qtd(first_idx).buffer(1).read().0,
-        //         DCD_DATA.qtd_list.qtd(first_idx).buffer(2).read().0,
-        //         DCD_DATA.qtd_list.qtd(first_idx).buffer(3).read().0,
-        //         DCD_DATA.qtd_list.qtd(first_idx).buffer(4).read().0,
-        //     );
+        // defmt::info!(
+        //     "Check first qtd idx: {}, addr: {:x} and content:
+        //     next_dtd_word: 0x{:x}
+        //     total_bytes: {}, ioc: {}, c_page: {}, multO: {}, status: 0b{:b}
+        //     Buffer0 + offset: {:x}
+        //     Buffer1 : {:x}
+        //     Buffer2 : {:x}
+        //     Buffer3 : {:x}
+        //     Buffer4 : {:x}",
+        //     first_idx,
+        //     DCD_DATA.qtd_list.qtd(first_idx).as_ptr() as u32,
+        //     DCD_DATA.qtd_list.qtd(first_idx).next_dtd().read().0,
+        //     DCD_DATA.qtd_list.qtd(first_idx).qtd_token().read().total_bytes(),
+        //     DCD_DATA.qtd_list.qtd(first_idx).qtd_token().read().ioc(),
+        //     DCD_DATA.qtd_list.qtd(first_idx).qtd_token().read().c_page(),
+        //     DCD_DATA.qtd_list.qtd(first_idx).qtd_token().read().multo(),
+        //     DCD_DATA.qtd_list.qtd(first_idx).qtd_token().read().status(),
+        //     DCD_DATA.qtd_list.qtd(first_idx).buffer(0).read().0,
+        //     DCD_DATA.qtd_list.qtd(first_idx).buffer(1).read().0,
+        //     DCD_DATA.qtd_list.qtd(first_idx).buffer(2).read().0,
+        //     DCD_DATA.qtd_list.qtd(first_idx).buffer(3).read().0,
+        //     DCD_DATA.qtd_list.qtd(first_idx).buffer(4).read().0,
+        // );
         // }
 
         unsafe {
@@ -163,15 +162,15 @@ impl<'d, T: Instance> Endpoint<'d, T> {
                 // T **MUST** be set to 0
                 w.set_t(false);
             });
-            // let qhd: crate::usb::types_v53::Qhd = DCD_DATA.qhd_list.qhd(ep_idx);
 
+            // let qhd: crate::usb::types_v53::Qhd = DCD_DATA.qhd_list.qhd(ep_idx);
             // defmt::info!(
             //     "ENDPTLISTADDR: {:x}
-            //     Check qhd after setting: qhd_idx: {}
-            //     1st word: mult: {}, zlt: {}, mps: {}, ios: {}
-            //     2nd word: cur dtd: {:x}
-            //     3rd word: next_dtd + t: {:x}
-            //     total_bytes: {}, ioc: {}, c_page: {}, multO: {}, status: 0b{:b}",
+            //         Check qhd after setting: qhd_idx: {}
+            //         1st word: mult: {}, zlt: {}, mps: {}, ios: {}
+            //         2nd word: cur dtd: {:x}
+            //         3rd word: next_dtd + t: {:x}
+            //         total_bytes: {}, ioc: {}, c_page: {}, multO: {}, status: 0b{:b}",
             //     T::info().regs.endptlistaddr().read().0,
             //     ep_idx,
             //     qhd.cap().read().iso_mult(),
@@ -236,23 +235,14 @@ impl<'d, T: Instance> embassy_usb_driver::Endpoint for Endpoint<'d, T> {
         })
         .await;
         defmt::info!("endpoint {} IN?:{} enabled", i, self.info.addr.is_in());
-        self.ready = true;
     }
 }
 
 impl<'d, T: Instance> EndpointOut for Endpoint<'d, T> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, embassy_usb_driver::EndpointError> {
-        if !self.ready {
-            defmt::info!(
-                "EP {}, IN?:{}, not ready to read",
-                self.info.addr.index(),
-                self.info.addr.is_in()
-            );
-            return Err(embassy_usb_driver::EndpointError::Disabled);
-        }
-        let ep_num = self.info.addr.index();
-        defmt::info!("EndpointOut::read on EP{}", ep_num);
         let r = T::info().regs;
+
+        let ep_num = self.info.addr.index();
         self.transfer(buf).unwrap();
         poll_fn(|cx| {
             EP_OUT_WAKERS[ep_num].register(cx.waker());
@@ -265,24 +255,19 @@ impl<'d, T: Instance> EndpointOut for Endpoint<'d, T> {
             }
         })
         .await;
-        defmt::info!("EndpointOut::read: end transfer");
-        Ok(buf.len())
+
+        let ep_num = self.info.addr.index();
+        let ep_idx = 2 * ep_num + self.info.addr.is_in() as usize;
+        let len = unsafe { DCD_DATA.qhd_list.qhd(ep_idx).qtd_token().read().total_bytes() as usize };
+        Ok(buf.len() - len)
     }
 }
 
 impl<'d, T: Instance> EndpointIn for Endpoint<'d, T> {
     async fn write(&mut self, buf: &[u8]) -> Result<(), embassy_usb_driver::EndpointError> {
-        if !self.ready {
-            defmt::info!(
-                "EP {}, IN?: {}, not ready to write",
-                self.info.addr.index(),
-                self.info.addr.is_in()
-            );
-            return Err(embassy_usb_driver::EndpointError::Disabled);
-        }
-        let ep_num = self.info.addr.index();
-        defmt::info!("EndpointIn::write: data: {=[u8]}, to EP{}", buf, ep_num);
         let r = T::info().regs;
+
+        let ep_num = self.info.addr.index();
         self.transfer(buf).unwrap();
         poll_fn(|cx| {
             EP_IN_WAKERS[ep_num].register(cx.waker());
@@ -295,7 +280,22 @@ impl<'d, T: Instance> EndpointIn for Endpoint<'d, T> {
             }
         })
         .await;
-        defmt::info!("EndpointOut::write: transfer finish");
+
+        // Send zlt(if needed)
+        if buf.len() == self.info.max_packet_size as usize {
+            self.transfer(&[]).unwrap();
+            poll_fn(|cx| {
+                EP_IN_WAKERS[ep_num].register(cx.waker());
+                if r.endptcomplete().read().etce() & (1 << ep_num) != 0 {
+                    r.endptcomplete().modify(|w| w.set_etce(1 << ep_num));
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await;
+        }
+
         Ok(())
     }
 }
