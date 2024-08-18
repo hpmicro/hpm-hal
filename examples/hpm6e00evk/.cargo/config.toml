@@ -2,8 +2,8 @@
 target = "riscv32imafc-unknown-none-elf"
 
 [target.riscv32imafc-unknown-none-elf]
-runner = 'riscv64-unknown-elf-gdb -x ../../openocd.gdb'
-# runner = "probe-rs run --chip HPM6E80 --protocol jtag --chip-description-path ../../HPMicro.yaml"
+# runner = 'riscv64-unknown-elf-gdb -x ../../openocd.gdb'
+runner = "probe-rs run --chip HPM6E80 --protocol jtag --chip-description-path ../../HPMicro.yaml"
 
 rustflags = [
     # Target features:
