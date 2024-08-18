@@ -97,7 +97,6 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
                 r.usbintr().modify(|w| w.set_ue(true));
                 r.usbintr().modify(|w| w.set_ure(false));
 
-                defmt::info!("poll: Reset");
                 return Poll::Ready(Event::Reset);
             }
 
