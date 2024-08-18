@@ -16,18 +16,20 @@ pub struct ControlPipe<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
+    /// Maximum packet size for the control pipe
     fn max_packet_size(&self) -> usize {
         self.max_packet_size
     }
 
+    /// Read a single setup packet from the endpoint.
     async fn setup(&mut self) -> [u8; 8] {
         let r = T::info().regs;
 
-        // Wait for SETUP packet(interrupt here)
         // Clear interrupt status(by writing 1) and enable USB interrupt first
         r.usbsts().modify(|w| w.set_ui(true));
         while r.usbsts().read().ui() {}
         r.usbintr().modify(|w| w.set_ue(true));
+        // Wait for SETUP packet
         let _ = poll_fn(|cx| {
             EP_OUT_WAKERS[0].register(cx.waker());
             if r.endptsetupstat().read().0 & 1 > 0 {
@@ -41,7 +43,7 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         })
         .await;
 
-        // Clear interrupt status and enable USB interrupt
+        // Clear interrupt status and re-enable USB interrupt
         r.usbsts().modify(|w| w.set_ui(true));
         while r.usbsts().read().ui() {}
         r.usbintr().modify(|w| w.set_ue(true));
@@ -50,6 +52,10 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         unsafe { DCD_DATA.qhd_list.qhd(0).get_setup_request() }
     }
 
+    /// Read a DATA OUT packet into `buf` in response to a control write request.
+    ///
+    /// Must be called after `setup()` for requests with `direction` of `Out`
+    /// and `length` greater than zero.
     async fn data_out(
         &mut self,
         buf: &mut [u8],
@@ -57,7 +63,7 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
         _last: bool,
     ) -> Result<usize, embassy_usb_driver::EndpointError> {
         let r = T::info().regs;
-        self.ep_out.transfer(buf).map_err(|_e| EndpointError::BufferOverflow)?;
+        self.ep_out.transfer(buf).map_err(|_e| EndpointError::Disabled)?;
         let _ = poll_fn(|cx| {
             EP_OUT_WAKERS[0].register(cx.waker());
             if r.endptcomplete().read().erce() & 1 > 0 {
@@ -68,23 +74,20 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
 
             Poll::Pending
         })
-        .await
-        .unwrap();
+        .await;
+
         Ok(buf.len())
     }
 
+    /// Send a DATA IN packet with `data` in response to a control read request.
+    ///
+    /// If `last_packet` is true, the STATUS packet will be ACKed following the transfer of `data`.
     async fn data_in(
         &mut self,
         data: &[u8],
         _first: bool,
         last: bool,
     ) -> Result<(), embassy_usb_driver::EndpointError> {
-        // defmt::info!(
-        //     "ControlPipe::data_in: len={}, last={}, data={:?}",
-        //     data.len(),
-        //     last,
-        //     data
-        // );
         let r = T::info().regs;
         self.ep_in.transfer(data).unwrap();
 
@@ -98,8 +101,7 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
 
             Poll::Pending
         })
-        .await
-        .unwrap();
+        .await;
 
         if last {
             self.ep_out.transfer(&[]).unwrap();
@@ -124,17 +126,22 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
 
             Poll::Pending
         })
-        .await
-        .unwrap();
+        .await;
     }
 
+    /// Reject a control request.
+    ///
+    /// Sets a STALL condition on the pipe to indicate an error.
     async fn reject(&mut self) {
-        // defmt::info!("ControlPipe::reject");
         // Reject, set IN+OUT to stall
         self.ep_in.set_stall();
         self.ep_out.set_stall();
     }
 
+    /// Accept SET_ADDRESS control and change bus address.
+    ///
+    /// For most drivers this function should firstly call `accept()` and then change the bus address.
+    /// However, there are peripherals (Synopsys USB OTG) that have reverse order.
     async fn accept_set_address(&mut self, addr: u8) {
         let r = T::info().regs;
         r.deviceaddr().modify(|w| {
