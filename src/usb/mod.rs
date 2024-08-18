@@ -47,6 +47,7 @@ const QHD_BUFFER_COUNT: usize = 5;
 const QHD_ITEM_SIZE: usize = 64;
 const QTD_ITEM_SIZE: usize = 32;
 
+/// FIXME: Better way to handle the ehci data, ref: https://github.com/imxrt-rs/imxrt-usbd/blob/master/src/lib.rs
 static mut QHD_LIST_DATA: QhdListData = QhdListData([0; QHD_ITEM_SIZE * ENDPOINT_COUNT * 2]);
 static mut QTD_LIST_DATA: QtdListData = QtdListData([0; QTD_ITEM_SIZE * ENDPOINT_COUNT * 2 * QTD_COUNT_EACH_QHD]);
 static mut DCD_DATA: DcdData = DcdData {
@@ -55,12 +56,12 @@ static mut DCD_DATA: DcdData = DcdData {
 };
 
 #[repr(C, align(2048))]
-pub struct QhdListData([u8; QHD_ITEM_SIZE * ENDPOINT_COUNT * 2]);
+pub(crate) struct QhdListData([u8; QHD_ITEM_SIZE * ENDPOINT_COUNT * 2]);
 
 #[repr(C, align(32))]
-pub struct QtdListData([u8; QTD_ITEM_SIZE * ENDPOINT_COUNT * 2 * QTD_COUNT_EACH_QHD]);
+pub(crate) struct QtdListData([u8; QTD_ITEM_SIZE * ENDPOINT_COUNT * 2 * QTD_COUNT_EACH_QHD]);
 
-pub struct DcdData {
+pub(crate) struct DcdData {
     /// List of queue head
     pub(crate) qhd_list: QhdList,
     /// List of queue transfer descriptor
@@ -167,7 +168,7 @@ impl Qtd {
         // That's why the buffer[1-4] is filled with a `& 0xFFFFF000`.
         // To be convenient, if the data length is larger than 4K, we require the data address to be 4K bytes aligned.
         if transfer_bytes > 0x1000 && data.as_ptr() as u32 % 0x1000 != 0 {
-            defmt::error!("The buffer[1-4] must be 4K bytes aligned");
+            // defmt::error!("The buffer[1-4] must be 4K bytes aligned");
             return;
         }
 
@@ -195,7 +196,8 @@ impl Qtd {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, defmt::Format)]
+/// Endpoint allocation data, used in `UsbDriver`
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub(crate) struct EndpointAllocData {
     pub(crate) info: EndpointInfo,
     pub(crate) used: bool,
@@ -217,7 +219,6 @@ impl EndpointAllocData {
 
 pub struct UsbDriver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
-    info: &'static Info,
     endpoints_in: [EndpointAllocData; ENDPOINT_COUNT],
     endpoints_out: [EndpointAllocData; ENDPOINT_COUNT],
 }
@@ -269,7 +270,6 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
 
         UsbDriver {
             phantom: PhantomData,
-            info: T::info(),
             endpoints_in: [EndpointAllocData::new(Direction::In); ENDPOINT_COUNT],
             endpoints_out: [EndpointAllocData::new(Direction::Out); ENDPOINT_COUNT],
         }
@@ -294,6 +294,7 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
     }
 }
 
+/// Implement `embassy_usb_driver::Driver` for `UsbDriver`
 impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
     type EndpointOut = Endpoint<'a, T>;
 
@@ -410,41 +411,13 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             endpoints_out[i] = self.endpoints_out[i].info;
         }
 
-        let mut bus = Bus {
+        let bus = Bus {
             _phantom: PhantomData,
-            info: self.info,
             endpoints_in,
             endpoints_out,
             delay: McycleDelay::new(sysctl::clocks().cpu0.0),
             inited: false,
         };
-
-        // Init the usb phy and device controller
-        bus.dcd_init();
-
-        // Set ENDPTLISTADDR, enable interrupts
-        {
-            let r = self.info.regs;
-            // Set endpoint list address
-            unsafe {
-                // defmt::info!("Setting ENDPTLISTADDR: {:x}", DCD_DATA.qhd_list.as_ptr());
-                r.endptlistaddr().modify(|w| w.0 = DCD_DATA.qhd_list.as_ptr() as u32);
-            };
-
-            // Clear status
-            r.usbsts().modify(|w| w.0 = w.0);
-
-            // Enable interrupt mask
-            r.usbintr().write(|w| {
-                w.set_ue(true);
-                w.set_uee(true);
-                w.set_pce(true);
-                w.set_ure(true);
-            });
-        }
-
-        // Start to run usb device
-        bus.dcd_connect();
 
         (
             bus,
@@ -456,11 +429,6 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             },
         )
     }
-}
-
-#[derive(Debug)]
-pub enum Error {
-    InvalidQtdNum,
 }
 
 pub(super) struct Info {
@@ -515,6 +483,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Interru
     }
 }
 
+/// USB interrupt handler
 pub unsafe fn on_interrupt<T: Instance>() {
     let r = T::info().regs;
 
@@ -525,11 +494,6 @@ pub unsafe fn on_interrupt<T: Instance>() {
     // Clear triggered interrupts status bits
     let triggered_interrupts = status.0 & enabled_interrupts.0;
 
-    // defmt::info!(
-    //     "GOT IRQ: {:b}, triggered: {:b}",
-    //     r.usbsts().read().0,
-    //     triggered_interrupts
-    // );
     let status = Usbsts(triggered_interrupts);
     r.usbsts().modify(|w| w.0 = w.0);
 
@@ -543,9 +507,10 @@ pub unsafe fn on_interrupt<T: Instance>() {
         // Set IRQ_RESET signal
         IRQ_RESET.store(true, Ordering::Relaxed);
 
+        // Disable USB reset interrupt while processing RESET event
         r.usbintr().modify(|w| w.set_ure(false));
 
-        // Wake main thread. Then the reset event will be processed in Bus::poll()
+        // Wake USB bus. Then the reset event will be processed in Bus::poll()
         BUS_WAKER.wake();
     }
 
@@ -554,20 +519,18 @@ pub unsafe fn on_interrupt<T: Instance>() {
         // Set IRQ_SUSPEND signal
         IRQ_SUSPEND.store(true, Ordering::Relaxed);
 
-        // Wake main thread. Then the suspend event will be processed in Bus::poll()
+        // Wake USB bus. Then the suspend event will be processed in Bus::poll()
         BUS_WAKER.wake();
     }
 
     // Port change event
     if status.pci() {
         if r.portsc1().read().ccs() {
-            r.usbintr().modify(|w| w.set_pce(false));
-            // defmt::info!("Port change interrupt: connected");
-            // Wake main thread. Then the suspend event will be processed in Bus::poll()
-            BUS_WAKER.wake();
             // Connected
+            r.usbintr().modify(|w| w.set_pce(false));
+            // Wake USB bus. Then the event will be processed in Bus::poll()
+            BUS_WAKER.wake();
         } else {
-            defmt::info!("Port change interrupt: disconnected");
             // Disconnected
         }
     }
@@ -584,106 +547,13 @@ pub unsafe fn on_interrupt<T: Instance>() {
         //     r.endptcomplete().read().etce(),
         // );
 
+        // If it's a setup packet, wake the EP OUT 0
         if r.endptsetupstat().read().endptsetupstat() > 0 {
             EP_OUT_WAKERS[0].wake();
         }
 
+        // Transfer completed
         if r.endptcomplete().read().0 > 0 {
-            // defmt::info!("ep transfer complete: {:b}", r.endptcomplete().read().0);
-            // 在c_sdk里，直接在中断中处理，所有EP的QTD，包括EP0。
-            // 在Rust里，这些处理可以放在对应的EP。
-            // 理论上，最合适的逻辑应该是，这里唤醒，然后在control的data_in/data_out，以及端点的write/read里去处理&发送&接受数据。
-            // 但是，由于embassy的实现，Read可以等待，write写一次就退出了，不会在write函数中等待
-            // 所以，这部分处理先放在这，后面看看怎么解决。
-
-            // for ep_num in 0..ENDPOINT_COUNT {
-            //     if r.endptcomplete().read().erce() & (1 << ep_num) > 0 {
-            //         let qtd_idx = 2 * ep_num * QTD_COUNT_EACH_QHD;
-            //         // 处理OUT端点
-            //         let mut qtd = unsafe { DCD_DATA.qtd_list.qtd(qtd_idx) };
-
-            //         // Find the final qtd in the linked list
-            //         let mut do_response = true;
-            //         let mut transfer_len = 0;
-            //         loop {
-            //             if qtd.qtd_token().read().halted()
-            //                 || qtd.qtd_token().read().transaction_err()
-            //                 || qtd.qtd_token().read().buffer_err()
-            //             {
-            //                 defmt::info!("qtd error found: {:b}", qtd.qtd_token().read().0);
-            //                 do_response = false;
-            //                 break;
-            //             } else if qtd.qtd_token().read().active() {
-            //                 do_response = false;
-            //                 break;
-            //             } else {
-            //                 transfer_len +=
-            //                     qtd.expected_bytes().read().expected_bytes() - qtd.qtd_token().read().total_bytes()
-            //             }
-
-            //             if qtd.next_dtd().read().t() {
-            //                 break;
-            //             } else {
-            //                 let next_addr = qtd.next_dtd().read().next_dtd_addr() << 5;
-            //                 defmt::info!("next_qtd_addr: {:x}", next_addr);
-            //                 qtd = Qtd::from_ptr(next_addr as *mut _);
-            //             }
-            //         }
-
-            //         if do_response {
-            //             defmt::info!("WAKING EP_OUT_WAKERS[{}]", ep_num);
-            //             EP_OUT_WAKERS[ep_num].wake();
-            //             // TODO: usbd_event_ep0_out_complete_handler
-            //             // 1. if data_buf_residue != 0, then start reading remaining data
-            //             // 2. if data_buf_residue == 0, received all data at ep0, process setup request first
-            //             // 3. After processing, send NULL to host
-            //         }
-            //     }
-            //     if r.endptcomplete().read().etce() & (1 << ep_num) > 0 {
-            //         let qtd_idx = (2 * ep_num + 1) * QTD_COUNT_EACH_QHD;
-            //         let mut qtd = unsafe { DCD_DATA.qtd_list.qtd(qtd_idx) };
-            //         // 处理IN端点，下面的代码和OUT端点实际上是一模一样的
-
-            //         // Find the final qtd in the linked list
-            //         let mut do_response = true;
-            //         let mut transfer_len = 0;
-            //         loop {
-            //             if qtd.qtd_token().read().halted()
-            //                 || qtd.qtd_token().read().transaction_err()
-            //                 || qtd.qtd_token().read().buffer_err()
-            //             {
-            //                 defmt::info!("qtd error found: {:b}", qtd.qtd_token().read().0);
-            //                 do_response = false;
-            //                 break;
-            //             } else if qtd.qtd_token().read().active() {
-            //                 do_response = false;
-            //                 break;
-            //             } else {
-            //                 transfer_len +=
-            //                     qtd.expected_bytes().read().expected_bytes() - qtd.qtd_token().read().total_bytes()
-            //             }
-
-            //             if qtd.next_dtd().read().t() {
-            //                 break;
-            //             } else {
-            //                 let next_addr = qtd.next_dtd().read().next_dtd_addr() << 5;
-            //                 defmt::info!("next_qtd_addr: {:x}", next_addr);
-            //                 qtd = Qtd::from_ptr(next_addr as *mut _);
-            //             }
-            //         }
-            //         if do_response {
-            //             defmt::info!("WAKING EP_IN_WAKERS[{}]", ep_num);
-            //             EP_IN_WAKERS[ep_num].wake();
-            //             // TODO: usbd_event_ep0_in_complete_handler
-            //             // 1. if data_buf_residue != 0, then start sending remaining data
-            //             // 2. if zlp_flag == 1, then send zero length packet
-            //             // 3. if zlp_flag != 1, that means all data has sent completely, then start reading out status
-            //             //    -> usbd_ep_start_read(busid, USB_CONTROL_OUT_EP0, NULL, 0);
-            //         }
-            //     }
-            // }
-
-            // Transfer completed
             for i in 0..ENDPOINT_COUNT {
                 if r.endptcomplete().read().erce() & (1 << i) > 0 {
                     // Wake OUT endpoint
