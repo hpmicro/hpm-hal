@@ -14,7 +14,7 @@ This crate is a working-in-progress and not ready for use.
 | HPM6700    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     |     |     |     |
 | HPM6300    | ✓   | ✓    | ✓       | ✓      |      |      |     |     |     |     |     |     |     |
 | HPM6200    | ✓   |      |         |        |      |      |     |     |     |     |     |     |     |
-| HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     | ✓   |     | ✓   |
+| HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     | ✓   | ✓   | ✓   |
 | HPM6800    | ✓   |      |         |        |      |      |     |     |     |     |     |     |     |
 | HPM6E00    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     |     |     |     |
 
@@ -73,6 +73,9 @@ This crate is a working-in-progress and not ready for use.
   - [x] basic `mcan` wrapper
   - ~~[ ] async driver~~, better impl it in the App layer, see Mi motor demo
   - [ ] TSU management
+- [x] USB
+  - [x] Device
+  - [ ] Host
 
 ### Long term Plans
 
