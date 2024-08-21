@@ -32,6 +32,13 @@ futures-util = { version = "0.3.30", default-features = false }
 assign-resources = "0.4.1"
 embedded-graphics = "0.8.1"
 embedded-hal-bus = { version = "0.2.0", features = ["async"] }
+embassy-usb = { version = "0.3.0", features = [
+    "defmt",
+    "max-handler-count-8",
+    "max-interface-count-8",
+] }
+usbd-hid = "0.8"
+static_cell = "2"
 
 [profile.release]
 strip = false   # symbols are not flashed to the microcontroller, so don't strip them.
