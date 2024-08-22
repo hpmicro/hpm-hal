@@ -300,10 +300,8 @@ impl<T: Instance> Bus<T> {
             w.set_sts(false);
             // Parallel transceiver width
             w.set_ptw(false);
-            // Forced fullspeed mode, c_sdk commented this line out, use it only when the device runs in full speed mode
-            // TODO: Currently, the device can only be recognized at fs mode.
-            // How to switch to hs mode?
-            w.set_pfsc(true);
+            // Forced fullspeed mode
+            // w.set_pfsc(true);
         });
 
         // Do not use interrupt threshold

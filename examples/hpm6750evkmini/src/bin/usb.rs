@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
-    config.manufacturer = Some("Embassy");
+    config.manufacturer = Some("hpm-hal");
     config.product = Some("USB-serial example");
     config.serial_number = Some("12345678");
 
