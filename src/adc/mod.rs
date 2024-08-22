@@ -5,6 +5,10 @@
 //! - Sequence mode
 //! - Preemption mode
 
+// NOTES:
+// - Periodic mode is not reliable when reading the initial value.
+// - CHAN_RESULT in BUS_RESULT and PRD_RESULT are the same.
+
 #![macro_use]
 
 use core::marker::PhantomData;
@@ -73,6 +77,8 @@ impl Default for ChannelConfig {
 pub struct PeriodicConfig {
     pub prescale: u8,
     pub period_count: u8,
+    pub low_threshold: Option<u16>,
+    pub high_threshold: Option<u16>,
 }
 
 impl Default for PeriodicConfig {
@@ -80,6 +86,8 @@ impl Default for PeriodicConfig {
         Self {
             prescale: 22,    // 2^22 clocks
             period_count: 5, // (1/200_000_000) * 5 * 2**22 = 0.10486s
+            low_threshold: None,
+            high_threshold: None,
         }
     }
 }
@@ -170,12 +178,23 @@ impl<'d, T: Instance> Adc<'d, T> {
         channel.setup();
 
         let r = T::regs();
-        let ch = channel.channel();
+        let ch = channel.channel() as usize;
 
-        r.prd_cfg(ch as usize).prd_cfg().modify(|w| {
+        r.prd_cfg(ch).prd_cfg().modify(|w| {
             w.set_prescale(config.prescale);
             w.set_prd(config.period_count);
         });
+
+        if let Some(low) = config.low_threshold {
+            r.prd_cfg(ch).prd_thshd_cfg().modify(|w| w.set_thshdl(low));
+        } else {
+            r.prd_cfg(ch).prd_thshd_cfg().modify(|w| w.set_thshdl(0));
+        }
+        if let Some(high) = config.high_threshold {
+            r.prd_cfg(ch).prd_thshd_cfg().modify(|w| w.set_thshdh(high));
+        } else {
+            r.prd_cfg(ch).prd_thshd_cfg().modify(|w| w.set_thshdh(0xFFFF));
+        }
     }
 
     pub fn disable_periodic(&mut self, channel: &mut impl AdcChannel<T>) {
@@ -273,6 +292,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         let param01 = adc16_params[32] - adc16_params[33];
         adc16_params[32] = adc16_params[0] - adc16_params[33];
         adc16_params[0] = 0;
+
+        for i in 1..ADC16_SOC_PARAMS_LEN - 2 {
+            adc16_params[i] = adc16_params[32] + adc16_params[i] - adc16_params[33] + adc16_params[i - 1];
+        }
 
         let param02 = (param01 + adc16_params[31] + adc16_params[32]) >> 6;
         let param64 = 0x10000 * (param02 as u64);
