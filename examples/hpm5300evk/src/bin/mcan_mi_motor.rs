@@ -20,7 +20,7 @@ use hal::interrupt::InterruptExt;
 use hal::mcan::Dependencies;
 use hal::mode::Blocking;
 use hal::{pac, peripherals};
-use hpm_hal::gpio::{Input, Pull};
+use hpm_hal::gpio::{Input, Pin, Pull};
 use hpm_hal::mcan::{RxPin, TxPin};
 use hpm_hal::Peripheral;
 use mcan::bus::CanConfigurable;
@@ -58,7 +58,16 @@ impl mcan::messageram::Capacities for Capacities {
     type TxEventFifo = U32;
 }
 
-type CanPeripheral = peripherals::MCAN1;
+// type CanPeripheral = peripherals::MCAN1;
+type CanPeripheral = peripherals::MCAN3;
+
+#[allow(non_snake_case)]
+#[no_mangle]
+unsafe extern "riscv-interrupt-m" fn MCAN3() {
+    CyberGearMotor::on_interrupt();
+
+    hal::interrupt::MCAN3.complete();
+}
 
 /*
 type RxFifo0 = RxFifo<'static, Fifo0, CanPeripheral, <Capacities as mcan::messageram::Capacities>::RxFifo0Message>;
@@ -80,14 +89,6 @@ macro_rules! println {
     ($($arg:tt)*) => {
         let _ = writeln!(unsafe {UART.as_mut().unwrap()}, $($arg)*);
     };
-}
-
-#[allow(non_snake_case)]
-#[no_mangle]
-unsafe extern "riscv-interrupt-m" fn MCAN1() {
-    CyberGearMotor::on_interrupt();
-
-    hal::interrupt::MCAN1.complete();
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -619,13 +620,14 @@ async fn main(_spawner: Spawner) -> ! {
 
     println!("Hello, world!");
 
-    // p.PY04.set_as_ioc_gpio();
-    // p.PY05.set_as_ioc_gpio();
-    // let dependencies = hal::mcan::Dependencies::new(p.MCAN1, p.PB04, p.PB05);
+    p.PY04.set_as_ioc_gpio();
+    p.PY05.set_as_ioc_gpio();
+    // let dependencies = hal::mcan::Dependencies::new(p.MCAN3, p.PY04, p.PY05);
 
     let mut led = Output::new(p.PA23, Level::Low, Default::default());
 
-    let mut bus = CyberGearMotor::new(p.MCAN1, p.PB04, p.PB05);
+    let mut bus = CyberGearMotor::new(p.MCAN3, p.PY04, p.PY05);
+    //  let mut bus = CyberGearMotor::new(p.MCAN1, p.PB04, p.PB05);
 
     defmt::info!("operational? {}", bus.can.aux.is_operational());
 
@@ -642,18 +644,16 @@ async fn main(_spawner: Spawner) -> ! {
     // bus.dump_params(motor_id).await;
 
     // move jog 模式
-    /*
     loop {
         user_button.wait_for_falling_edge().await;
         bus.move_jog(motor_id, 0.5, true).await;
 
         user_button.wait_for_falling_edge().await;
-        bus.move_jog(motor_id, 1.0, true).await;
+        bus.move_jog(motor_id, 2.0, true).await;
 
         user_button.wait_for_falling_edge().await;
-        bus.move_jog(motor_id, 2.0, true).await;
+        bus.move_jog(motor_id, 5.0, true).await;
     }
-    */
 
     // 运控模式
     /*
@@ -662,16 +662,18 @@ async fn main(_spawner: Spawner) -> ! {
     let st = bus.enable(motor_id).await;
     println!("ENABLE: {:?}", st);
     bus.set_zero_position(motor_id).await;
+    bus.set_param_f32(motor_id, params::LIMIT_CUR, 4.0).await;
 
-    let torque = 0.2; // N.m
-    let kp = 30.9; // 比例增益, 响应速度
-    let kd = 0.9; // 微分增益, 导致震荡
+    let torque = 0.4; // N.m
+    let kp = 20.9; // 比例增益
+    let kd = 3.0; // 微分增益
+    let speed = 20.0;
 
     loop {
         user_button.wait_for_falling_edge().await;
-        bus.motor_control(motor_id, torque, 3.14, 0.3, kp, kd).await;
+        bus.motor_control(motor_id, torque, -3.14, speed, kp, kd).await;
         user_button.wait_for_falling_edge().await;
-        bus.motor_control(motor_id, torque, 0.0, 0.3, kp, kd).await;
+        bus.motor_control(motor_id, torque, 3.14, speed, kp, kd).await;
     }
     */
 
@@ -723,8 +725,8 @@ async fn main(_spawner: Spawner) -> ! {
     println!("ENABLE: {:?}", st);
 
     // 0 to 30 rad/s
-    bus.set_param_f32(motor_id, params::LIMIT_SPD, PI * 2.0).await;
-    bus.set_param_f32(motor_id, params::LIMIT_CUR, 2.0).await;
+    bus.set_param_f32(motor_id, params::LIMIT_SPD, 10.0).await;
+    bus.set_param_f32(motor_id, params::LIMIT_CUR, 4.0).await;
     bus.set_param_f32(motor_id, params::LIMIT_TORQUE, 1.0).await;
 
     // default 30.0
