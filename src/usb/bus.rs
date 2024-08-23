@@ -8,7 +8,7 @@ use embedded_hal::delay::DelayNs;
 use hpm_metapac::usb::regs::*;
 use riscv::delay::McycleDelay;
 
-use super::{init_qhd, Instance, ENDPOINT_COUNT};
+use super::{init_qhd, Instance, ENDPOINT_COUNT, EP_IN_WAKERS, EP_OUT_WAKERS};
 use crate::usb::{reset_dcd_data, EpConfig, BUS_WAKER, DCD_DATA, IRQ_RESET, IRQ_SUSPEND};
 
 /// USB bus
@@ -75,6 +75,12 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
             if IRQ_RESET.load(Ordering::Acquire) {
                 IRQ_RESET.store(false, Ordering::Relaxed);
 
+                // Disable all endpoints except ep0
+                for i in 1..ENDPOINT_COUNT {
+                    self.endpoint_close(EndpointAddress::from_parts(i, Direction::In));
+                    self.endpoint_close(EndpointAddress::from_parts(i, Direction::Out));
+                }
+
                 // Set device addr to 0
                 self.device_set_address(0);
 
@@ -89,6 +95,13 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
                     ep_addr: EndpointAddress::from_parts(0, Direction::Out),
                     max_packet_size: 64,
                 });
+
+                for w in &EP_IN_WAKERS {
+                    w.wake()
+                }
+                for w in &EP_OUT_WAKERS {
+                    w.wake()
+                }
 
                 // Reset bus
                 self.device_bus_reset(64);
@@ -355,6 +368,7 @@ impl<T: Instance> Bus<T> {
 
     /// Open the endpoint
     fn endpoint_open(&mut self, ep_config: EpConfig) {
+        // defmt::info!("Enabling endpoint: {:?}", ep_config.ep_addr);
         if ep_config.ep_addr.index() >= ENDPOINT_COUNT {
             return;
         }

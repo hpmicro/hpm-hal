@@ -146,6 +146,16 @@ impl<'d, T: Instance> Endpoint<'d, T> {
             r.endptctrl(self.info.addr.index() as usize).modify(|w| w.set_rxs(true));
         }
     }
+
+    pub(crate) fn enabled(&self) -> bool {
+        let r = T::info().regs;
+        let ep_num = self.info.addr.index();
+        if self.info.addr.is_in() {
+            r.endptctrl(ep_num).read().txe()
+        } else {
+            r.endptctrl(ep_num).read().rxe()
+        }
+    }
 }
 
 impl<'d, T: Instance> embassy_usb_driver::Endpoint for Endpoint<'d, T> {
@@ -156,6 +166,9 @@ impl<'d, T: Instance> embassy_usb_driver::Endpoint for Endpoint<'d, T> {
 
     /// Wait for the endpoint to be enabled.
     async fn wait_enabled(&mut self) {
+        if self.enabled() {
+            return;
+        }
         let i = self.info.addr.index();
         poll_fn(|cx| {
             let r = T::info().regs;
@@ -183,6 +196,9 @@ impl<'d, T: Instance> EndpointOut for Endpoint<'d, T> {
     ///
     /// This should also clear any NAK flags and prepare the endpoint to receive the next packet.
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, embassy_usb_driver::EndpointError> {
+        if !self.enabled() {
+            return Err(embassy_usb_driver::EndpointError::Disabled);
+        }
         let r = T::info().regs;
         let ep_num = self.info.addr.index();
 
@@ -194,6 +210,8 @@ impl<'d, T: Instance> EndpointOut for Endpoint<'d, T> {
             if r.endptcomplete().read().erce() & (1 << ep_num) != 0 {
                 // Clear the flag
                 r.endptcomplete().modify(|w| w.set_erce(1 << ep_num));
+                Poll::Ready(())
+            } else if !r.endptctrl(ep_num).read().rxe() {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -212,6 +230,9 @@ impl<'d, T: Instance> EndpointOut for Endpoint<'d, T> {
 impl<'d, T: Instance> EndpointIn for Endpoint<'d, T> {
     /// Write a single packet of data to the endpoint.
     async fn write(&mut self, buf: &[u8]) -> Result<(), embassy_usb_driver::EndpointError> {
+        if !self.enabled() {
+            return Err(embassy_usb_driver::EndpointError::Disabled);
+        }
         let r = T::info().regs;
         let ep_num = self.info.addr.index();
 
@@ -222,6 +243,8 @@ impl<'d, T: Instance> EndpointIn for Endpoint<'d, T> {
             // It's IN endpoint, so check the etce
             if r.endptcomplete().read().etce() & (1 << ep_num) != 0 {
                 r.endptcomplete().modify(|w| w.set_etce(1 << ep_num));
+                Poll::Ready(())
+            } else if !r.endptctrl(ep_num).read().txe() {
                 Poll::Ready(())
             } else {
                 Poll::Pending
