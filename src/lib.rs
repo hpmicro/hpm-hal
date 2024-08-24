@@ -42,6 +42,7 @@ pub mod mode {
 
 // required peripherals
 pub mod dma;
+pub mod flash;
 pub mod sysctl;
 
 // other peripherals
