@@ -161,7 +161,6 @@ fn main() {
         if let Some(r) = &p.registers {
             match r.kind {
                 // Generate singletons per pin, not per port
-                "xpi" => {}
                 "sysctl" => {}
                 // For other peripherals, one singleton per peri
                 _ => singletons.push(p.name.to_string()),
