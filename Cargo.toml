@@ -17,8 +17,10 @@ license = "MIT/Apache-2.0"
 hpm-metapac = { version = "0.0.4", git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-7b07750284fa2b5b3f6b09c72e70ea6dd4d2231d" }
 
 riscv = { version = "0.11", features = ["critical-section-single-hart"] }
-embedded-hal = { version = "1.0.0" }
+riscv-rt = { version = "0.12.2", optional = true }
+andes-riscv = { version = "0.0.3" }
 
+embedded-hal = { version = "1.0.0" }
 embassy-time-driver = { version = "0.1.0", features = [
     "tick-hz-1_000_000",
 ], optional = true }
@@ -28,8 +30,6 @@ embassy-hal-internal = { version = "0.2.0", default-features = false }
 embassy-time = { version = "0.3.0", optional = true }
 embassy-usb-driver = { version = "0.1.0", features = ["defmt"] }
 critical-section = "1.1.2"
-
-riscv-rt = { version = "0.12.2", optional = true }
 
 static_assertions = "1"
 

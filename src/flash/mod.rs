@@ -124,9 +124,13 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
     /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         // FIXME: invalidate range instead of all
-        crate::rt::andes::l1c_dc_invalidate_all();
-        let flash_data =
-            unsafe { core::slice::from_raw_parts((T::ADDR_OFFSET as u32 + offset) as *const u8, bytes.len()) };
+        let start_addr = T::ADDR_OFFSET + offset;
+        let aligned_addr = andes_riscv::l1c::cacheline_align_down(start_addr);
+        let aligned_size = andes_riscv::l1c::cacheline_align_up(bytes.len() as u32);
+        unsafe {
+            andes_riscv::l1c::dc_invalidate(aligned_addr, aligned_size);
+        }
+        let flash_data = unsafe { core::slice::from_raw_parts(start_addr as *const u8, bytes.len()) };
 
         bytes.copy_from_slice(flash_data);
         Ok(())

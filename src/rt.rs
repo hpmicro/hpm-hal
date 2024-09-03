@@ -2,141 +2,8 @@
 
 use core::arch::asm;
 
-use andes::*;
-
 use crate::interrupt::PlicExt;
 use crate::pac;
-
-pub mod andes {
-    use core::arch::asm;
-
-    pub const MCACHE_CTL: u32 = 0x7CA;
-    pub const MCCTLCOMMAND: usize = 0x7CC;
-
-    pub mod cctl_cmd {
-        pub const L1D_VA_INVAL: u8 = 0;
-        pub const L1D_VA_WB: u8 = 1;
-        pub const L1D_VA_WBINVAL: u8 = 2;
-        pub const L1D_VA_LOCK: u8 = 3;
-        pub const L1D_VA_UNLOCK: u8 = 4;
-        pub const L1D_WBINVAL_ALL: u8 = 6;
-        pub const L1D_WB_ALL: u8 = 7;
-
-        pub const L1I_VA_INVAL: u8 = 8;
-        pub const L1I_VA_LOCK: u8 = 11;
-        pub const L1I_VA_UNLOCK: u8 = 12;
-
-        pub const L1D_IX_INVAL: u8 = 16;
-        pub const L1D_IX_WB: u8 = 17;
-        pub const L1D_IX_WBINVAL: u8 = 18;
-
-        pub const L1D_IX_RTAG: u8 = 19;
-        pub const L1D_IX_RDATA: u8 = 20;
-        pub const L1D_IX_WTAG: u8 = 21;
-        pub const L1D_IX_WDATA: u8 = 22;
-
-        pub const L1D_INVAL_ALL: u8 = 23;
-
-        pub const L1I_IX_INVAL: u8 = 24;
-        pub const L1I_IX_RTAG: u8 = 27;
-        pub const L1I_IX_RDATA: u8 = 28;
-        pub const L1I_IX_WTAG: u8 = 29;
-        pub const L1I_IX_WDATA: u8 = 30;
-    }
-
-    #[inline(always)]
-    pub fn l1c_ic_is_enabled() -> bool {
-        let bits: usize;
-        unsafe {
-            asm!("csrr {}, 0x7CA", out(reg) bits);
-        }
-        bits & 0x1 != 0
-    }
-
-    #[inline(always)]
-    pub fn l1c_dc_is_enabled() -> bool {
-        let bits: usize;
-        unsafe {
-            asm!("csrr {}, 0x7CA", out(reg) bits);
-        }
-        bits & 0x2 != 0
-    }
-
-    #[inline(always)]
-    pub fn l1c_ic_enable() {
-        if l1c_ic_is_enabled() {
-            return;
-        }
-        const IPREF_EN: usize = 1 << 9;
-        const CCTL_SUEN: usize = 1 << 8;
-        const IC_EN: usize = 1 << 0;
-        let bits: usize = IPREF_EN | CCTL_SUEN | IC_EN;
-        unsafe {
-            asm!("csrs 0x7CA, {}", in(reg) bits);
-        }
-    }
-
-    #[inline(always)]
-    pub fn l1c_ic_disable() {
-        if !l1c_ic_is_enabled() {
-            return;
-        }
-        const IC_EN: usize = 1 << 0;
-        let bits: usize = IC_EN;
-        unsafe {
-            asm!("csrc 0x7CA, {}", in(reg) bits);
-        }
-    }
-
-    #[inline(always)]
-    pub fn l1c_dc_enable() {
-        if l1c_dc_is_enabled() {
-            return;
-        }
-
-        const DC_WAROUND_MASK: usize = 3 << 13;
-        const DPREF_EN: usize = 1 << 10;
-        const DC_EN: usize = 1 << 1;
-
-        // clear DC_WAROUND
-        let bits = DC_WAROUND_MASK;
-        unsafe {
-            asm!("csrc 0x7CA, {}", in(reg) bits);
-        }
-
-        // set DC
-        let bits = DPREF_EN | DC_EN;
-        unsafe {
-            asm!("csrs 0x7CA, {}", in(reg) bits);
-        }
-    }
-
-    #[inline(always)]
-    pub fn l1c_dc_disable() {
-        if !l1c_dc_is_enabled() {
-            return;
-        }
-
-        const DC_EN: usize = 1 << 1;
-        let bits = DC_EN;
-        unsafe {
-            asm!("csrc 0x7CA, {}", in(reg) bits);
-        }
-    }
-
-    #[inline(always)]
-    pub fn l1c_dc_invalidate_all() {
-        l1c_cctl_cmd(cctl_cmd::L1D_INVAL_ALL);
-    }
-
-    #[inline(always)]
-    pub fn l1c_cctl_cmd(cmd: u8) {
-        let bits = cmd as usize;
-        unsafe {
-            asm!("csrw 0x7CC, {}", in(reg) bits);
-        }
-    }
-}
 
 #[no_mangle]
 pub unsafe extern "Rust" fn _setup_interrupts() {
@@ -212,9 +79,9 @@ unsafe extern "riscv-interrupt-m" fn CORE_LOCAL() {
 
 #[riscv_rt::pre_init]
 unsafe fn __pre_init() {
-    l1c_ic_enable();
-    l1c_dc_enable();
-    l1c_dc_invalidate_all();
+    andes_riscv::l1c::ic_enable();
+    andes_riscv::l1c::dc_enable();
+    andes_riscv::l1c::dc_invalidate_all();
 
     core::arch::asm!(
         "
