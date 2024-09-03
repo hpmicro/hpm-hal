@@ -80,7 +80,7 @@ This crate is a working-in-progress and not ready for use.
 
 ### Long term Plans
 
-- [ ] andes-riscv for specific CSRs
+- [x] [andes-riscv] for specific CSRs
 - [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
 - [ ] power domain handling
 
@@ -182,3 +182,4 @@ This crate is under active development. Before starting your work, it's better t
 [HPM OpenOCD]: https://github.com/hpmicro/riscv-openocd
 [probe-rs]: https://github.com/probe-rs/probe-rs
 [probe-rs HPM fork]: https://github.com/hpmicro-rs/probe-rs
+[andes-riscv]: https://github.com/hpmicro-rs/andes-riscv
