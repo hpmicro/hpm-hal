@@ -108,8 +108,8 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         let adc_freq = T::frequency() / config.clock_divider;
 
-        defmt::info!("ADC conversion freq => {}Hz", adc_freq.0);
         if adc_freq.0 > MAX_ADC_CLK_FREQ {
+            #[cfg(feature = "defmt")]
             defmt::warn!("ADC clock frequency is too high");
         }
 

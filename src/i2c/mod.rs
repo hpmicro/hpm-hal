@@ -546,6 +546,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         });
 
         if r.status().read().linescl() == false {
+            #[cfg(feature = "defmt")]
             defmt::info!("CLK is low, panic");
             loop {}
         }
@@ -555,7 +556,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             use embedded_hal::delay::DelayNs;
             use riscv::delay::McycleDelay;
 
-            defmt::info!("SDA is low, reset bus");
+            // SDA is low, reset bus
             // i2s_gen_reset_signal
             // generate SCL clock as reset signal
             r.ctrl().modify(|w| {
@@ -565,7 +566,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             });
             McycleDelay::new(crate::sysctl::clocks().cpu0.0).delay_ms(100);
 
-            defmt::info!("bus cleared");
+            // bus cleared
         }
     }
 
