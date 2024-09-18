@@ -176,3 +176,8 @@ pub fn init(config: Config) -> Peripherals {
 
     Peripherals::take()
 }
+
+/// A handly function to get the peripherals without initializing anything.
+pub unsafe fn uninited() -> Peripherals {
+    Peripherals::take()
+}

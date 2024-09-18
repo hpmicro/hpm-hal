@@ -24,19 +24,19 @@ embedded-hal = { version = "1.0.0" }
 embassy-time-driver = { version = "0.1.0", features = [
     "tick-hz-1_000_000",
 ], optional = true }
-embassy-sync = { version = "0.6.0", optional = true }
-embassy-futures = { version = "0.1.1", optional = true }
+embassy-sync = { version = "0.6.0" }
+embassy-futures = { version = "0.1.1" }
 embassy-hal-internal = { version = "0.2.0", default-features = false }
-embassy-time = { version = "0.3.0", optional = true }
+embassy-time = { version = "0.3.2", optional = true }
 embassy-usb-driver = { version = "0.1.0", features = ["defmt"] }
-critical-section = "1.1.2"
+critical-section = "1.1.3"
 
 static_assertions = "1"
 
 defmt = { version = "0.3.8", optional = true }
 embedded-io = "0.6.1"
 nb = "1.1.0"
-futures-util = { version = "0.3.30", optional = true, default-features = false }
+futures-util = { version = "0.3.30", default-features = false }
 embedded-hal-nb = "1.0.0"
 embedded-io-async = "0.6.1"
 embedded-hal-async = "1.0.0"
@@ -62,12 +62,7 @@ defmt = ["dep:defmt"]
 time = ["dep:embassy-time"]
 chrono = ["dep:chrono"]
 usb-pin-reuse-hpm5300 = []
-embassy = [
-    "dep:embassy-sync",
-    "dep:embassy-futures",
-    "dep:embassy-time-driver",
-    "dep:futures-util",
-]
+embassy = ["dep:embassy-time-driver"]
 
 mcan = ["dep:mcan"]
 
