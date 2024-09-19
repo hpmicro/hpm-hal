@@ -83,7 +83,7 @@ This crate is a working-in-progress and not ready for production use.
 
 - [x] [andes-riscv] for Andes' specific CSRs
 - [x] [hpm-data] and [hpm-metapac] for Chip metadata and PAC generation
-- [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
+- [ ] hpm-riscv-rt for customized runtime (riscv-rt does not fit)
 
 ### Toolchain Support
 
