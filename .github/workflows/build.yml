@@ -19,8 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Use nightly Rust
+        # lock to 2024-08-23 and wait for embassy-executor to be updated
         run: |
-          rustup default nightly
+          rustup default nightly-2024-08-23
           rustup component add rust-src
           rustup target add riscv32imafc-unknown-none-elf
       - name: Build Only
