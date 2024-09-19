@@ -397,6 +397,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
         {
             use crate::sysctl::*;
             T::set_clock(ClockConfig::new(ClockMux::CLK_24M, 1));
+            T::add_resource_group(0);
         }
         let mut this = Self {
             info: T::info(),
@@ -720,6 +721,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
         {
             use crate::sysctl::*;
             T::set_clock(ClockConfig::new(ClockMux::CLK_24M, 1));
+            T::add_resource_group(0);
         }
         let mut this = Self {
             _phantom: PhantomData,
@@ -1018,6 +1020,7 @@ impl<'d, M: Mode> Uart<'d, M> {
         {
             use crate::sysctl::*;
             T::set_clock(ClockConfig::new(ClockMux::CLK_24M, 1));
+            T::add_resource_group(0);
         }
         let kernel_clock = T::frequency();
 
