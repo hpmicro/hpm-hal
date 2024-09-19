@@ -1,18 +1,18 @@
 # hpm-hal
 
-A Rust HAL implementation for the HPMicro's RISC-V MCUs.
+A Rust HAL and [Embassy](https://embassy.dev/) driver implementation for the HPMicro's RISC-V MCUs.
 The PAC(Peripheral Access Crate) is based on [hpm-data].
 
-This crate is a working-in-progress and not ready for use.
+This crate is a working-in-progress and not ready for production use.
 
-## Project status
+## Support Status
 
 ### MCU Family Support
 
 | MCU Family | PAC | Demo | Embassy | SYSCTL | GPIO | UART | I2C | SPI | DMA | TMR | ADC | USB | CAN |
 |------------|-----|------|---------|--------|------|------|-----|-----|-----|-----|-----|-----|-----|
 | HPM6700    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     |     |     |     |
-| HPM6300    | ✓   | ✓    | ✓       | ✓      |      |      |     |     |     |     |     |     |     |
+| HPM6300    | ✓   | ✓    | ✓       | ✓      | ?    | ?    | ?   | ?   | ?   |     |     |     |     |
 | HPM6200    | ✓   |      |         |        |      |      |     |     |     |     |     |     |     |
 | HPM5300    | ✓   | ✓    | ✓       | ✓      | ✓+   | ✓+   | ✓+  | ✓+  | ✓+  |     | ✓   | ✓   | ✓   |
 | HPM6800    | ✓   |      |         |        |      |      |     |     |     |     |     |     |     |
@@ -24,7 +24,7 @@ This crate is a working-in-progress and not ready for use.
 - Blank: Not implemented
 - +: Async support
 
-### Peripherals
+### Peripheral Support
 
 - [x] Basic rt code: linker, startup
   - [x] vectored interrupt handling
@@ -71,18 +71,19 @@ This crate is a working-in-progress and not ready for use.
   - [x] SDRAM init
 - [x] MCAN
   - [x] basic `mcan` wrapper
-  - ~~[ ] async driver~~, better impl it in the App layer, see Mi motor demo
+  - ~~[ ] async driver~~, better impl it in the App layer, see XiaoMi CyberGear motor demo
   - [ ] TSU management
 - [x] USB via embassy-usb
   - [x] Device
   - [ ] Host
 - [x] XPI NOR flash driver using embedded-storage
-
-### Long term Plans
-
-- [x] [andes-riscv] for specific CSRs
-- [ ] hpm-riscv-rt for customized runtime (riscv-rt is not fit)
 - [ ] power domain handling
+
+### Related Crates
+
+- [x] [andes-riscv] for Andes' specific CSRs
+- [x] [hpm-data] and [hpm-metapac] for Chip metadata and PAC generation
+- [ ] hpm-riscv-rt for customized runtime (riscv-rt does not fit)
 
 ### Toolchain Support
 
@@ -129,22 +130,23 @@ The best reference is the examples in the `examples` directory and Github action
 #### Step 1. Prepare Rust Toolchain
 
 ```bash
-rustup default nightly
+# lock to 2024-08-23 and wait for embassy-executor to be updated
+rustup default nightly-2024-08-23
 rustup target add riscv32imafc-unknown-none-elf
 ```
 
 #### Step 2. Clone this repo
 
 ```bash
-git clone https://github.com/hpmicro-rs/hpm-hal.git
+git clone https://github.com/hpmicro/hpm-hal.git
 
 # Or if you are using SSH
 
-git clone git@github.com:hpmicro-rs/hpm-hal.git
+git clone git@github.com:hpmicro/hpm-hal.git
 
 # Or if you are using GitHub CLI
 
-gh repo clone hpmicro-rs/hpm-hal
+gh repo clone hpmicro/hpm-hal
 ```
 
 #### Step 3. Run Examples
@@ -166,7 +168,7 @@ cargo run --release --bin blinky
 
 ## License
 
-Embassy is licensed under either of
+This repo is licensed under either of
 
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
   <http://www.apache.org/licenses/LICENSE-2.0>)
@@ -178,8 +180,9 @@ at your option.
 
 This crate is under active development. Before starting your work, it's better to create a "Work in Progress" (WIP) pull request describing your work to avoid conflicts.
 
-[hpm-data]: https://github.com/andelf/hpm-data
+[hpm-data]: https://github.com/hpmicro/hpm-data
 [HPM OpenOCD]: https://github.com/hpmicro/riscv-openocd
 [probe-rs]: https://github.com/probe-rs/probe-rs
-[probe-rs HPM fork]: https://github.com/hpmicro-rs/probe-rs
+[probe-rs HPM fork]: https://github.com/hpmicro/probe-rs
 [andes-riscv]: https://github.com/hpmicro-rs/andes-riscv
+[hpm-metapac]: https://docs.rs/hpm-metapac/latest/hpm_metapac
