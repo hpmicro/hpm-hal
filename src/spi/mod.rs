@@ -5,13 +5,11 @@
 //! - SPI_CS_SELECT: v53, v68,
 //! - SPI_SUPPORT_DIRECTIO: v53, v68
 
-use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr;
-use core::sync::atomic::{compiler_fence, Ordering};
-use core::task::Poll;
 
 use embassy_futures::join::join;
+use embassy_futures::yield_now;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 // re-export
@@ -20,11 +18,9 @@ pub use embedded_hal::spi::{Mode, MODE_0, MODE_1, MODE_2, MODE_3};
 use self::consts::*;
 use crate::dma::{self, word, ChannelAndRequest};
 use crate::gpio::AnyPin;
-use crate::interrupt::typelevel::Interrupt as _;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 pub use crate::pac::spi::vals::{AddrLen, AddrPhaseFormat, DataPhaseFormat, TransMode};
 use crate::time::Hertz;
-use crate::{interrupt, pac};
 
 #[cfg(any(hpm53, hpm68, hpm6e))]
 mod consts {
@@ -37,34 +33,7 @@ mod consts {
     pub const FIFO_SIZE: usize = 4;
 }
 
-// - MARK: interrupt handler
-
-/// Interrupt handler.
-pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
-}
-
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
-    unsafe fn on_interrupt() {
-        on_interrupt(T::info().regs, T::state());
-
-        // PLIC ack is handled by typelevel Handler
-    }
-}
-
-unsafe fn on_interrupt(r: pac::spi::Spi, s: &'static State) {
-    let status = r.intr_st().read();
-
-    defmt::info!("in irq");
-
-    if status.endint() {
-        s.waker.wake();
-
-        r.intr_en().modify(|w| w.set_endinten(false));
-    }
-
-    r.intr_st().write_value(status); // W1C
-}
+// NOTE: SPI end interrupt is not working under DMA mode
 
 // - MARK: Helper enums
 
@@ -409,7 +378,6 @@ impl<'d> Spi<'d, Async> {
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         config: Config,
@@ -442,7 +410,6 @@ impl<'d> Spi<'d, Async> {
         peri: impl Peripheral<P = T> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -474,7 +441,6 @@ impl<'d> Spi<'d, Async> {
         peri: impl Peripheral<P = T> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -533,18 +499,11 @@ impl<'d> Spi<'d, Async> {
             return Ok(());
         }
 
-        defmt::info!("write spi");
-
         let r = self.info.regs;
-        let s = self.state;
 
         self.set_word_size(W::CONFIG);
 
         self.configure_transfer(data.len(), 0, &TransferConfig::default())?;
-
-        r.intr_en().modify(|w| {
-            w.set_endinten(true);
-        });
 
         r.ctrl().modify(|w| w.set_txdmaen(true));
 
@@ -555,17 +514,13 @@ impl<'d> Spi<'d, Async> {
 
         tx_f.await;
 
-        poll_fn(move |cx| {
-            if r.intr_en().read().endinten() {
-                return Poll::Pending;
-            } else {
-                s.waker.register(cx.waker());
-                return Poll::Ready(());
-            }
-        })
-        .await;
-
         r.ctrl().modify(|w| w.set_txdmaen(false));
+
+        // NOTE: SPI end(finish) interrupt is not working under DMA mode, a busy-loop wait is necessary for TX mode.
+        // The same goes for `transfer` fn.
+        while r.status().read().spiactive() {
+            yield_now().await;
+        }
 
         Ok(())
     }
@@ -629,6 +584,11 @@ impl<'d> Spi<'d, Async> {
             w.set_txdmaen(false);
         });
 
+        // See `write`
+        while r.status().read().spiactive() {
+            yield_now().await;
+        }
+
         Ok(())
     }
 
@@ -678,10 +638,6 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         };
 
         this.enable_and_configure(&config).unwrap();
-
-        unsafe {
-            T::Interrupt::enable();
-        }
 
         this
     }
