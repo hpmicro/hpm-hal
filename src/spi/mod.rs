@@ -5,21 +5,26 @@
 //! - SPI_CS_SELECT: v53, v68,
 //! - SPI_SUPPORT_DIRECTIO: v53, v68
 
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr;
+use core::sync::atomic::{compiler_fence, Ordering};
+use core::task::Poll;
 
 use embassy_futures::join::join;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 // re-export
 pub use embedded_hal::spi::{Mode, MODE_0, MODE_1, MODE_2, MODE_3};
-pub use hpm_metapac::spi::vals::{AddrLen, AddrPhaseFormat, DataPhaseFormat, TransMode};
 
 use self::consts::*;
 use crate::dma::{self, word, ChannelAndRequest};
 use crate::gpio::AnyPin;
+use crate::interrupt::typelevel::Interrupt as _;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
+pub use crate::pac::spi::vals::{AddrLen, AddrPhaseFormat, DataPhaseFormat, TransMode};
 use crate::time::Hertz;
+use crate::{interrupt, pac};
 
 #[cfg(any(hpm53, hpm68, hpm6e))]
 mod consts {
@@ -32,8 +37,36 @@ mod consts {
     pub const FIFO_SIZE: usize = 4;
 }
 
-// ==========
-// Helper enums
+// - MARK: interrupt handler
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        on_interrupt(T::info().regs, T::state());
+
+        // PLIC ack is handled by typelevel Handler
+    }
+}
+
+unsafe fn on_interrupt(r: pac::spi::Spi, s: &'static State) {
+    let status = r.intr_st().read();
+
+    defmt::info!("in irq");
+
+    if status.endint() {
+        s.waker.wake();
+
+        r.intr_en().modify(|w| w.set_endinten(false));
+    }
+
+    r.intr_st().write_value(status); // W1C
+}
+
+// - MARK: Helper enums
 
 /// Time between CS active and SCLK edge.
 #[derive(Copy, Clone)]
@@ -100,8 +133,7 @@ impl Into<u8> for CsHighTime {
     }
 }
 
-// ==========
-// Config
+// - MARK: Config
 
 #[derive(Clone, Copy)]
 pub struct Timings {
@@ -200,8 +232,7 @@ pub enum Error {
     FifoFull,
 }
 
-// ==========
-// SPI driver
+// - MARK: SPI driver
 
 /// SPI driver.
 #[allow(unused)]
@@ -351,9 +382,11 @@ impl<'d> Spi<'d, Blocking> {
         d2.set_as_alt(d2.alt_num());
         d3.set_as_alt(d3.alt_num());
 
-        let cs_index = cs.cs_index();
         #[cfg(ip_feature_spi_cs_select)]
-        T::info().regs.ctrl().modify(|w| w.set_cs_en(cs_index));
+        {
+            let cs_index = cs.cs_index();
+            T::info().regs.ctrl().modify(|w| w.set_cs_en(cs_index));
+        }
 
         Self::new_inner(
             peri,
@@ -376,6 +409,7 @@ impl<'d> Spi<'d, Async> {
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         config: Config,
@@ -408,6 +442,7 @@ impl<'d> Spi<'d, Async> {
         peri: impl Peripheral<P = T> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -439,6 +474,7 @@ impl<'d> Spi<'d, Async> {
         peri: impl Peripheral<P = T> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -497,10 +533,18 @@ impl<'d> Spi<'d, Async> {
             return Ok(());
         }
 
+        defmt::info!("write spi");
+
         let r = self.info.regs;
+        let s = self.state;
 
         self.set_word_size(W::CONFIG);
+
         self.configure_transfer(data.len(), 0, &TransferConfig::default())?;
+
+        r.intr_en().modify(|w| {
+            w.set_endinten(true);
+        });
 
         r.ctrl().modify(|w| w.set_txdmaen(true));
 
@@ -511,10 +555,17 @@ impl<'d> Spi<'d, Async> {
 
         tx_f.await;
 
-        r.ctrl().modify(|w| w.set_txdmaen(false));
+        poll_fn(move |cx| {
+            if r.intr_en().read().endinten() {
+                return Poll::Pending;
+            } else {
+                s.waker.register(cx.waker());
+                return Poll::Ready(());
+            }
+        })
+        .await;
 
-        // TODO: should wait tx done via INTRST
-        // In embassy-stm32 this is a busy wait
+        r.ctrl().modify(|w| w.set_txdmaen(false));
 
         Ok(())
     }
@@ -627,6 +678,11 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         };
 
         this.enable_and_configure(&config).unwrap();
+
+        unsafe {
+            T::Interrupt::enable();
+        }
+
         this
     }
 
@@ -797,6 +853,10 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
     // In blocking mode, the final speed is not faster than normal mode
     pub fn blocking_datamerge_write(&mut self, data: &[u8], config: &TransferConfig) -> Result<(), Error> {
+        if data.is_empty() {
+            return Ok(());
+        }
+
         let r = self.info.regs;
 
         flush_rx_fifo(r);
@@ -831,6 +891,10 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
     // Write in master mode
     pub fn blocking_write<W: Word>(&mut self, data: &[W]) -> Result<(), Error> {
+        if data.is_empty() {
+            return Ok(());
+        }
+
         let r = self.info.regs;
         let config = TransferConfig::default();
 
@@ -852,6 +916,10 @@ impl<'d, M: PeriMode> Spi<'d, M> {
     }
 
     pub fn blocking_read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        if data.is_empty() {
+            return Ok(());
+        }
+
         let r = self.info.regs;
         let mut config = TransferConfig::default();
         config.transfer_mode = TransMode::READ_ONLY;
@@ -939,35 +1007,13 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 }
 
 // ==========
-// Helper functions
+// - MARK: Helper types and functions
 
 fn flush_rx_fifo(r: crate::pac::spi::Spi) {
     while !r.status().read().rxempty() {
         let _ = r.data().read();
     }
 }
-
-// ==========
-// Interrupt handler
-
-/// SPI Interrupt handler.
-pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
-}
-
-impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
-    unsafe fn on_interrupt() {
-        on_interrupt(T::info().regs, T::state())
-    }
-}
-
-unsafe fn on_interrupt(r: crate::pac::spi::Spi, s: &'static State) {
-    let _ = (r, s);
-    todo!()
-}
-
-// ==========
-// Helper types and functions
 
 struct State {
     #[allow(unused)]
