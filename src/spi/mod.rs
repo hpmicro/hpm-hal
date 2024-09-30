@@ -55,8 +55,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 unsafe fn on_interrupt(r: pac::spi::Spi, s: &'static State) {
     let status = r.intr_st().read();
 
-    defmt::info!("in irq");
-
     if status.endint() {
         s.waker.wake();
 
