@@ -441,6 +441,30 @@ impl<'a> Transfer<'a> {
         )
     }
 
+    /// Create a new write DMA transfer (memory to peripheral), using raw pointers.
+    pub unsafe fn new_write_raw_with_spi_fix<W: Word>(
+        channel: impl Peripheral<P = impl Channel> + 'a,
+        request: Request,
+        buf: *const W,
+        fixed_buf_len: usize,
+        peri_addr: *mut W,
+        options: TransferOptions,
+    ) -> Self {
+        into_ref!(channel);
+
+        Self::new_inner(
+            channel.map_into(),
+            request,
+            Dir::MemoryToPeripheral,
+            peri_addr as *const u32,
+            buf as *mut u32,
+            fixed_buf_len,
+            true,
+            W::size(),
+            options,
+        )
+    }
+
     /// Create a new write DMA transfer (memory to peripheral), writing the same value repeatedly.
     pub unsafe fn new_write_repeated<W: Word>(
         channel: impl Peripheral<P = impl Channel> + 'a,

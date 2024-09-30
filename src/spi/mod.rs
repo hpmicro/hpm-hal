@@ -8,7 +8,6 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr;
-use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_futures::join::join;
@@ -16,6 +15,7 @@ use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 // re-export
 pub use embedded_hal::spi::{Mode, MODE_0, MODE_1, MODE_2, MODE_3};
+use futures_util::future::{select, Either};
 
 use self::consts::*;
 use crate::dma::{self, word, ChannelAndRequest};
@@ -533,8 +533,6 @@ impl<'d> Spi<'d, Async> {
             return Ok(());
         }
 
-        defmt::info!("write spi");
-
         let r = self.info.regs;
         let s = self.state;
 
@@ -549,21 +547,40 @@ impl<'d> Spi<'d, Async> {
         r.ctrl().modify(|w| w.set_txdmaen(true));
 
         let tx_dst = r.data().as_ptr() as *mut W;
-        let mut opts = dma::TransferOptions::default();
-        opts.burst = dma::Burst::from_size(FIFO_SIZE / 2);
-        let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, opts) };
+        let opts = dma::TransferOptions::default(); // BUG: Busrt size must be 1(default) for SPI. or else END interrupt will not be triggered.
 
-        tx_f.await;
+        //let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, opts) };
+        // BUG: No idea why "+1" is needed here, but without it, END interrupt will not be triggered.
+        // BUG: "+n"(n>1) also triggers END interrupt, but the data seems not correct.
+        let tx_f = unsafe {
+            self.tx_dma
+                .as_mut()
+                .unwrap()
+                .write_raw_with_spi_fix(data.as_ptr(), data.len() + 1, tx_dst, opts)
+        };
 
-        poll_fn(move |cx| {
+        let end_f = poll_fn(move |cx| {
+            s.waker.register(cx.waker());
             if r.intr_en().read().endinten() {
                 return Poll::Pending;
             } else {
-                s.waker.register(cx.waker());
                 return Poll::Ready(());
             }
-        })
-        .await;
+        });
+
+        // NOTE: if "+n"(n>1) is used, tx_f never finishes, use select instead of join
+        // join only works for "+1"
+        join(end_f, tx_f).await;
+
+        /*
+        match select(end_f, tx_f).await {
+            Either::Left((_v, _)) => (),
+            Either::Right((_v, end_f)) => {
+                end_f.await;
+                defmt::println!("end f");
+            }
+        }
+        */
 
         r.ctrl().modify(|w| w.set_txdmaen(false));
 
@@ -645,8 +662,10 @@ impl<'d> Spi<'d, Async> {
     /// In-place bidirectional transfer, using DMA.
     ///
     /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
-    pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W], config: &TransferConfig) -> Result<(), Error> {
-        self.transfer_inner(data, data, config).await
+    pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        let mut config = TransferConfig::default();
+        config.transfer_mode = TransMode::WRITE_READ_TOGETHER;
+        self.transfer_inner(data, data, &config).await
     }
 }
 
@@ -1196,8 +1215,6 @@ impl<'d, W: Word> embedded_hal_async::spi::SpiBus<W> for Spi<'d, Async> {
     }
 
     async fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
-        let mut options = TransferConfig::default();
-        options.transfer_mode = TransMode::WRITE_READ_TOGETHER;
-        self.transfer_in_place(words, &options).await
+        self.transfer_in_place(words).await
     }
 }

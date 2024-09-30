@@ -48,6 +48,16 @@ impl<'d> ChannelAndRequest<'d> {
         Transfer::new_write_raw(&mut self.channel, self.request, buf, peri_addr, options)
     }
 
+    pub unsafe fn write_raw_with_spi_fix<'a, W: Word>(
+        &'a mut self,
+        buf: *const W,
+        buf_len: usize,
+        peri_addr: *mut W,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        Transfer::new_write_raw_with_spi_fix(&mut self.channel, self.request, buf, buf_len, peri_addr, options)
+    }
+
     #[allow(dead_code)]
     pub unsafe fn write_repeated<'a, W: Word>(
         &'a mut self,
