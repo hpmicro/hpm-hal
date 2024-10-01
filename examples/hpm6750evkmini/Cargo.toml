@@ -7,11 +7,11 @@ edition = "2021"
 defmt = "0.3.8"
 defmt-rtt = "0.4.1"
 embedded-hal = "1.0.0"
-#hpm-metapac = { version = "0.0.4", features = [
+# hpm-metapac = { features = [
 #    "hpm6750",
 #    "memory-x",
 #    "rt",
-#], git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-7b07750284fa2b5b3f6b09c72e70ea6dd4d2231d" }
+#], git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-71a17c4971e813a2c7151de990cbe05fe9a19a70" }
 
 hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm6750", "chrono"] }
 

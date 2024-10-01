@@ -69,6 +69,8 @@ pub mod dac;
 // motor control peripherals
 #[cfg(qei)]
 pub mod qei;
+#[cfg(rng)]
+pub mod rng;
 #[cfg(trgm)]
 pub mod trgm;
 
