@@ -40,7 +40,7 @@ pub struct TransferOptions {
 impl Default for TransferOptions {
     fn default() -> Self {
         Self {
-            burst: Burst::Liner(0),
+            burst: Burst::Exponential(0), // 1 transfer
             priority: false,
             circular: false,
             half_transfer_irq: false,
@@ -53,8 +53,6 @@ impl Default for TransferOptions {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Burst {
-    // 0:1transfer; 0xf: 16 transfer
-    Liner(u8),
     /*
     0x0: 1 transfer
     0x1: 2 transfers
@@ -69,6 +67,9 @@ pub enum Burst {
     0xa: 1024 transfers
     */
     Exponential(u8),
+    // For BURSTOPT = 1
+    // 0:1transfer; 0xf: 16 transfer
+    Liner(u8),
 }
 
 impl Burst {
@@ -273,10 +274,12 @@ impl AnyChannel {
             w.set_infiniteloop(options.circular);
             // false: Use burst mode
             // true:  Send all data at once
-            w.set_handshakeopt(false);
+            w.set_handshakeopt(false); // always false in sdk
 
             w.set_burstopt(options.burst.burstopt());
             w.set_priority(options.priority);
+
+            // In DMA handshake case, source burst size must be 1 transfer, that is 0
             w.set_srcburstsize(options.burst.burstsize());
             w.set_srcwidth(src_width.width());
             w.set_dstwidth(dst_width.width());
@@ -435,30 +438,6 @@ impl<'a> Transfer<'a> {
             peri_addr as *const u32,
             buf as *const W as *mut u32,
             buf.len(),
-            true,
-            W::size(),
-            options,
-        )
-    }
-
-    /// Create a new write DMA transfer (memory to peripheral), using raw pointers.
-    pub unsafe fn new_write_raw_with_spi_fix<W: Word>(
-        channel: impl Peripheral<P = impl Channel> + 'a,
-        request: Request,
-        buf: *const W,
-        fixed_buf_len: usize,
-        peri_addr: *mut W,
-        options: TransferOptions,
-    ) -> Self {
-        into_ref!(channel);
-
-        Self::new_inner(
-            channel.map_into(),
-            request,
-            Dir::MemoryToPeripheral,
-            peri_addr as *const u32,
-            buf as *mut u32,
-            fixed_buf_len,
             true,
             W::size(),
             options,

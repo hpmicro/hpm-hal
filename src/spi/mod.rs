@@ -8,6 +8,7 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr;
+use core::sync::atomic::compiler_fence;
 use core::task::Poll;
 
 use embassy_futures::join::join;
@@ -54,6 +55,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 unsafe fn on_interrupt(r: pac::spi::Spi, s: &'static State) {
     let status = r.intr_st().read();
+
+    defmt::println!("in irq");
 
     if status.endint() {
         s.waker.wake();
@@ -545,16 +548,11 @@ impl<'d> Spi<'d, Async> {
         r.ctrl().modify(|w| w.set_txdmaen(true));
 
         let tx_dst = r.data().as_ptr() as *mut W;
-        let opts = dma::TransferOptions::default(); // BUG: Busrt size must be 1(default) for SPI. or else END interrupt will not be triggered.
-
-        //let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, opts) };
-        // BUG: No idea why "+1" is needed here, but without it, END interrupt will not be triggered.
-        // BUG: "+n"(n>1) also triggers END interrupt, but the data seems not correct.
         let tx_f = unsafe {
             self.tx_dma
                 .as_mut()
                 .unwrap()
-                .write_raw_with_spi_fix(data.as_ptr(), data.len() + 1, tx_dst, opts)
+                .write(data, tx_dst, dma::TransferOptions::default())
         };
 
         let end_f = poll_fn(move |cx| {
@@ -566,21 +564,12 @@ impl<'d> Spi<'d, Async> {
             }
         });
 
-        // NOTE: if "+n"(n>1) is used, tx_f never finishes, use select instead of join
-        // join only works for "+1"
-        join(end_f, tx_f).await;
+        end_f.await;
 
-        /*
-        match select(end_f, tx_f).await {
-            Either::Left((_v, _)) => (),
-            Either::Right((_v, end_f)) => {
-                end_f.await;
-                defmt::println!("end f");
-            }
-        }
-        */
+        compiler_fence(core::sync::atomic::Ordering::SeqCst);
 
         r.ctrl().modify(|w| w.set_txdmaen(false));
+        drop(tx_f);
 
         Ok(())
     }
@@ -696,6 +685,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
         this.enable_and_configure(&config).unwrap();
 
+        T::Interrupt::set_priority(interrupt::Priority::P1);
         unsafe {
             T::Interrupt::enable();
         }
@@ -788,6 +778,10 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             return Err(Error::InvalidArgument);
         }
 
+        if config.transfer_mode == TransMode::WRITE_READ_TOGETHER && write_len != read_len {
+            return Err(Error::InvalidArgument);
+        }
+
         let r = self.info.regs;
 
         // SPI format init
@@ -806,18 +800,24 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             w.set_addrfmt(config.addr_phase);
             w.set_dualquad(config.data_phase);
             w.set_tokenen(false);
-            #[cfg(not(ip_feature_spi_new_trans_count))]
+            // #[cfg(not(ip_feature_spi_new_trans_count))]
             match config.transfer_mode {
                 TransMode::WRITE_READ_TOGETHER
                 | TransMode::READ_DUMMY_WRITE
                 | TransMode::WRITE_DUMMY_READ
                 | TransMode::READ_WRITE
                 | TransMode::WRITE_READ => {
-                    w.set_wrtrancnt(write_len as u16 - 1);
-                    w.set_rdtrancnt(read_len as u16 - 1);
+                    w.set_wrtrancnt((write_len as u16 - 1) & 0x1ff);
+                    w.set_rdtrancnt((read_len as u16 - 1) & 0x1ff);
                 }
-                TransMode::WRITE_ONLY | TransMode::DUMMY_WRITE => w.set_wrtrancnt(write_len as u16 - 1),
-                TransMode::READ_ONLY | TransMode::DUMMY_READ => w.set_rdtrancnt(read_len as u16 - 1),
+                TransMode::WRITE_ONLY | TransMode::DUMMY_WRITE => {
+                    w.set_wrtrancnt(write_len as u16 - 1);
+                    w.set_rdtrancnt(0x1ff);
+                }
+                TransMode::READ_ONLY | TransMode::DUMMY_READ => {
+                    w.set_rdtrancnt(read_len as u16 - 1);
+                    w.set_wrtrancnt(0x1ff);
+                }
                 TransMode::NO_DATA => (),
                 _ => (),
             }
