@@ -77,6 +77,7 @@ This crate is a working-in-progress and not ready for production use.
   - [x] Device
   - [ ] Host
 - [x] XPI NOR flash driver using embedded-storage
+- [x] RNG, in blocking mode
 - [ ] power domain handling
 
 ### Related Crates

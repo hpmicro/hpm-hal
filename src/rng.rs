@@ -6,6 +6,7 @@
 //! - FIFO underflow
 //!
 
+use embassy_futures::yield_now;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use rand_core::{CryptoRng, RngCore};
 
@@ -64,6 +65,26 @@ impl<'d, T: Instance> Rng<'d, T> {
         T::regs().cmd().modify(|w| w.set_sftrst(true));
         self.init()?;
 
+        Ok(())
+    }
+
+    #[inline]
+    async fn async_next_u32(&mut self) -> Result<u32, Error> {
+        while T::regs().sta().read().busy() {
+            yield_now().await;
+        }
+        Ok(T::regs().fo2b().read().0)
+    }
+
+    // NOTE: RNG interrupt is non-functional.
+    // See-also: https://github.com/hpmicro/hpm-hal/issues/37
+    pub async fn async_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
+        for chunk in dest.chunks_mut(4) {
+            let rand = self.async_next_u32().await?;
+            for (slot, num) in chunk.iter_mut().zip(rand.to_ne_bytes().iter()) {
+                *slot = *num
+            }
+        }
         Ok(())
     }
 
