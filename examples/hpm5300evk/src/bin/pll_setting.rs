@@ -8,7 +8,7 @@ use hal::pac;
 use hal::uart::UartTx;
 use hpm_hal::time::Hertz;
 use riscv::delay::McycleDelay;
-use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal, panic_halt as _};
 
 const BANNER: &str = include_str!("../../../assets/BANNER");
 

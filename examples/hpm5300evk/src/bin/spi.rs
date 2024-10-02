@@ -23,7 +23,7 @@ use hpm_hal::mode::Blocking;
 use hpm_hal::spi::{Config, Spi};
 use hpm_hal::time::Hertz;
 use riscv::delay::McycleDelay;
-use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal, panic_halt as _};
 
 pub struct ST7789<
     Spi: SpiDevice,

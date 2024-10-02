@@ -12,7 +12,7 @@ use embassy_usb::Builder;
 use futures_util::future::join;
 use hal::usb::{Instance, UsbDriver};
 use hpm_hal::{bind_interrupts, peripherals};
-use {defmt_rtt as _, hpm_hal as hal, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal};
 
 bind_interrupts!(struct Irqs {
     USB0 => hal::usb::InterruptHandler<peripherals::USB0>;

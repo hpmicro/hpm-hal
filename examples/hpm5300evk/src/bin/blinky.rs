@@ -4,7 +4,7 @@
 use embedded_hal::delay::DelayNs;
 use hal::gpio::{Level, Output, Speed};
 use riscv::delay::McycleDelay;
-use {defmt_rtt as _, hpm_hal as hal, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal};
 
 #[hal::entry]
 fn main() -> ! {

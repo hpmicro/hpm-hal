@@ -58,11 +58,17 @@ async fn main(spawner: Spawner) -> ! {
     loop {
         Timer::after_millis(200).await;
 
-        //        defmt::info!("tick {}", MCHTMR.mtime().read());
+        // let n = adc.blocking_read(&mut adc_ch7_pin, Default::default());
+        let mut sum = 0;
+        for _ in 0..1000 {
+            let n = adc.blocking_read(&mut adc_ch7_pin, Default::default());
+            sum += n as u32;
+        }
+        let n = sum / 1000;
 
-        let n = adc.blocking_read(&mut adc_ch7_pin, Default::default());
+        let voltage = (n as u32) * 3300 / 65536;
 
-        println!("ADC0_CH7: {}", n);
+        println!("ADC0_CH7: {} {}mV", n, voltage);
     }
 }
 

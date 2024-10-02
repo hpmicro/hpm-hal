@@ -8,7 +8,7 @@ use hal::gpio::{Level, Output, Speed};
 use hal::pac;
 use hpm_hal::time::Hertz;
 use riscv::delay::McycleDelay;
-use {defmt_rtt as _, hpm_hal as hal, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal};
 
 const BANNER: &str = include_str!("../../../assets/BANNER");
 
