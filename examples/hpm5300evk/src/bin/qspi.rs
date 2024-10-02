@@ -23,7 +23,7 @@ use hpm_hal::spi::{
 };
 use hpm_hal::time::Hertz;
 use riscv::delay::McycleDelay;
-use {defmt_rtt as _, hpm_hal as hal, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum Orientation {

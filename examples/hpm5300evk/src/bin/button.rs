@@ -4,9 +4,9 @@
 use embedded_hal::delay::DelayNs;
 use hpm_hal::gpio::{Input, Pull};
 use riscv::delay::McycleDelay;
-use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal, panic_halt as _};
 
-#[riscv_rt::entry]
+#[hal::entry]
 fn main() -> ! {
     let p = hal::init(Default::default());
 

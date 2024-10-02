@@ -6,7 +6,7 @@ use embedded_io::Write as _; // `writeln!` provider
 use hpm_hal::gpio::{Level, Output, Speed};
 use hpm_hal::uart::UartTx;
 use riscv::delay::McycleDelay;
-use {defmt_rtt as _, hpm_hal as hal, panic_halt as _, riscv_rt as _};
+use {defmt_rtt as _, hpm_hal as hal, panic_halt as _};
 
 const BANNER: &str = include_str!("../../../assets/BANNER");
 
