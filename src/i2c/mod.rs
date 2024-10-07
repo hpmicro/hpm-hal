@@ -147,14 +147,15 @@ impl<'d> I2c<'d, Blocking> {
     ) -> Self {
         into_ref!(scl, sda);
 
+        scl.set_as_ioc_gpio();
+        sda.set_as_ioc_gpio();
+
         #[cfg(not(ip_feature_i2c_support_reset))]
         loop {
             // TODO: Fix this strangle control flow
             use embedded_hal::delay::DelayNs;
             use riscv::delay::McycleDelay;
 
-            scl.set_as_ioc_gpio();
-            sda.set_as_ioc_gpio();
             scl.set_as_input();
             sda.set_as_input();
 
@@ -224,14 +225,15 @@ impl<'d> I2c<'d, Async> {
     ) -> Self {
         into_ref!(scl, sda);
 
+        scl.set_as_ioc_gpio();
+        sda.set_as_ioc_gpio();
+
         #[cfg(not(ip_feature_i2c_support_reset))]
         loop {
             // TODO: Fix this strangle control flow
             use embedded_hal::delay::DelayNs;
             use riscv::delay::McycleDelay;
 
-            scl.set_as_ioc_gpio();
-            sda.set_as_ioc_gpio();
             scl.set_as_input();
             sda.set_as_input();
 
