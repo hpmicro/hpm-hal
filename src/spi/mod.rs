@@ -5,22 +5,27 @@
 //! - SPI_CS_SELECT: v53, v68,
 //! - SPI_SUPPORT_DIRECTIO: v53, v68
 
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr;
+use core::sync::atomic::compiler_fence;
+use core::task::Poll;
 
 use embassy_futures::join::join;
-use embassy_futures::yield_now;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 // re-export
 pub use embedded_hal::spi::{Mode, MODE_0, MODE_1, MODE_2, MODE_3};
+use futures_util::future::{select, Either};
 
 use self::consts::*;
 use crate::dma::{self, word, ChannelAndRequest};
 use crate::gpio::AnyPin;
+use crate::interrupt::typelevel::Interrupt as _;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 pub use crate::pac::spi::vals::{AddrLen, AddrPhaseFormat, DataPhaseFormat, TransMode};
 use crate::time::Hertz;
+use crate::{interrupt, pac};
 
 #[cfg(any(hpm53, hpm68, hpm6e))]
 mod consts {
@@ -33,7 +38,32 @@ mod consts {
     pub const FIFO_SIZE: usize = 4;
 }
 
-// NOTE: SPI end interrupt is not working under DMA mode
+// - MARK: interrupt handler
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        on_interrupt(T::info().regs, T::state());
+
+        // PLIC ack is handled by typelevel Handler
+    }
+}
+
+unsafe fn on_interrupt(r: pac::spi::Spi, s: &'static State) {
+    let status = r.intr_st().read();
+
+    if status.endint() {
+        s.waker.wake();
+
+        r.intr_en().modify(|w| w.set_endinten(false));
+    }
+
+    r.intr_st().write_value(status); // W1C
+}
 
 // - MARK: Helper enums
 
@@ -378,6 +408,7 @@ impl<'d> Spi<'d, Async> {
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         config: Config,
@@ -410,6 +441,7 @@ impl<'d> Spi<'d, Async> {
         peri: impl Peripheral<P = T> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -441,6 +473,7 @@ impl<'d> Spi<'d, Async> {
         peri: impl Peripheral<P = T> + 'd,
         sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -500,27 +533,41 @@ impl<'d> Spi<'d, Async> {
         }
 
         let r = self.info.regs;
+        let s = self.state;
 
         self.set_word_size(W::CONFIG);
 
         self.configure_transfer(data.len(), 0, &TransferConfig::default())?;
 
+        r.intr_en().modify(|w| {
+            w.set_endinten(true);
+        });
+
         r.ctrl().modify(|w| w.set_txdmaen(true));
 
         let tx_dst = r.data().as_ptr() as *mut W;
-        let mut opts = dma::TransferOptions::default();
-        opts.burst = dma::Burst::from_size(FIFO_SIZE / 2);
-        let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, opts) };
+        let tx_f = unsafe {
+            self.tx_dma
+                .as_mut()
+                .unwrap()
+                .write(data, tx_dst, dma::TransferOptions::default())
+        };
 
-        tx_f.await;
+        let end_f = poll_fn(move |cx| {
+            s.waker.register(cx.waker());
+            if r.intr_en().read().endinten() {
+                return Poll::Pending;
+            } else {
+                return Poll::Ready(());
+            }
+        });
+
+        end_f.await;
+
+        compiler_fence(core::sync::atomic::Ordering::SeqCst);
 
         r.ctrl().modify(|w| w.set_txdmaen(false));
-
-        // NOTE: SPI end(finish) interrupt is not working under DMA mode, a busy-loop wait is necessary for TX mode.
-        // The same goes for `transfer` fn.
-        while r.status().read().spiactive() {
-            yield_now().await;
-        }
+        drop(tx_f);
 
         Ok(())
     }
@@ -584,11 +631,6 @@ impl<'d> Spi<'d, Async> {
             w.set_txdmaen(false);
         });
 
-        // See `write`
-        while r.status().read().spiactive() {
-            yield_now().await;
-        }
-
         Ok(())
     }
 
@@ -605,8 +647,10 @@ impl<'d> Spi<'d, Async> {
     /// In-place bidirectional transfer, using DMA.
     ///
     /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
-    pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W], config: &TransferConfig) -> Result<(), Error> {
-        self.transfer_inner(data, data, config).await
+    pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        let mut config = TransferConfig::default();
+        config.transfer_mode = TransMode::WRITE_READ_TOGETHER;
+        self.transfer_inner(data, data, &config).await
     }
 }
 
@@ -638,6 +682,11 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         };
 
         this.enable_and_configure(&config).unwrap();
+
+        T::Interrupt::set_priority(interrupt::Priority::P1);
+        unsafe {
+            T::Interrupt::enable();
+        }
 
         this
     }
@@ -727,6 +776,10 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             return Err(Error::InvalidArgument);
         }
 
+        if config.transfer_mode == TransMode::WRITE_READ_TOGETHER && write_len != read_len {
+            return Err(Error::InvalidArgument);
+        }
+
         let r = self.info.regs;
 
         // SPI format init
@@ -745,18 +798,24 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             w.set_addrfmt(config.addr_phase);
             w.set_dualquad(config.data_phase);
             w.set_tokenen(false);
-            #[cfg(not(ip_feature_spi_new_trans_count))]
+            // #[cfg(not(ip_feature_spi_new_trans_count))]
             match config.transfer_mode {
                 TransMode::WRITE_READ_TOGETHER
                 | TransMode::READ_DUMMY_WRITE
                 | TransMode::WRITE_DUMMY_READ
                 | TransMode::READ_WRITE
                 | TransMode::WRITE_READ => {
-                    w.set_wrtrancnt(write_len as u16 - 1);
-                    w.set_rdtrancnt(read_len as u16 - 1);
+                    w.set_wrtrancnt((write_len as u16 - 1) & 0x1ff);
+                    w.set_rdtrancnt((read_len as u16 - 1) & 0x1ff);
                 }
-                TransMode::WRITE_ONLY | TransMode::DUMMY_WRITE => w.set_wrtrancnt(write_len as u16 - 1),
-                TransMode::READ_ONLY | TransMode::DUMMY_READ => w.set_rdtrancnt(read_len as u16 - 1),
+                TransMode::WRITE_ONLY | TransMode::DUMMY_WRITE => {
+                    w.set_wrtrancnt(write_len as u16 - 1);
+                    w.set_rdtrancnt(0x1ff);
+                }
+                TransMode::READ_ONLY | TransMode::DUMMY_READ => {
+                    w.set_rdtrancnt(read_len as u16 - 1);
+                    w.set_wrtrancnt(0x1ff);
+                }
                 TransMode::NO_DATA => (),
                 _ => (),
             }
@@ -1152,8 +1211,6 @@ impl<'d, W: Word> embedded_hal_async::spi::SpiBus<W> for Spi<'d, Async> {
     }
 
     async fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
-        let mut options = TransferConfig::default();
-        options.transfer_mode = TransMode::WRITE_READ_TOGETHER;
-        self.transfer_in_place(words, &options).await
+        self.transfer_in_place(words).await
     }
 }
