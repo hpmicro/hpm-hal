@@ -82,9 +82,9 @@ This crate is a working-in-progress and not ready for production use.
 
 ### Related Crates
 
-- [x] [andes-riscv] for Andes' specific CSRs
+- [x] [andes-riscv] for Andes' specific CSRs, PLIC
 - [x] [hpm-data] and [hpm-metapac] for Chip metadata and PAC generation
-- [ ] hpm-riscv-rt for customized runtime (riscv-rt does not fit)
+- [x] [hpm-riscv-rt] for customized runtime (riscv-rt does not fit)
 
 ### Toolchain Support
 
@@ -187,3 +187,4 @@ This crate is under active development. Before starting your work, it's better t
 [probe-rs HPM fork]: https://github.com/hpmicro/probe-rs
 [andes-riscv]: https://github.com/hpmicro-rs/andes-riscv
 [hpm-metapac]: https://docs.rs/hpm-metapac/latest/hpm_metapac
+[hpm-riscv-rt]: https://github.com/hpmicro-rs/hpm-riscv-rt
