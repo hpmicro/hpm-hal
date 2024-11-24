@@ -503,9 +503,8 @@ fn main() {
 
             quote! {
                 #[cfg(feature = "rt")]
-                #[allow(non_snake_case)]
-                #[no_mangle]
-                unsafe extern "riscv-interrupt-m" fn #irq() {
+                #[crate::interrupt]
+                fn #irq() {
                     <crate::peripherals::#peri_name as crate::dma::ControllerInterrupt>::on_irq();
                 }
             }
@@ -553,9 +552,8 @@ fn main() {
             };
 
             g.extend(quote! {
-                #[no_mangle]
-                #[link_section = ".fast"]
-                unsafe extern "riscv-interrupt-m" fn #irq_ident() {
+                #[crate::interrupt]
+                fn #irq_ident() {
                     use crate::interrupt::InterruptExt;
                     crate::gpio::input_future::on_interrupt(crate::pac::GPIO0, #port_offset);
 

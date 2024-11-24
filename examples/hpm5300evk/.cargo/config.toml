@@ -4,11 +4,16 @@ target = "riscv32imafc-unknown-none-elf"
 [target.riscv32imafc-unknown-none-elf]
 # runner = 'riscv64-unknown-elf-gdb -x ../../openocd.gdb'
 runner = [
-    "probe-rs", "run",
-    "--chip", "HPM5361",
-    "--chip-description-path", "../../HPMicro.yaml",
-    "--protocol","jtag",
-    "--log-format", "{t} {L} {F}:{l} {s}",
+    "probe-rs",
+    "run",
+    "--chip",
+    "HPM5361",
+    "--chip-description-path",
+    "../../HPMicro.yaml",
+    "--protocol",
+    "jtag",
+    "--log-format",
+    "{t} {L} {F}:{l} {s}",
 ]
 
 rustflags = [
@@ -20,9 +25,9 @@ rustflags = [
     "-C",
     "link-arg=-Tmemory.x",
     "-C",
-    "link-arg=-Tdevice.x",     # __VECTORED_INTERRUPTS
+    "link-arg=-Tdevice.x", # __VECTORED_INTERRUPTS, peripheral interrupt names
     "-C",
-    "link-arg=-Tlink-fixed.x",
+    "link-arg=-Tlink.x",
     "-C",
     "link-arg=-Tdefmt.x",
     "-C",
