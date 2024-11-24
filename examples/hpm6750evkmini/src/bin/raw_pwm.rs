@@ -3,6 +3,8 @@
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
 
+use core::ptr::addr_of_mut;
+
 use assign_resources::assign_resources;
 use embassy_time::Delay;
 use embedded_hal::delay::DelayNs;
@@ -17,13 +19,14 @@ use {defmt_rtt as _, hpm_hal as hal};
 const BOARD_NAME: &str = "HPM5300EVK";
 const BANNER: &str = include_str!("../../../assets/BANNER");
 
+static mut UART: Option<hal::uart::Uart<'static, Blocking>> = None;
+
 macro_rules! println {
     ($($arg:tt)*) => {
-        let _ = writeln!(unsafe {UART.as_mut().unwrap()}, $($arg)*);
+        let uart = unsafe { (&mut *(&raw mut UART)).as_mut().unwrap()};
+        let _ = writeln!(uart , $($arg)*);
     };
 }
-
-static mut UART: Option<hal::uart::Uart<'static, Blocking>> = None;
 
 assign_resources! {
     leds: Led {

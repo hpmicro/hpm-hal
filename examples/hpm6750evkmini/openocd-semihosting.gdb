@@ -17,4 +17,4 @@ monitor arm semihosting enable
 load
 continue
 
-quit
+# quit

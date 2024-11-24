@@ -1,7 +1,27 @@
 [build]
-target = "riscv32imafc-unknown-none-elf"
+# target = "riscv32imafc-unknown-none-elf"
+target = "riscv32imafdcp-unknown-none-elf.json"
 
-[target.riscv32imafc-unknown-none-elf]
+[target.riscv32imafdcp-unknown-none-elf]
+runner = 'riscv64-unknown-elf-gdb -x ./openocd-semihosting.gdb'
+rustflags = [
+    # Linker scripts:
+    "-C",
+    "link-arg=-Tmemory.x",
+    "-C",
+    "link-arg=-Tdevice.x", # __VECTORED_INTERRUPTS
+    "-C",
+    "link-arg=-Tlink.x",
+    "-C",
+    "link-arg=-Tdefmt.x",
+    "-C",
+    "link-arg=-nmagic",
+
+    # "--emit", "obj",
+    # "--emit", "asm",
+]
+
+[target.riscv32imac-unknown-none-elf]
 # Using modified openocd.gdb
 runner = 'riscv64-unknown-elf-gdb -x ./openocd-semihosting.gdb'
 # not available
@@ -9,6 +29,8 @@ runner = 'riscv64-unknown-elf-gdb -x ./openocd-semihosting.gdb'
 
 rustflags = [
     # +zba,+zbb,+zbc,+zbs are not available
+    "-C",
+    "target-feature=+f",
     # Linker scripts:
     "-C",
     "link-arg=-Tmemory.x",

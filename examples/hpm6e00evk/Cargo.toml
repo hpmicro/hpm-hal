@@ -7,7 +7,7 @@ resolver = "2"
 [dependencies]
 hpm-hal = { path = "../../", features = ["hpm6e80", "rt", "embassy"] }
 
-panic-halt = "0.2.0"
+panic-halt = "1.0.0"
 
 defmt = "0.3.8"
 defmt-rtt = "0.4.1"
@@ -16,8 +16,8 @@ riscv = { version = "0.11.1", features = ["critical-section-single-hart"] }
 heapless = "0.8.0"
 
 embassy-time = { version = "0.3.0", features = ["tick-hz-1_000_000"] }
-embassy-executor = { version = "0.6.0", features = [
-    "nightly",
+embassy-executor = { version = "0.6.3", features = [
+    # "nightly",
     "integrated-timers",
     "arch-riscv32",
     "executor-thread",
@@ -33,21 +33,10 @@ futures-util = { version = "0.3", default-features = false }
 tinygif = "0.0.4"
 assign-resources = "0.4.1"
 embedded-hal-bus = "0.2.0"
-embassy-sync = "0.6.0"
+embassy-sync = "0.6.1"
 usbd-hid = "0.8"
 static_cell = "2"
 
-edrv-bh1750 = { path = "../../../../embedded-drivers/bh1750" }
-edrv-bme280 = { path = "../../../../embedded-drivers/bme280" }
-edrv-bmp180 = { path = "../../../../embedded-drivers/bmp180" }
-edrv-bme680 = { path = "../../../../embedded-drivers/bme680" }
-
-edrv-mpu6050 = { path = "../../../../embedded-drivers/mpu6050" }
-edrv-apds9930 = { path = "../../../../embedded-drivers/apds9930" }
-
-edrv-ltr390uv = { path = "../../../../embedded-drivers/ltr390uv" }
-
-edrv-spl06 = { path = "../../../../embedded-drivers/spl06" }
 
 [profile.release]
 strip = false   # symbols are not flashed to the microcontroller, so don't strip them.

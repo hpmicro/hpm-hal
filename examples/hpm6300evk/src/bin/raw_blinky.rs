@@ -10,7 +10,7 @@ use {defmt_rtt as _, panic_halt as _};
 
 // defmt_rtt as _,
 
-#[riscv_rt::entry]
+#[hpm_hal::entry]
 fn main() -> ! {
     pac::PCFG.dcdc_mode().modify(|w| w.set_volt(1100));
 
