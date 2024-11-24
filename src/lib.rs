@@ -57,6 +57,8 @@ pub mod usb;
 
 #[cfg(femc)]
 pub mod femc;
+//#[cfg(i2s)]
+//pub mod i2s;
 #[cfg(rtc)]
 pub mod rtc;
 
@@ -75,9 +77,7 @@ pub mod rng;
 pub mod trgm;
 
 #[cfg(feature = "rt")]
-pub mod rt;
-#[cfg(feature = "rt")]
-pub use riscv_rt::entry;
+pub use hpm_riscv_rt::{entry, interrupt, pre_init};
 
 #[cfg(feature = "embassy")]
 pub mod embassy;
@@ -131,9 +131,8 @@ macro_rules! bind_interrupts {
         $vis struct $name;
 
         $(
-            #[allow(non_snake_case)]
-            #[no_mangle]
-            unsafe extern "riscv-interrupt-m" fn $irq() {
+            #[$crate::interrupt]
+            fn $irq() {
                 use $crate::interrupt::InterruptExt;
 
                 $(

@@ -14,7 +14,7 @@ hpm-hal = { path = "../..", features = [
 
 defmt = "0.3.8"
 defmt-rtt = "0.4.1"
-panic-halt = "0.2.0"
+panic-halt = "1.0.0"
 
 riscv = { version = "0.11.1", features = ["critical-section-single-hart"] }
 
@@ -25,14 +25,14 @@ embedded-io = "0.6.1"
 embedded-hal-bus = "0.2.0"
 
 embassy-time = { version = "0.3.0", features = ["tick-hz-1_000_000"] }
-embassy-executor = { version = "0.6.0", features = [
+embassy-executor = { version = "0.6.3", features = [
     "nightly",
     "integrated-timers",
     "arch-riscv32",
     "executor-thread",
 ] }
 embassy-embedded-hal = "0.2.0"
-embassy-sync = "0.6.0"
+embassy-sync = "0.6.1"
 
 embassy-usb = { version = "0.3.0", features = [
     "defmt",
@@ -43,12 +43,17 @@ usbd-hid = "0.8"
 mcan = "0.5.0"
 
 assign-resources = "0.4.1"
-futures-util = { version = "0.3.30", default-features = false }
+futures-util = { version = "0.3.31", default-features = false }
 heapless = "0.8.0"
 micromath = "2.1.0"
 static_cell = "2"
 rand_core = "0.6.4"
 
+tinygif = "0.0.4"
+smart-leds = "0.4.0"
+ws2812-spi = "0.5.0"
+text-image = "0.2"
+microfft = "0.6.0"
 
 [profile.release]
 strip = false   # symbols are not flashed to the microcontroller, so don't strip them.

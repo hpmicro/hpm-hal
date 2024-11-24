@@ -29,13 +29,25 @@ embassy-usb = { version = "0.3.0", features = [
     "max-handler-count-8",
     "max-interface-count-8",
 ] }
-futures-util = { version = "0.3.30", default-features = false }
+futures-util = { version = "0.3", default-features = false }
 tinygif = "0.0.4"
 assign-resources = "0.4.1"
 embedded-hal-bus = "0.2.0"
 embassy-sync = "0.6.0"
 usbd-hid = "0.8"
 static_cell = "2"
+
+edrv-bh1750 = { path = "../../../../embedded-drivers/bh1750" }
+edrv-bme280 = { path = "../../../../embedded-drivers/bme280" }
+edrv-bmp180 = { path = "../../../../embedded-drivers/bmp180" }
+edrv-bme680 = { path = "../../../../embedded-drivers/bme680" }
+
+edrv-mpu6050 = { path = "../../../../embedded-drivers/mpu6050" }
+edrv-apds9930 = { path = "../../../../embedded-drivers/apds9930" }
+
+edrv-ltr390uv = { path = "../../../../embedded-drivers/ltr390uv" }
+
+edrv-spl06 = { path = "../../../../embedded-drivers/spl06" }
 
 [profile.release]
 strip = false   # symbols are not flashed to the microcontroller, so don't strip them.

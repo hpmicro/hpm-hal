@@ -9,8 +9,8 @@ use embassy_time_driver::AlarmHandle;
 use hpm_metapac::sysctl::vals;
 use hpm_metapac::{MCHTMR, SYSCTL};
 
-use crate::pac;
 use crate::sysctl::ClockConfig;
+use crate::{interrupt, pac};
 
 pub const ALARM_COUNT: usize = 1;
 
@@ -184,9 +184,7 @@ impl embassy_time_driver::Driver for MachineTimerDriver {
 }
 
 // Core local interrupts are handled in CORE_LOCAL
-#[no_mangle]
-#[link_section = ".fast"]
-#[allow(non_snake_case)]
+#[interrupt]
 fn MachineTimer() {
     DRIVER.on_interrupt();
 }

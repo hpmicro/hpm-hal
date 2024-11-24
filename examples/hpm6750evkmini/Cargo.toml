@@ -11,7 +11,7 @@ embedded-hal = "1.0.0"
 #    "hpm6750",
 #    "memory-x",
 #    "rt",
-#], git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-71a17c4971e813a2c7151de990cbe05fe9a19a70" }
+#], git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-caa8fd80439f3ac44e0701c4e6cde71a87128ee6" }
 
 hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm6750", "chrono"] }
 
@@ -21,7 +21,7 @@ riscv-rt = { version = "0.12.2", features = ["single-hart"] }
 riscv-semihosting = "0.1.0"
 embassy-time = { version = "0.3.0", features = ["tick-hz-1_000_000"] }
 embassy-executor = { version = "0.6.0", features = [
-    "nightly",
+    # "nightly",
     "integrated-timers",
     "arch-riscv32",
     "executor-thread",
