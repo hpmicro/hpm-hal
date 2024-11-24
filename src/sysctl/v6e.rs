@@ -188,7 +188,6 @@ pub(crate) unsafe fn init(config: Config) {
 
     // TODO: PLL setting
     let pll2 = output_freq_of_pll(2);
-    defmt::debug!("PLL2: {}", pll2);
 
     SYSCTL.clock(pac::clocks::CPU0).modify(|w| {
         w.set_mux(config.cpu0.src);

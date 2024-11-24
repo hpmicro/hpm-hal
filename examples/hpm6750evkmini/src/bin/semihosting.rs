@@ -5,12 +5,10 @@ use core::fmt::Write as _;
 
 use embedded_hal::delay::DelayNs;
 use hal::pac;
-// use hpm_metapac as pac,
-use hpm_hal as hal;
 use pac::gpiom::vals;
 use riscv::delay::McycleDelay;
 use riscv_semihosting::{dbg, hio};
-use {defmt_rtt as _, panic_halt as _};
+use {defmt_rtt as _, hpm_hal as hal, panic_halt as _};
 
 macro_rules! println {
     ($($arg:tt)*) => {
@@ -23,7 +21,7 @@ macro_rules! println {
 
 static mut STDOUT: Option<hio::HostStream> = None;
 
-#[riscv_rt::entry]
+#[hpm_hal::entry]
 fn main() -> ! {
     let stdout = hio::hstdout().map_err(|_| core::fmt::Error).unwrap();
     unsafe { STDOUT = Some(stdout) };

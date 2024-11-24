@@ -13,9 +13,8 @@ hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm6360"] }
 defmt = "0.3.8"
 defmt-rtt = "0.4.1"
 embedded-hal = "1.0.0"
-panic-halt = "0.2.0"
+panic-halt = "1.0.0"
 riscv = { version = "0.11.1", features = ["critical-section-single-hart"] }
-riscv-rt = { version = "0.12.2", features = ["single-hart"] }
 
 [profile.release]
 strip = false   # symbols are not flashed to the microcontroller, so don't strip them.

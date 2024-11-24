@@ -57,7 +57,7 @@ async fn main(spawner: Spawner) -> ! {
     writeln!(uart, "Hello DMA => {:08x}\r\n", hal::pac::HDMA.int_status().read().0).unwrap();
 
     uart.write(b"Hello Async World!\r\n").await.unwrap();
-    uart.write(b"Type something: ").await.unwrap();
+    uart.write(b"Type something(4 byte buf): ").await.unwrap();
 
     let mut buf = [0u8; 4];
 

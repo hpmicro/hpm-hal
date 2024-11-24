@@ -15,12 +15,11 @@ embedded-hal = "1.0.0"
 
 hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm6750", "chrono"] }
 
-panic-halt = "0.2.0"
+panic-halt = "1.0.0"
 riscv = { version = "0.11.1", features = ["critical-section-single-hart"] }
-riscv-rt = { version = "0.12.2", features = ["single-hart"] }
 riscv-semihosting = "0.1.0"
 embassy-time = { version = "0.3.0", features = ["tick-hz-1_000_000"] }
-embassy-executor = { version = "0.6.0", features = [
+embassy-executor = { version = "0.6.3", features = [
     # "nightly",
     "integrated-timers",
     "arch-riscv32",
