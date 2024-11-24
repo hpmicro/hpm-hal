@@ -37,6 +37,45 @@ variants:
           - core0
     flash_algorithms:
       - flash-algo-hpm5300
+  - name: HPM6750
+    cores:
+      - name: core0
+        type: riscv
+        core_access_options: !Riscv {}
+    memory_map:
+      - !Ram
+        name: ILM0
+        range:
+          start: 0x0
+          # 256K
+          end: 0x40000
+        cores:
+          - core0
+      - !Ram
+        name: DLM0
+        range:
+          start: 0x00080000
+          # 256K
+          end: 0x000c0000
+        cores:
+          - core0
+      - !Ram
+        name: AXI_SRAM0
+        range:
+          start: 0x01080000
+          end: 0x010FFFFF
+        cores:
+          - core0
+      - !Nvm
+        name: XPI0
+        range:
+          start: 0x80000000
+          end: 0x90000000
+        is_boot_memory: true
+        cores:
+          - core0
+    flash_algorithms:
+      - flash-algo-hpm6750
   - name: HPM6280
     cores:
       - name: core0
@@ -253,6 +292,30 @@ flash_algorithms:
       address_range:
         start: 0x80000000
         end: 0x90000000
+      page_size: 0x1000
+      erased_byte_value: 0xff
+      program_page_timeout: 1000
+      erase_sector_timeout: 2000
+      sectors:
+        - size: 0x1000
+          address: 0x0
+    cores:
+      - core0
+  - name: flash-algo-hpm6750
+    description: flash algo for HPM6750EVK
+    default: true
+    instructions: EwEB3SMmESIjJIEiIyKRIiqEtwUAAAVFfRaNRiOGpUpjddYOtxUA9AOgBYB9ViOgxYADoAWBI6jFgCOipZAKhRMGABCBRZcAAADngEApIygBECMmARA3Bfn8CQUjIKEQHUUjIqEQOUUjJKEQNwUCIIMkRfH0RNHGNwUE84qFEAKClj3l2EQ1z7cGAIChjjcFBPORRQqGNwQE8wKXMemCRCMKAQJMAEgKEwbAD5cAAADngOAVCAwMAlFGlwAAAOeAABU3BQAAIyqVOJMERTkThUQATAoTBgARlwAAAOeAIBMBRSOqhBC3BQAABUYjhsVKgyDBIgMkgSKDJEEiEwEBI4KAlwAAAOeAYA+XAAAA54DgDLcFAAADxsVKBUUBxgFFI4YFSoKAtwUAAIPFxUqFxbcFAiCDpUXxnE2Fw7cGAIA3BgAAEwZGOQMoRhGpjpFFBWdChYKHBUWCgJcAAADngOAJtwYAAAPHxkoFyy6ItwUCIIOlRfEDo4UCYwIDArKGNwYAABMGRjmDJ0YRNwcAgCmPkUU+hcKHAoMFRYKAlwAAAOeAoAU3BQAAA0XFShnNNwUCIAMlRfFcTZnLNwYAABMGRjkDJUYRkUWChwVFgoCXAAAA54CAAkERBsYixAAIlwAAAOeAgAJBEQbGIsQACJcAAADngID+QREGxiLEAAiXAAAA54CA/gGgQREGxiLEAAjBRmNv1gazBqBAE/g2ADMDBQFjfmUAwoiqhi6Hg0cHACOA9gCFBv0YBQfjmQj+s4IFATMIBkGTeMj/k/UyALMGEwGpxWN+0wSTlTIAE/6FAZPzwv8DpwMAswewQJP+hwGThUMAkEEzV8cBsxfWAV2PIyDjABEDkQUyh+Nl0/4NoKqGMwfFAGNl5QIdqGN60wCWhZBBIyDDABEDkQXja9P+s4USARN2OAAzh8YAY/rmAAPHBQAjgOYAhQZ9FoUFbfqyQCJEQQGCgEERBsYixAAIwUZjatYEswagQBP4NgAzBwUBY3nlAMKHqoYjgLYA/ReFBuX/MwYGQZN2xv+6lmN+1wAT+PUPtwcBAZOHFxCzB/gCHMMRB+Nu1/4NijOHxgBj6OYAGaiqhjMHxQBjd+UAI4C2AH0WhQZl/rJAIkRBAYKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==
+    load_address: 0x20
+    pc_init: 0x0
+    pc_uninit: 0x112
+    pc_program_page: 0x162
+    pc_erase_sector: 0x126
+    pc_erase_all: 0x1a6
+    data_section_offset: 0x48c
+    flash_properties:
+      address_range:
+        start: 0x80000000
+        end: 0x81000000
       page_size: 0x1000
       erased_byte_value: 0xff
       program_page_timeout: 1000
