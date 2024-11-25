@@ -131,8 +131,7 @@ The best reference is the examples in the `examples` directory and Github action
 #### Step 1. Prepare Rust Toolchain
 
 ```bash
-# lock to 2024-08-23 and wait for embassy-executor to be updated
-rustup default nightly-2024-08-23
+rustup default nightly
 rustup target add riscv32imafc-unknown-none-elf
 ```
 
@@ -164,8 +163,6 @@ gh repo clone hpmicro/hpm-hal
 cd examples/hpm5300evk
 cargo run --release --bin blinky
 ```
-
-> **Note**: Due to [rust-embedded/riscv#196](https://github.com/rust-embedded/riscv/issues/196), patched linker script should be used.
 
 ## License
 
