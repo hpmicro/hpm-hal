@@ -245,6 +245,7 @@ impl<T: Instance> Bus<T> {
     }
 
     /// Get port speed: 00: full speed, 01: low speed, 10: high speed, 11: undefined
+    #[allow(unused)]
     pub(crate) fn get_port_speed(&mut self) -> u8 {
         let r = T::info().regs;
 

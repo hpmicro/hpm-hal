@@ -17,13 +17,13 @@ use {defmt_rtt as _, hpm_hal as hal};
 const BOARD_NAME: &str = "HPM5300EVK";
 const BANNER: &str = include_str!("../../../assets/BANNER");
 
+static mut UART: Option<hal::uart::Uart<'static, Blocking>> = None;
+
 macro_rules! println {
     ($($arg:tt)*) => {
-        let _ = writeln!(unsafe {UART.as_mut().unwrap()}, $($arg)*);
+        let _ = writeln!(unsafe {(&mut *(&raw mut UART)).as_mut().unwrap()}, $($arg)*);
     };
 }
-
-static mut UART: Option<hal::uart::Uart<'static, Blocking>> = None;
 
 #[hal::entry]
 fn main() -> ! {

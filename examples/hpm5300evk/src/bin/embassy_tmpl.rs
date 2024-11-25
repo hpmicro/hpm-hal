@@ -31,7 +31,7 @@ async fn blink(pin: AnyPin) {
 
 macro_rules! println {
     ($($arg:tt)*) => {
-        let _ = writeln!(unsafe {UART.as_mut().unwrap()}, $($arg)*);
+        let _ = writeln!(unsafe {(&mut *(&raw mut UART)).as_mut().unwrap()}, $($arg)*);
     };
 }
 
