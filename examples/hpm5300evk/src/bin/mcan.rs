@@ -63,7 +63,7 @@ static mut LINE_INTERRUPTS: Option<OwnedInterruptSet<peripherals::MCAN3>> = None
 static mut UART: Option<hal::uart::Uart<'static, Blocking>> = None;
 macro_rules! println {
     ($($arg:tt)*) => {
-        let _ = writeln!(unsafe {UART.as_mut().unwrap()}, $($arg)*);
+        let _ = writeln!(unsafe {(&mut *(&raw mut UART)).as_mut().unwrap()}, $($arg)*);
     };
 }
 

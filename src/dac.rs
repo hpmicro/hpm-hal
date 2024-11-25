@@ -417,7 +417,7 @@ impl<'d> Dac<'d, Buffered> {
 }
 
 // - MARK: Info and State
-
+#[allow(unused)]
 struct State {
     waker: AtomicWaker,
 }
@@ -429,6 +429,7 @@ impl State {
     }
 }
 
+#[allow(unused)]
 struct Info {
     regs: crate::pac::dac::Dac,
     interrupt: interrupt::Interrupt,
