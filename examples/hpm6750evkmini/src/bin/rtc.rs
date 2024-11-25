@@ -10,9 +10,9 @@ use embassy_time::Timer;
 use embedded_io::Write as _;
 use hal::gpio::{AnyPin, Flex, Pin};
 use hal::{pac, peripherals};
+use hpm_hal as hal;
 use hpm_hal::interrupt::InterruptExt;
 use hpm_hal::mode::Blocking;
-use {defmt_rtt as _, hpm_hal as hal};
 
 const BOARD_NAME: &str = "HPM6750EVKMINI";
 

@@ -5,17 +5,16 @@
 #![feature(abi_riscv_interrupt)]
 
 use assign_resources::assign_resources;
-use defmt::println;
 use embassy_time::{Duration, Timer};
 use embedded_io::Write as _; // `writeln!` provider
 use hal::gpio::{Level, Output, Speed};
 use hal::i2c::I2c;
 use hal::mode::Blocking;
 use hal::peripherals;
+use hpm_hal as hal;
 use hpm_hal::bind_interrupts;
 use hpm_hal::gpio::Pin;
 use hpm_hal::mode::Async;
-use {defmt_rtt as _, hpm_hal as hal};
 
 const BOARD_NAME: &str = "HPM6750EVKMINI";
 const BANNER: &str = include_str!("../../../assets/BANNER");

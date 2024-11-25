@@ -36,6 +36,7 @@ embedded-hal-bus = "0.2.0"
 embassy-sync = "0.6.1"
 usbd-hid = "0.8"
 static_cell = "2"
+andes-riscv = "0.1.2"
 
 
 [profile.release]

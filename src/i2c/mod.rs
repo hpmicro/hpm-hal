@@ -164,6 +164,7 @@ impl<'d> I2c<'d, Blocking> {
             }
 
             if !sda.is_high() {
+                #[cfg(feature = "defmt")]
                 defmt::info!("SDA is low, reset bus");
             } else {
                 break;
@@ -242,6 +243,7 @@ impl<'d> I2c<'d, Async> {
             }
 
             if !sda.is_high() {
+                #[cfg(feature = "defmt")]
                 defmt::info!("SDA is low, reset bus");
             } else {
                 break;

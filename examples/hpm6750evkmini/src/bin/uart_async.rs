@@ -8,8 +8,8 @@ use embassy_executor::Spawner;
 use embassy_time::Timer;
 use embedded_io::Write as _;
 use hal::gpio::{AnyPin, Flex, Pin};
+use hpm_hal as hal;
 use hpm_hal::{bind_interrupts, peripherals};
-use {defmt_rtt as _, hpm_hal as hal};
 
 bind_interrupts!(struct Irqs {
     UART0 => hal::uart::InterruptHandler<peripherals::UART0>;

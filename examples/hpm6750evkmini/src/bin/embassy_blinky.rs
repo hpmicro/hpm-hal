@@ -8,8 +8,8 @@ use embassy_executor::Spawner;
 use embassy_time::Timer;
 use hal::gpio::{AnyPin, Pin};
 use hal::peripherals;
+use hpm_hal as hal;
 use hpm_hal::gpio::{Level, Output};
-use {defmt_rtt as _, hpm_hal as hal};
 
 assign_resources! {
     leds: Led {

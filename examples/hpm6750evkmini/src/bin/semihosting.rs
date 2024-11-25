@@ -8,7 +8,7 @@ use hal::pac;
 use pac::gpiom::vals;
 use riscv::delay::McycleDelay;
 use riscv_semihosting::{dbg, hio};
-use {defmt_rtt as _, hpm_hal as hal, panic_halt as _};
+use {hpm_hal as hal, panic_halt as _};
 
 macro_rules! println {
     ($($arg:tt)*) => {

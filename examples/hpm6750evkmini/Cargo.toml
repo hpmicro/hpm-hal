@@ -4,16 +4,27 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-defmt = "0.3.8"
-defmt-rtt = "0.4.1"
-embedded-hal = "1.0.0"
 # hpm-metapac = { features = [
 #    "hpm6750",
 #    "memory-x",
 #    "rt",
 #], git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-caa8fd80439f3ac44e0701c4e6cde71a87128ee6" }
 
-hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm6750", "chrono"] }
+# defmt is not avaliable
+# defmt = "0.3.8"
+# defmt-rtt = "0.4.1"
+# no defmt
+hpm-hal = { path = "../..", features = [
+    "rt",
+    "embassy",
+    "hpm6750",
+    "chrono",
+    "time",
+], no-default-features = true }
+
+embedded-hal = "1.0.0"
+
+
 
 panic-halt = "1.0.0"
 riscv = { version = "0.11.1", features = ["critical-section-single-hart"] }
@@ -32,12 +43,12 @@ assign-resources = "0.4.1"
 embedded-graphics = "0.8.1"
 embedded-hal-bus = { version = "0.2.0", features = ["async"] }
 embassy-usb = { version = "0.3.0", features = [
-    "defmt",
     "max-handler-count-8",
     "max-interface-count-8",
 ] }
 usbd-hid = "0.8"
 static_cell = "2"
+andes-riscv = "0.1.2"
 
 [profile.release]
 strip = false   # symbols are not flashed to the microcontroller, so don't strip them.

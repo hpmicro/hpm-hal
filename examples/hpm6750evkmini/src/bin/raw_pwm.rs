@@ -10,11 +10,11 @@ use embassy_time::Delay;
 use embedded_hal::delay::DelayNs;
 use embedded_io::Write as _;
 use hal::{pac, peripherals};
+use hpm_hal as hal;
 use hpm_hal::gpio::{Output, Pin as _};
 use hpm_hal::mode::Blocking;
 use hpm_hal::pac::pwm::vals;
 use hpm_hal::pac::{iomux, pins};
-use {defmt_rtt as _, hpm_hal as hal};
 
 const BOARD_NAME: &str = "HPM5300EVK";
 const BANNER: &str = include_str!("../../../assets/BANNER");

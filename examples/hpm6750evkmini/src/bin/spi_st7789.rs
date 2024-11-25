@@ -1,7 +1,6 @@
 #![no_main]
 #![no_std]
 
-use defmt::info;
 use embedded_graphics::image::{Image, ImageRawLE};
 use embedded_graphics::mono_font::ascii::FONT_10X20;
 use embedded_graphics::mono_font::MonoTextStyle;
@@ -22,7 +21,7 @@ use hpm_hal::mode::Blocking;
 use hpm_hal::spi::{Config, Spi};
 use hpm_hal::time::Hertz;
 use riscv::delay::McycleDelay;
-use {defmt_rtt as _, hpm_hal as hal, panic_halt as _};
+use {hpm_hal as hal, panic_halt as _};
 
 pub struct ST7789<
     Spi: SpiDevice,
@@ -257,7 +256,6 @@ fn main() -> ! {
     let p = hal::init(Default::default());
 
     let mut delay = McycleDelay::new(hal::sysctl::clocks().cpu0.0);
-    defmt::info!("Board init!");
 
     let mut rst = Output::new(p.PE25, Level::High, Speed::Fast);
 
@@ -288,7 +286,6 @@ fn main() -> ! {
         .unwrap();
     let diff = 2;
     let mut ferris = Image::new(&raw_image_data, Point::new(0, 40));
-    info!("Looping");
     loop {
         led.toggle();
         let mut clear = Rectangle::new(

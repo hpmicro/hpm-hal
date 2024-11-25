@@ -3,10 +3,22 @@ target = "riscv32imafc-unknown-none-elf"
 
 [target.riscv32imafc-unknown-none-elf]
 # runner = 'riscv64-unknown-elf-gdb -x ../../openocd.gdb'
-runner = "probe-rs run --chip HPM6360 --protocol jtag --chip-description-path ../../HPMicro.yaml"
+runner = [
+    "probe-rs",
+    "run",
+    "--chip",
+    "HPM6360",
+    "--chip-description-path",
+    "../../HPMicro.yaml",
+    "--protocol",
+    "jtag",
+    "--log-format",
+    "{t} {L} {F}:{l} {s}",
+]
 
 rustflags = [
-    # +zba,+zbb,+zbc,+zbs are not available
+    "-C",
+    "target-feature=+d,+zfh",
     # Linker scripts:
     "-C",
     "link-arg=-Tmemory.x",

@@ -3,33 +3,17 @@
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
 
-use core::fmt::Write as _;
-
 use assign_resources::assign_resources;
-use defmt::println;
 use embassy_executor::Spawner;
 use embassy_time::{Instant, Timer};
 use embedded_io::Write as _;
 use hal::gpio::{AnyPin, Flex, Pin};
 use hal::peripherals;
-use riscv_semihosting::hio;
-use {defmt_rtt as _, hpm_hal as hal};
+use hpm_hal as hal;
 
 const BOARD_NAME: &str = "HPM6750EVKMINI";
 
 const BANNER: &str = include_str!("../../../assets/BANNER");
-
-macro_rules! println {
-    ($($arg:tt)*) => {
-        {
-            if let Some(stdout) = unsafe { STDOUT.as_mut() } {
-                writeln!(stdout, $($arg)*).unwrap();
-            }
-        }
-    }
-}
-
-static mut STDOUT: Option<hio::HostStream> = None;
 
 #[embassy_executor::task(pool_size = 3)]
 async fn blink(pin: AnyPin, interval_ms: u64) {
@@ -40,7 +24,6 @@ async fn blink(pin: AnyPin, interval_ms: u64) {
     loop {
         led.toggle();
 
-        println!("tick");
         Timer::after_millis(interval_ms).await;
     }
 }
