@@ -9,9 +9,9 @@ use embedded_hal::delay::DelayNs;
 use embedded_io::Write as _;
 use hal::gpio::Pin;
 use hal::{pac, peripherals};
+use hpm_hal as hal;
 use hpm_hal::gpio::{Level, Output};
 use hpm_hal::mode::Blocking;
-use {defmt_rtt as _, hpm_hal as hal};
 
 assign_resources! {
     leds: Led {

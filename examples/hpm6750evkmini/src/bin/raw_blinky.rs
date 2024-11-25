@@ -5,8 +5,8 @@ use embedded_hal::delay::DelayNs;
 // use hpm_metapac as pac
 use hpm_hal::pac;
 use pac::gpiom::vals;
+use panic_halt as _;
 use riscv::delay::McycleDelay;
-use {defmt_rtt as _, panic_halt as _};
 
 #[hpm_hal::entry]
 fn main() -> ! {

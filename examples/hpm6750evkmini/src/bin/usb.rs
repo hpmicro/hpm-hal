@@ -4,23 +4,56 @@
 #![feature(abi_riscv_interrupt)]
 #![feature(impl_trait_in_assoc_type)]
 
-use defmt::info;
+use assign_resources::assign_resources;
 use embassy_executor::Spawner;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
+use embedded_io::Write as _;
 use futures_util::future::join;
 use hal::usb::{Instance, UsbDriver};
+use hpm_hal as hal;
+use hpm_hal::gpio::Pin;
+use hpm_hal::mode::Blocking;
 use hpm_hal::{bind_interrupts, peripherals};
-use {defmt_rtt as _, hpm_hal as hal};
 
 bind_interrupts!(struct Irqs {
     USB0 => hal::usb::InterruptHandler<peripherals::USB0>;
 });
 
+assign_resources! {
+    // FT2232 UART
+    uart: Uart0Resources {
+        tx: PY06,
+        rx: PY07,
+        uart: UART0,
+    }
+}
+
+static mut UART: Option<hal::uart::Uart<'static, Blocking>> = None;
+
+macro_rules! println {
+    ($($arg:tt)*) => {
+        {
+            if let Some(uart) = unsafe { UART.as_mut() } {
+                writeln!(uart, $($arg)*).unwrap();
+            }
+        }
+    }
+}
+
 #[embassy_executor::main(entry = "hpm_hal::entry")]
 async fn main(_spawner: Spawner) -> ! {
     let p = hal::init(Default::default());
+
+    let r = split_resources!(p);
+
+    // use IOC for power domain PY pins
+    r.uart.tx.set_as_ioc_gpio();
+    r.uart.rx.set_as_ioc_gpio();
+
+    let uart = hal::uart::Uart::new_blocking(r.uart.uart, r.uart.rx, r.uart.tx, Default::default()).unwrap();
+    unsafe { UART = Some(uart) };
 
     let usb_driver = hal::usb::UsbDriver::new(p.USB0);
 
@@ -69,9 +102,9 @@ async fn main(_spawner: Spawner) -> ! {
         let (mut sender, mut reader) = class.split();
         sender.wait_connection().await;
         reader.wait_connection().await;
-        info!("Connected");
+        // println!("Connected");
         let _ = echo(&mut reader, &mut sender).await;
-        info!("Disconnected");
+        // println!("Disconnected");
     };
 
     // Run everything concurrently.
@@ -101,7 +134,7 @@ async fn echo<'d, T: Instance + 'd>(
     loop {
         let n = reader.read_packet(&mut buf).await?;
         let data = &buf[..n];
-        info!("echo data: {:x}, len: {}", data, n);
+        // println!("echo data: {:x?}, len: {}", data, n);
         sender.write_packet(data).await?;
         // Clear bufffer
         buf = [0; 64];
@@ -110,6 +143,6 @@ async fn echo<'d, T: Instance + 'd>(
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    defmt::info!("panic: {:?}", defmt::Debug2Format(&info));
+    println!("panic: {:?}", info);
     loop {}
 }

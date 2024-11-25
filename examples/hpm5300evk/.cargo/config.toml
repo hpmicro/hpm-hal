@@ -20,7 +20,7 @@ rustflags = [
     # Target features:
     # The default for imacf is is "+m,+a,+c,+f"
     "-C",
-    "target-feature=+zba,+zbb,+zbc,+zbs",
+    "target-feature=+zba,+zbb,+zbc,+zbs,+d",
     # Linker scripts:
     "-C",
     "link-arg=-Tmemory.x",

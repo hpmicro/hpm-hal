@@ -11,13 +11,12 @@ use embassy_time::Timer;
 use embedded_io::Write as _;
 use hal::gpio::{AnyPin, Flex, Pin};
 use hal::{pac, peripherals};
+use hpm_hal as hal;
 use hpm_hal::mode::Blocking;
 use hpm_hal::pac::pwm::vals;
 use riscv_semihosting::hio;
-use {defmt_rtt as _, hpm_hal as hal};
 
 const BOARD_NAME: &str = "HPM6750EVKMINI";
-
 const BANNER: &str = include_str!("../../../assets/BANNER");
 
 macro_rules! println {

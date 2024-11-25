@@ -1,28 +1,7 @@
 [build]
-# target = "riscv32imafc-unknown-none-elf"
-target = "riscv32imafdcp-unknown-none-elf.json"
+target = "riscv32imafc-unknown-none-elf"
 
-[target.riscv32imafdcp-unknown-none-elf]
-runner = 'riscv64-unknown-elf-gdb -x ./openocd-semihosting.gdb'
-rustflags = [
-    # Linker scripts:
-    "-C",
-    "link-arg=-Tmemory.x",
-    "-C",
-    "link-arg=-Tdevice.x", # __VECTORED_INTERRUPTS
-    "-C",
-    "link-arg=-Tlink.x",
-    "-C",
-    "link-arg=-Tdefmt.x",
-    "-C",
-    "link-arg=-nmagic",
-
-    # "--emit", "obj",
-    # "--emit", "asm",
-]
-
-[target.riscv32imac-unknown-none-elf]
-# Using modified openocd.gdb
+[target.riscv32imafc-unknown-none-elf]
 runner = 'riscv64-unknown-elf-gdb -x ./openocd-semihosting.gdb'
 # not available
 # runner = "probe-rs run --chip HPM6750 --protocol jtag --chip-description-path ../../HPMicro.yaml"
@@ -30,19 +9,16 @@ runner = 'riscv64-unknown-elf-gdb -x ./openocd-semihosting.gdb'
 rustflags = [
     # +zba,+zbb,+zbc,+zbs are not available
     "-C",
-    "target-feature=+f",
+    "target-feature=+d,+zfh",
     # Linker scripts:
     "-C",
-    "link-arg=-Tmemory.x",
+    "link-arg=-Tmemory-ram.x",
     "-C",
-    "link-arg=-Tdevice.x",     # __VECTORED_INTERRUPTS
+    "link-arg=-Tdevice.x", # __VECTORED_INTERRUPTS
     "-C",
-    "link-arg=-Tlink-fixed.x",
-    "-C",
-    "link-arg=-Tdefmt.x",
+    "link-arg=-Tlink.x",
     "-C",
     "link-arg=-nmagic",
-
     # "--emit", "obj",
     # "--emit", "asm",
 ]
@@ -50,5 +26,3 @@ rustflags = [
 [unstable]
 build-std = ["core"]
 
-[env]
-DEFMT_LOG = "info"
