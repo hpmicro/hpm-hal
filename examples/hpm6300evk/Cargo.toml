@@ -9,7 +9,7 @@ edition = "2021"
 #     "memory-x",
 #     "rt",
 # ], git = "https://github.com/hpmicro-rs/hpm-metapac.git", tag = "hpm-data-caa8fd80439f3ac44e0701c4e6cde71a87128ee6" }
-hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm6360"] }
+hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm6360", "defmt"] }
 defmt = "0.3.8"
 defmt-rtt = "0.4.1"
 embedded-hal = "1.0.0"

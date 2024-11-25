@@ -1,6 +1,6 @@
 #![no_std]
 #![feature(abi_riscv_interrupt)]
-#![allow(unexpected_cfgs)]
+#![allow(unexpected_cfgs, static_mut_refs)]
 
 #[doc(hidden)]
 pub(crate) mod internal;

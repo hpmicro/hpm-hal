@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm6280"] }
+hpm-hal = { path = "../..", features = ["rt", "embassy", "hpm6280", "defmt"] }
 
 # embedded helper libraries
 defmt = "0.3.8"

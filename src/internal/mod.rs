@@ -18,6 +18,7 @@ impl Iterator for BitIter {
 }
 
 /// Numbered pin trait
+#[allow(dead_code)]
 pub trait NumberedPin {
     fn num(&self) -> u8;
 }
