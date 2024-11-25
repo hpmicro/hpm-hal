@@ -13,7 +13,7 @@ runner = [
     "--protocol",
     "jtag",
     "--log-format",
-    "{t} {L} {F}:{l} {s}",
+    "{t} {L} {fff}:{l} {s}",
 ]
 
 rustflags = [

@@ -5,7 +5,7 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-hpm-hal = { path = "../../", features = ["hpm6e80", "rt", "embassy"] }
+hpm-hal = { path = "../../", features = ["hpm6e80", "rt", "embassy", "defmt"] }
 
 panic-halt = "1.0.0"
 

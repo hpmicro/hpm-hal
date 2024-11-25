@@ -9,6 +9,7 @@ hpm-hal = { path = "../..", features = [
     "rt",
     "embassy",
     "hpm5361",
+    "defmt",
     "usb-pin-reuse-hpm5300",
 ] }
 
@@ -17,6 +18,7 @@ defmt-rtt = "0.4.1"
 panic-halt = "1.0.0"
 
 riscv = { version = "0.11.1", features = ["critical-section-single-hart"] }
+andes-riscv = "0.1.1"
 
 embedded-graphics = "0.8.1"
 embedded-hal = "1.0.0"
