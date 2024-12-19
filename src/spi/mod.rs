@@ -142,6 +142,8 @@ pub struct Config {
     pub frequency: Hertz,
     /// Timings
     pub timing: Timings,
+    /// Half duplex mode, only MOSI is used.
+    pub half_duplex: bool,
 }
 
 impl Default for Config {
@@ -151,6 +153,7 @@ impl Default for Config {
             mode: MODE_0,
             frequency: Hertz(10_000_000),
             timing: Timings::default(),
+            half_duplex: false,
         }
     }
 }
@@ -245,6 +248,36 @@ impl<'d> Spi<'d, Blocking> {
             Some(sclk.map_into()),
             Some(mosi.map_into()),
             Some(miso.map_into()),
+            None,
+            None,
+            None,
+            None,
+            config,
+        )
+    }
+
+    pub fn new_blocking_half_duplex<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        mut config: Config,
+    ) -> Self {
+        into_ref!(sclk, mosi);
+
+        T::add_resource_group(0);
+
+        mosi.set_as_alt(mosi.alt_num());
+        sclk.ioc_pad().func_ctl().modify(|w| {
+            w.set_alt_select(sclk.alt_num());
+            w.set_loop_back(true);
+        });
+        config.half_duplex = true;
+
+        Self::new_inner(
+            peri,
+            Some(sclk.map_into()),
+            Some(mosi.map_into()),
+            None,
             None,
             None,
             None,
@@ -398,6 +431,39 @@ impl<'d> Spi<'d, Async> {
             Some(sclk.map_into()),
             Some(mosi.map_into()),
             Some(miso.map_into()),
+            None,
+            None,
+            new_dma!(tx_dma),
+            new_dma!(rx_dma),
+            config,
+        )
+    }
+
+    pub fn new_half_duplex<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        sclk: impl Peripheral<P = impl SclkPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        mut config: Config,
+    ) -> Self {
+        into_ref!(sclk, mosi);
+
+        T::add_resource_group(0);
+
+        mosi.set_as_alt(mosi.alt_num());
+        sclk.ioc_pad().func_ctl().modify(|w| {
+            w.set_alt_select(sclk.alt_num());
+            w.set_loop_back(true);
+        });
+
+        config.half_duplex = true;
+
+        Self::new_inner(
+            peri,
+            Some(sclk.map_into()),
+            Some(mosi.map_into()),
+            None,
             None,
             None,
             new_dma!(tx_dma),
@@ -690,7 +756,11 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             // 32 bit data length only works when the data is 32bit aligned
             w.set_datalen(<u8 as SealedWord>::CONFIG);
             w.set_datamerge(false);
-            w.set_mosibidir(false);
+            if config.half_duplex {
+                w.set_mosibidir(true);
+            } else {
+                w.set_mosibidir(false);
+            }
             w.set_lsb(config.bit_order == BitOrder::LsbFirst);
             w.set_slvmode(false); // default master mode
             w.set_cpha(cpha);
