@@ -282,14 +282,12 @@ fn main() -> ! {
     // PA10
     let mut led = Output::new(p.PA10, Level::Low, Speed::Fast);
 
-    let spi_config = Config {
-        frequency: Hertz(40_000_000),
-        mode: MODE_0,
-        timing: Timings {
-            cs2sclk: hpm_hal::spi::Cs2Sclk::_1HalfSclk,
-            csht: hpm_hal::spi::CsHighTime::_8HalfSclk,
-        },
-        ..Default::default()
+    let mut spi_config = Config::default();
+    spi_config.frequency = Hertz(40_000_000);
+    spi_config.mode = MODE_0;
+    spi_config.timing = Timings {
+        cs2sclk: hpm_hal::spi::Cs2Sclk::_1HalfSclk,
+        csht: hpm_hal::spi::CsHighTime::_8HalfSclk,
     };
 
     let spi: hal::spi::Spi<'_, Blocking> =
