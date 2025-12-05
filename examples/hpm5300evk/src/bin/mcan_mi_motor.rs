@@ -8,13 +8,13 @@
 #![feature(impl_trait_in_assoc_type)]
 #![feature(abi_riscv_interrupt)]
 
+use core::fmt::Write;
 use core::future::poll_fn;
 use core::ptr::addr_of_mut;
 use core::task::Poll;
 
 use embassy_executor::Spawner;
 use embassy_sync::waitqueue::AtomicWaker;
-use core::fmt::Write;
 use hal::gpio::{Level, Output};
 use hal::interrupt::InterruptExt;
 use hal::mcan::Dependencies;

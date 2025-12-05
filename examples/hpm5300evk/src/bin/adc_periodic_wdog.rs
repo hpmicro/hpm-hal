@@ -13,8 +13,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Timer;
 use hal::adc::AdcChannel;
 use hal::gpio::{AnyPin, Flex};
-use hal::pac;
-use hal::Peri;
+use hal::{pac, Peri};
 use hpm_hal::interrupt::InterruptExt;
 use hpm_hal::peripherals;
 use {defmt_rtt as _, hpm_hal as hal};
@@ -65,10 +64,7 @@ pub struct AdcButton {
 }
 
 impl AdcButton {
-    pub fn new(
-        periph: hal::Peri<'static, peripherals::ADC0>,
-        pin: hal::Peri<'static, peripherals::PB15>,
-    ) -> Self {
+    pub fn new(periph: hal::Peri<'static, peripherals::ADC0>, pin: hal::Peri<'static, peripherals::PB15>) -> Self {
         let mut adc_config = hal::adc::Config::default();
         adc_config.clock_divider = hal::adc::ClockDivider::DIV4;
         let adc = hal::adc::Adc::new(periph, adc_config);

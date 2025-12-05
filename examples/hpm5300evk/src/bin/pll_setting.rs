@@ -2,6 +2,7 @@
 #![no_std]
 
 use core::fmt::Write;
+
 use embedded_hal::delay::DelayNs;
 use hal::gpio::{Level, Output, Speed};
 use hal::pac;

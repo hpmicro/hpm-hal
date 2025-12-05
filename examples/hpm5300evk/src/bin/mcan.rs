@@ -7,9 +7,10 @@
 #![feature(abi_riscv_interrupt)]
 
 // use defmt::println;
+use core::fmt::Write;
+
 use embassy_executor::Spawner;
 use embassy_time::Timer;
-use core::fmt::Write;
 use hal::gpio::{Level, Output, Pin};
 use hal::interrupt::InterruptExt;
 use hal::mcan::Dependencies;

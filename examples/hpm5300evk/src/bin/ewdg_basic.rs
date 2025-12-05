@@ -25,7 +25,7 @@ async fn main(_spawner: Spawner) -> ! {
     info!("Watchdog will be started with 2 second timeout");
 
     // Create watchdog with default config (32K external clock)
-    let mut wdg = Watchdog::new(p.WDG0, Config::default());
+    let mut wdg = Watchdog::new(p.EWDG0, Config::default());
 
     // Start watchdog with 2 second timeout
     wdg.start(Duration::from_secs(2));
@@ -54,4 +54,3 @@ async fn main(_spawner: Spawner) -> ! {
         }
     }
 }
-

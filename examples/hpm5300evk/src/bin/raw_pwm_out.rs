@@ -3,9 +3,10 @@
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
 
+use core::fmt::Write;
+
 use embassy_time::Delay;
 use embedded_hal::delay::DelayNs;
-use core::fmt::Write;
 use hal::pac;
 use hpm_hal::gpio::Output;
 use hpm_hal::mode::Blocking;

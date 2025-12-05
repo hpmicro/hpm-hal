@@ -40,4 +40,3 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     defmt::error!("panic: {}", defmt::Debug2Format(info));
     loop {}
 }
-

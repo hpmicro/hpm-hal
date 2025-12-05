@@ -9,8 +9,8 @@
 #![no_std]
 
 use embedded_hal::delay::DelayNs;
-use hal::timer::{Channel, CompareOutput, CompareOutputConfig};
 use hal::time::Hertz;
+use hal::timer::{Channel, CompareOutput, CompareOutputConfig};
 use riscv::delay::McycleDelay;
 use {defmt_rtt as _, hpm_hal as hal};
 
@@ -59,4 +59,3 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     defmt::error!("panic: {}", defmt::Debug2Format(info));
     loop {}
 }
-

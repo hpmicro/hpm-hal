@@ -15,10 +15,9 @@ use futures_util::future::join;
 use hpm_hal::gpio::{Input, Pull};
 use hpm_hal::peripherals;
 use hpm_hal::usb::EndpointState;
-use hpm_hal as hal;
 use static_cell::StaticCell;
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
-use {defmt_rtt as _};
+use {defmt_rtt as _, hpm_hal as hal};
 
 hal::bind_interrupts!(struct Irqs {
     USB0 => hal::usb::InterruptHandler<peripherals::USB0>;
@@ -106,10 +105,14 @@ async fn main(_spawner: Spawner) -> ! {
             };
             // Send the report.
             let report_bytes = [
-                report.modifier, report.reserved, 
-                report.keycodes[0], report.keycodes[1], 
-                report.keycodes[2], report.keycodes[3], 
-                report.keycodes[4], report.keycodes[5],
+                report.modifier,
+                report.reserved,
+                report.keycodes[0],
+                report.keycodes[1],
+                report.keycodes[2],
+                report.keycodes[3],
+                report.keycodes[4],
+                report.keycodes[5],
                 report.leds,
             ];
             match writer.write(&report_bytes).await {
@@ -125,10 +128,14 @@ async fn main(_spawner: Spawner) -> ! {
                 reserved: 0,
             };
             let report_bytes = [
-                report.modifier, report.reserved, 
-                report.keycodes[0], report.keycodes[1], 
-                report.keycodes[2], report.keycodes[3], 
-                report.keycodes[4], report.keycodes[5],
+                report.modifier,
+                report.reserved,
+                report.keycodes[0],
+                report.keycodes[1],
+                report.keycodes[2],
+                report.keycodes[3],
+                report.keycodes[4],
+                report.keycodes[5],
                 report.leds,
             ];
             match writer.write(&report_bytes).await {

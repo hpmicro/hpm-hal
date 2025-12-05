@@ -1,8 +1,9 @@
 #![no_main]
 #![no_std]
 
-use embedded_hal::delay::DelayNs;
 use core::fmt::Write; // for writeln! macro
+
+use embedded_hal::delay::DelayNs;
 use hpm_hal::gpio::{Level, Output, Speed};
 use hpm_hal::uart::UartTx;
 use riscv::delay::McycleDelay;

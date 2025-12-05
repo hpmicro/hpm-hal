@@ -13,9 +13,6 @@
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
 
-use hal::gpio::Output;
-use hal::pac;
-use hal::pac::{iomux, pins};
 use hal::pwm::{Channel, SimplePwm, SimplePwmConfig};
 use hal::time::Hertz;
 use {defmt_rtt as _, hpm_hal as hal, panic_halt as _};
@@ -29,15 +26,6 @@ fn main() -> ! {
     defmt::info!("PWM Simple Example");
     defmt::info!("AHB clock: {}Hz", hal::sysctl::clocks().ahb.0);
 
-    // First, set pin to GPIO output high to turn off LED (active low)
-    let _led = Output::new(p.PA23, hal::gpio::Level::High, Default::default());
-
-    // Configure pin for PWM function
-    pac::IOC
-        .pad(pins::PA23)
-        .func_ctl()
-        .modify(|w| w.set_alt_select(iomux::IOC_PA23_FUNC_CTL_PWM1_P_7));
-
     // Create PWM with 1kHz frequency
     let pwm_config = SimplePwmConfig {
         frequency: Hertz(1_000),
@@ -47,7 +35,7 @@ fn main() -> ! {
     let mut pwm = SimplePwm::new(p.PWM1, pwm_config);
 
     // Enable channel 7 (connected to PA23)
-    pwm.enable(Channel::Ch7);
+    pwm.enable_ch7(p.PA23);
 
     defmt::info!("PWM started, max_duty = {}", pwm.max_duty());
 
@@ -74,4 +62,3 @@ fn blocking_delay_ms(ms: u32) {
     let start = embassy_time::Instant::now();
     while start.elapsed().as_millis() < ms as u64 {}
 }
-

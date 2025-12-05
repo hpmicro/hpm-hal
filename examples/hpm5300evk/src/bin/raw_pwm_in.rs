@@ -5,6 +5,7 @@
 #![feature(impl_trait_in_assoc_type)]
 
 use core::fmt::Write;
+
 use defmt::println;
 use embassy_time::Timer;
 use hal::pac;

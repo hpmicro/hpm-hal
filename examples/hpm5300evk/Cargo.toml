@@ -18,8 +18,8 @@ hpm-hal = { path = "../..", features = [
     "usb-pin-reuse-hpm5300",
 ] }
 
-defmt = "0.3.8"
-defmt-rtt = "0.4.1"
+defmt = "1.0.1"
+defmt-rtt = "1.1.0"
 panic-halt = "1.0.0"
 
 riscv = { version = "0.15.0", features = ["critical-section-single-hart"] }

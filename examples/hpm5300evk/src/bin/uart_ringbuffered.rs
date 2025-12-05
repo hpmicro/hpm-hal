@@ -69,15 +69,15 @@ async fn main(spawner: Spawner) -> ! {
     let mut buf = [0u8; 128];
     let mut total_bytes = 0u32;
     let mut read_count = 0u32;
-    
+
     loop {
         defmt::info!("Waiting for data... (total={}, reads={})", total_bytes, read_count);
-        
+
         match rx.read(&mut buf).await {
             Ok(n) if n > 0 => {
                 read_count += 1;
                 total_bytes += n as u32;
-                
+
                 // Convert CR to LF for display
                 for i in 0..n {
                     if buf[i] == b'\r' {
@@ -114,4 +114,3 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 
     loop {}
 }
-

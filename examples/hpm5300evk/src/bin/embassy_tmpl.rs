@@ -4,13 +4,13 @@
 #![feature(impl_trait_in_assoc_type)]
 
 use core::fmt::Write;
+
 use defmt::println;
 use embassy_executor::Spawner;
 use embassy_time::Timer;
 use hal::gpio::{AnyPin, Flex};
-use hal::pac;
 use hal::pac::MCHTMR;
-use hal::Peri;
+use hal::{pac, Peri};
 use hpm_hal::mode::Blocking;
 use {defmt_rtt as _, hpm_hal as hal};
 
