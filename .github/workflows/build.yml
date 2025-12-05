@@ -16,6 +16,16 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board:
+          - hpm5300evk
+          - hpm6200evk
+          - hpm6300evk
+          - hpm6750evkmini
+          - hpm6e00evk
+    name: Build ${{ matrix.board }}
     steps:
       - uses: actions/checkout@v3
       - name: Use nightly Rust
@@ -23,10 +33,6 @@ jobs:
           rustup default nightly
           rustup component add rust-src
           rustup target add riscv32imafc-unknown-none-elf
-      - name: Build Only
-        run: |
-          for d in $(ls -1 ./examples); do
-            if [ -f "./examples/$d/Cargo.toml" ]; then
-              (cd ./examples/$d && cargo build --release)
-            fi
-          done
+      - name: Build
+        run: cargo build --release
+        working-directory: examples/${{ matrix.board }}
