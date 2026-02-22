@@ -1,5 +1,8 @@
 # hpm-hal
 
+> **Note:** Active development has moved to <https://github.com/hpmicro-rs/hpm-hal>.
+> Please visit the new repository for the latest code, issues, and pull requests.
+
 A Rust HAL and [Embassy](https://embassy.dev/) driver implementation for the HPMicro's RISC-V MCUs.
 The PAC(Peripheral Access Crate) is based on [hpm-data].
 
