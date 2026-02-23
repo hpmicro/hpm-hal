@@ -84,7 +84,7 @@ pub enum Error {
     /// Bus error
     Bus,
     /// Bus busy
-    BusyBusy,
+    BusBusy,
     /// Arbitration lost
     Arbitration,
     /// ACK not received (either to the address or to a data byte)
@@ -96,7 +96,7 @@ pub enum Error {
     /// Zero-length transfers are not allowed.
     ZeroLengthTransfer,
     /// Not completed
-    TrasnmitNotCompleted,
+    TransmitNotCompleted,
     /// No address hit
     NoAddrHit,
     /// Invalid argument
@@ -341,6 +341,7 @@ impl<'d> I2c<'d, Async> {
 
     async fn do_operation_inner(&mut self, addr: u8, op: &mut Operation<'_>, frame: FrameOptions) -> Result<(), Error> {
         let r = self.info.regs;
+        let timeout = self.timeout();
 
         let (size, dir) = match op {
             Operation::Read(read) => (read.len(), vals::Dir::MASTER_READ_SLAVE_WRITE),
@@ -389,6 +390,24 @@ impl<'d> I2c<'d, Async> {
 
         r.setup().modify(|w| w.set_dmaen(true));
         r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
+
+        // Wait for address hit before DMA proceeds (blocking poll, same as C SDK).
+        // addrhit arrives within a few SCL cycles (~microseconds), so brief spin is fine.
+        loop {
+            if r.status().read().addrhit() {
+                break;
+            }
+            if timeout.check().is_err() {
+                // Address miss: send STOP to release the bus.
+                r.status().write(|w| w.set_cmpl(true));
+                r.ctrl().write(|w| w.set_phase_stop(true));
+                r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
+                r.setup().modify(|w| w.set_dmaen(false));
+                drop(on_drop);
+                return Err(Error::NoAddrHit);
+            }
+        }
+        r.status().write(|w| w.set_addrhit(true));
 
         transfer.await;
 
@@ -477,19 +496,17 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_master(true);
         });
 
-        if r.status().read().linescl() == false {
-            #[cfg(feature = "defmt")]
-            defmt::info!("CLK is low, panic");
-            loop {}
+        if !r.status().read().linescl() {
+            panic!("I2C: SCL is stuck low after init");
         }
 
         #[cfg(ip_feature_i2c_support_reset)]
-        if r.status().read().linesda() == false {
+        if !r.status().read().linesda() {
             use embedded_hal::delay::DelayNs;
             use riscv::delay::McycleDelay;
 
             // SDA is low, reset bus
-            // i2s_gen_reset_signal
+            // i2c_gen_reset_signal
             // generate SCL clock as reset signal
             r.ctrl().modify(|w| {
                 w.set_reset_len(9);
@@ -548,11 +565,19 @@ impl<'d, M: Mode> I2c<'d, M> {
         });
         r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
 
-        // Before starting to transmit data, judge addrhit to ensure that the slave address exists on the bus.
-        while !r.status().read().addrhit() {
-            timeout.check()?;
+        // Wait for address hit to ensure the slave address exists on the bus.
+        loop {
+            if r.status().read().addrhit() {
+                break;
+            }
+            if timeout.check().is_err() {
+                // Address miss: send STOP to prevent the bus from staying busy.
+                r.status().write(|w| w.set_cmpl(true));
+                r.ctrl().write(|w| w.set_phase_stop(true));
+                r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
+                return Err(Error::NoAddrHit);
+            }
         }
-
         r.status().write(|w| w.set_addrhit(true));
 
         // when size is zero, it's probe slave device, so directly return success
@@ -560,43 +585,54 @@ impl<'d, M: Mode> I2c<'d, M> {
             return Ok(());
         }
 
-        match op {
-            Operation::Read(read) => {
-                for b in read.iter_mut() {
-                    loop {
-                        if !r.status().read().fifoempty() {
-                            *b = r.data().read().data();
-                            break;
-                        } else {
-                            timeout.check()?;
+        let result = (|| {
+            match op {
+                Operation::Read(read) => {
+                    for b in read.iter_mut() {
+                        loop {
+                            if !r.status().read().fifoempty() {
+                                *b = r.data().read().data();
+                                break;
+                            } else {
+                                timeout.check()?;
+                            }
+                        }
+                    }
+                }
+                Operation::Write(write) => {
+                    for b in write.iter() {
+                        loop {
+                            if !r.status().read().fifofull() {
+                                r.data().write(|w| w.set_data(*b));
+                                break;
+                            } else {
+                                timeout.check()?;
+                            }
                         }
                     }
                 }
             }
-            Operation::Write(write) => {
-                for b in write.iter() {
-                    loop {
-                        if !r.status().read().fifofull() {
-                            r.data().write(|w| w.set_data(*b));
-                            break;
-                        } else {
-                            timeout.check()?;
-                        }
-                    }
-                }
+
+            // wait completion
+            while !r.status().read().cmpl() {
+                timeout.check()?;
             }
+
+            if get_data_count(r) > 0 && size > 0 {
+                return Err(Error::TransmitNotCompleted);
+            }
+
+            Ok(())
+        })();
+
+        if result.is_err() {
+            // Abort and send STOP to release the bus on any data transfer error.
+            r.status().write(|w| w.set_cmpl(true));
+            r.ctrl().write(|w| w.set_phase_stop(true));
+            r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
         }
 
-        // wait completion
-        while !r.status().read().cmpl() {
-            timeout.check()?;
-        }
-
-        if get_data_count(r) > 0 && size > 0 {
-            return Err(Error::TrasnmitNotCompleted);
-        }
-
-        Ok(())
+        result
     }
 
     fn blocking_read_timeout(&mut self, addr: u8, read: &mut [u8], timeout: Timeout) -> Result<(), Error> {
@@ -751,13 +787,13 @@ foreach_peripheral!(
 impl embedded_hal::i2c::Error for Error {
     fn kind(&self) -> embedded_hal::i2c::ErrorKind {
         match *self {
-            Self::Bus | Error::BusyBusy | Error::NoAddrHit => embedded_hal::i2c::ErrorKind::Bus,
+            Self::Bus | Error::BusBusy | Error::NoAddrHit => embedded_hal::i2c::ErrorKind::Bus,
             Self::Arbitration => embedded_hal::i2c::ErrorKind::ArbitrationLoss,
             Self::Nack => embedded_hal::i2c::ErrorKind::NoAcknowledge(embedded_hal::i2c::NoAcknowledgeSource::Unknown),
             Self::Timeout => embedded_hal::i2c::ErrorKind::Other,
             Self::Overrun => embedded_hal::i2c::ErrorKind::Overrun,
             Self::ZeroLengthTransfer => embedded_hal::i2c::ErrorKind::Other,
-            Self::TrasnmitNotCompleted => embedded_hal::i2c::ErrorKind::Other,
+            Self::TransmitNotCompleted => embedded_hal::i2c::ErrorKind::Other,
             Self::InvalidArgument => embedded_hal::i2c::ErrorKind::Other,
         }
     }
