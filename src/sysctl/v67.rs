@@ -223,6 +223,9 @@ pub(crate) unsafe fn init(config: Config) {
     clock_add_to_group(pac::resources::LMM0, 0);
     clock_add_to_group(pac::resources::LMM1, 0);
 
+    clock_add_to_group(pac::resources::DMA0, 0); // HDMA
+    clock_add_to_group(pac::resources::DMA1, 0); // XDMA
+
     clock_add_to_group(pac::resources::GPIO, 0);
 
     clock_add_to_group(pac::resources::MBX0, 0);

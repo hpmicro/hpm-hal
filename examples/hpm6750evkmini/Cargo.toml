@@ -31,6 +31,7 @@ riscv-semihosting = "0.2.1"
 andes-riscv = "0.3"
 
 embassy-time = { version = "0.5.0", features = ["tick-hz-1_000_000"] }
+embassy-sync = "0.7"
 embassy-executor = { version = "0.9.1", features = [
     "nightly",
     "arch-riscv32",

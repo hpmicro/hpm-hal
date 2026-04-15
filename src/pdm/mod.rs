@@ -903,6 +903,10 @@ impl<'d, T: Instance> PdmDma<'d, T> {
 
         i2s.rxdslot(0).write(|w| w.set_en(config.channels.0 as u16));
 
+        // Set RX FIFO threshold for DMA request generation
+        // DMA request fires when FIFO filling >= threshold (C SDK default: 4)
+        i2s.fifo_thresh().modify(|w| w.set_rx(4));
+
         // Enable RX and RX DMA
         i2s.ctrl().modify(|w| {
             w.set_rx_en(1);
@@ -1140,6 +1144,10 @@ impl<'d, T: Instance> PdmDma<'d, T> {
         });
 
         i2s.rxdslot(0).write(|w| w.set_en(config.channels.0 as u16));
+
+        // Set RX FIFO threshold for DMA request generation
+        // DMA request fires when FIFO filling >= threshold (C SDK default: 4)
+        i2s.fifo_thresh().modify(|w| w.set_rx(4));
 
         // Enable RX and RX DMA
         i2s.ctrl().modify(|w| {
