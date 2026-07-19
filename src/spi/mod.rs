@@ -22,7 +22,7 @@ use crate::mode::{Async, Blocking, Mode as PeriMode};
 pub use crate::pac::spi::vals::{AddrLen, AddrPhaseFormat, DataPhaseFormat, TransMode};
 use crate::time::Hertz;
 
-#[cfg(any(hpm53, hpm68, hpm6e))]
+#[cfg(any(hpm53, hpm68, hpm6e, hpm5e))]
 mod consts {
     pub const TRANSFER_COUNT_MAX: usize = 0xFFFFFFFF;
     pub const FIFO_SIZE: usize = 8;

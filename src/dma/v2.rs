@@ -131,6 +131,15 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection) {
 
     interrupt::typelevel::HDMA::set_priority_with_cs(cs, interrupt::Priority::P1);
     interrupt::typelevel::HDMA::enable();
+
+    #[cfg(hpm5e)]
+    {
+        pac::XDMA.dmactrl().modify(|w| w.set_reset(true));
+        while pac::XDMA.dmactrl().read().reset() {}
+
+        interrupt::typelevel::XDMA::set_priority_with_cs(cs, interrupt::Priority::P1);
+        interrupt::typelevel::XDMA::enable();
+    }
 }
 
 impl super::ControllerInterrupt for crate::peripherals::HDMA {
@@ -141,7 +150,7 @@ impl super::ControllerInterrupt for crate::peripherals::HDMA {
     }
 }
 
-#[cfg(hpm6e)]
+#[cfg(any(hpm6e, hpm5e))]
 impl super::ControllerInterrupt for crate::peripherals::XDMA {
     unsafe fn on_irq() {
         dma_on_irq(pac::XDMA, 32);

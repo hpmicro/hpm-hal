@@ -13,7 +13,7 @@ use crate::time::Hertz;
 const AHB_SRAM: *const () = 0xf0400000 as *const ();
 #[cfg(hpm62)]
 const AHB_SRAM: *const () = 0xF0300000 as *const ();
-#[cfg(hpm6e)]
+#[cfg(any(hpm6e, hpm5e))]
 const AHB_SRAM: *const () = 0xF0200000 as *const ();
 
 /// CAN peripheral dependencies, for use with `mcan` crate.

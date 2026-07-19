@@ -93,6 +93,9 @@ mod hpm67;
 #[cfg(hpm6e)]
 mod hpm6e;
 
+#[cfg(hpm5e)]
+mod hpm5e;
+
 #[cfg(hpm63)]
 mod hpm63;
 

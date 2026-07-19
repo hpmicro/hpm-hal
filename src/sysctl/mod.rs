@@ -2,7 +2,7 @@
 #[path = "v53.rs"]
 mod sysctl_impl;
 
-#[cfg(hpm6e)]
+#[cfg(any(hpm6e, hpm5e))]
 #[path = "v6e.rs"]
 mod sysctl_impl;
 
@@ -75,7 +75,7 @@ pub fn clock_remove_from_group(resource: usize, group: usize) {
     if group == 0 {
         SYSCTL.group0(index).clear().write(|w| w.set_link(1 << offset));
     } else {
-        #[cfg(any(hpm6e, hpm67, hpm62))]
+        #[cfg(any(hpm6e, hpm5e, hpm67, hpm62))]
         SYSCTL.group1(index).clear().write(|w| w.set_link(1 << offset));
     }
 

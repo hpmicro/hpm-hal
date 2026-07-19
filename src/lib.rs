@@ -43,6 +43,7 @@ pub mod mode {
 
 // required peripherals
 pub mod dma;
+#[cfg(xpi)]
 pub mod flash;
 pub mod sysctl;
 
