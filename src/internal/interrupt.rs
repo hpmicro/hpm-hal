@@ -229,7 +229,7 @@ pub unsafe trait InterruptExt: InterruptNumber + Copy {
     fn complete(self) {
         PLIC.targetconfig(0)
             .claim()
-            .modify(|w| w.set_interrupt_id(self.number() as u16));
+            .write(|w| w.set_interrupt_id(self.number() as u16));
     }
 }
 
@@ -261,7 +261,7 @@ pub trait PlicExt {
 
     #[inline]
     fn complete(&self, id: u16) {
-        PLIC.targetconfig(0).claim().modify(|w| w.set_interrupt_id(id));
+        PLIC.targetconfig(0).claim().write(|w| w.set_interrupt_id(id));
     }
 }
 
