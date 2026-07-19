@@ -4,16 +4,15 @@
 //!
 //! ## Design
 //!
-//! GPTMR has 32-bit counters, so we use a "period" mechanism similar to STM32:
-//! - period (32-bit) + counter (32-bit) = 63-bit effective timestamp
-//! - period increments at overflow (CNT=0) and halfway (CNT=0x8000_0000)
+//! GPTMR has 32-bit counters. This driver extends the hardware counter with a
+//! software epoch advanced by the reload interrupt, so embassy-time sees a
+//! monotonic 64-bit tick source without touching 64-bit timer registers.
 //!
 //! ## Channel Assignment
 //!
 //! Only Channel 0 is used (HPM GPTMR channels have independent counters):
-//! - CMP0: halfway interrupt (period tracking)
+//! - Reload: advances the software epoch
 //! - CMP1: alarm interrupt
-//! - RLD: overflow interrupt (period tracking)
 //!
 //! ## Usage
 //!
@@ -25,7 +24,7 @@
 //! - Clock conversion: `ticks_per_tick = timer_freq / TICK_HZ`
 
 use core::cell::{Cell, RefCell};
-use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::Mutex;
@@ -33,7 +32,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
-use crate::interrupt::InterruptExt;
+use crate::interrupt::{InterruptExt, Priority};
 use crate::pac;
 use crate::pac::tmr::Tmr;
 
@@ -44,20 +43,10 @@ const GPTMR: Tmr = pac::GPTMR1;
 
 /// We only use Channel 0 since each HPM GPTMR channel has independent counter
 const CH: usize = 0;
-
-/// Halfway point for period increment
-const HALF: u32 = 0x8000_0000;
-
-// Period mechanism (adapted from STM32):
-// - `period` is a 32-bit counter of 2^31 hardware tick intervals
-// - `period` increments at overflow (CNT = 0) and halfway (CNT = HALF)
-// - When period is even, counter is in 0..HALF-1
-// - When period is odd, counter is in HALF..MAX
-//
-// Returns raw hardware ticks, needs to be divided by ticks_per_tick for embassy ticks
-fn calc_now_hw(period: u32, counter: u32) -> u64 {
-    ((period as u64) << 31) + ((counter ^ ((period & 1) << 31)) as u64)
-}
+const COUNTER_RELOAD: u32 = u32::MAX;
+const COUNTER_PERIOD_BITS: u32 = 32;
+const RELOAD_FLAG: u32 = 1 << (CH * 4);
+const CMP1_FLAG: u32 = 1 << (CH * 4 + 3);
 
 struct AlarmState {
     timestamp: Cell<u64>,
@@ -74,10 +63,10 @@ impl AlarmState {
 }
 
 pub(crate) struct GptmrDriver {
-    /// Number of 2^31 periods elapsed since boot
-    period: AtomicU32,
     /// Hardware ticks per embassy tick (timer_freq / TICK_HZ)
     ticks_per_tick: AtomicU32,
+    /// High 32 bits of the hardware tick counter.
+    epoch: AtomicU32,
     /// Alarm state
     alarm: Mutex<CriticalSectionRawMutex, AlarmState>,
     /// Timer queue
@@ -85,8 +74,8 @@ pub(crate) struct GptmrDriver {
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: GptmrDriver = GptmrDriver {
-    period: AtomicU32::new(0),
     ticks_per_tick: AtomicU32::new(1), // Will be set in init
+    epoch: AtomicU32::new(0),
     alarm: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
     queue: Mutex::const_new(CriticalSectionRawMutex::new(), RefCell::new(Queue::new())),
 });
@@ -110,8 +99,9 @@ impl GptmrDriver {
         let timer_freq = crate::sysctl::clocks().get_clock_freq(pac::clocks::TMR1);
 
         // Calculate ticks_per_tick: how many hardware ticks per embassy tick
-        let ticks_per_tick = timer_freq.0 as u64 / TICK_HZ;
+        let ticks_per_tick = (timer_freq.0 as u64 / TICK_HZ).max(1);
         self.ticks_per_tick.store(ticks_per_tick as u32, Ordering::Relaxed);
+        self.epoch.store(0, Ordering::Relaxed);
 
         // Stop and reset channel 0
         r.channel(CH).cr().write(|w| {
@@ -119,16 +109,12 @@ impl GptmrDriver {
             w.set_cmpen(false);
         });
 
-        // Configure channel 0:
-        // - Reload at max value (free-running)
-        // - CMP0 at halfway point for mid-period interrupt (period tracking)
-        // - CMP1 for alarm
-        r.channel(CH).rld().write_value(u32::MAX - 1);
-        r.channel(CH).cmp(0).write_value(HALF - 1); // halfway
-        r.channel(CH).cmp(1).write_value(u32::MAX - 1); // alarm (disabled initially)
+        // Configure channel 0 as a free-running 32-bit counter.
+        r.channel(CH).rld().write_value(COUNTER_RELOAD);
+        r.channel(CH).cmp(1).write_value(COUNTER_RELOAD); // alarm (disabled initially)
         r.channel(CH).cr().write(|w| {
             w.set_dbgpause(true);
-            w.set_cmpen(true); // CRITICAL: Enable compare function for CMP interrupts!
+            w.set_cmpen(true);
         });
 
         // Reset counter
@@ -138,13 +124,9 @@ impl GptmrDriver {
         // Clear all status flags
         r.sr().write_value(pac::tmr::regs::Sr(0xFFFF_FFFF));
 
-        // Enable interrupts:
-        // - Ch0 reload (overflow) for period tracking
-        // - Ch0 CMP0 (halfway) for period tracking
-        // - Ch0 CMP1 (alarm) - initially disabled
         r.irqen().write(|w| {
-            w.set_chrlden(CH, true);  // Overflow
-            w.set_chcmp0en(CH, true); // Halfway
+            w.set_chrlden(CH, true);
+            w.set_chcmp0en(CH, false);
             w.set_chcmp1en(CH, false); // Alarm (disabled until set)
         });
 
@@ -154,10 +136,12 @@ impl GptmrDriver {
         // Enable GPTMR interrupt in PLIC
         #[cfg(time_driver_gptmr0)]
         unsafe {
+            crate::interrupt::GPTMR0.set_priority(Priority::P1);
             crate::interrupt::GPTMR0.enable();
         }
         #[cfg(time_driver_gptmr1)]
         unsafe {
+            crate::interrupt::GPTMR1.set_priority(Priority::P1);
             crate::interrupt::GPTMR1.enable();
         }
 
@@ -169,46 +153,28 @@ impl GptmrDriver {
 
         critical_section::with(|cs| {
             let sr = r.sr().read();
+            let mut clear = 0;
+            let mut wake_queue = false;
 
-            // Clear handled flags (write 1 to clear)
-            r.sr().write_value(sr);
-
-            // Overflow (reload) - increment period
             if sr.chrldf(CH) {
-                self.next_period();
+                self.epoch.fetch_add(1, Ordering::AcqRel);
+                clear |= RELOAD_FLAG;
+                wake_queue = true;
             }
 
-            // Halfway - increment period
-            if sr.chcmp0f(CH) {
-                self.next_period();
-            }
-
-            // Alarm (CMP1)
             if sr.chcmp1f(CH) {
-                self.trigger_alarm(cs);
+                r.irqen().modify(|w| w.set_chcmp1en(CH, false));
+                clear |= CMP1_FLAG;
+                wake_queue = true;
             }
-        });
-    }
 
-    fn next_period(&self) {
-        let r = GPTMR;
-        let ticks_per_tick = self.ticks_per_tick.load(Ordering::Relaxed) as u64;
+            if clear != 0 {
+                // Clear handled flags only; other GPTMR channels may share SR.
+                r.sr().write_value(pac::tmr::regs::Sr(clear));
+            }
 
-        // Increment period (only called from interrupt, no race)
-        let period = self.period.load(Ordering::Relaxed) + 1;
-        self.period.store(period, Ordering::Relaxed);
-
-        // Current embassy time at start of new period
-        let t = ((period as u64) << 31) / ticks_per_tick;
-
-        critical_section::with(|cs| {
-            let alarm = self.alarm.borrow(cs);
-            let at = alarm.timestamp.get();
-
-            // If alarm is coming up soon (within 3/4 period), enable alarm interrupt
-            let threshold = 0xC000_0000u64 / ticks_per_tick;
-            if at < t + threshold {
-                r.irqen().modify(|w| w.set_chcmp1en(CH, true));
+            if wake_queue {
+                self.trigger_alarm(cs);
             }
         });
     }
@@ -223,31 +189,40 @@ impl GptmrDriver {
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
         let r = GPTMR;
         let ticks_per_tick = self.ticks_per_tick.load(Ordering::Relaxed) as u64;
-
         let alarm = self.alarm.borrow(cs);
         alarm.timestamp.set(timestamp);
 
+        if timestamp == u64::MAX {
+            r.irqen().modify(|w| w.set_chcmp1en(CH, false));
+            return true;
+        }
+
         let t = self.now();
         if timestamp <= t {
-            // Alarm already passed
             r.irqen().modify(|w| w.set_chcmp1en(CH, false));
             alarm.timestamp.set(u64::MAX);
             return false;
         }
 
-        // Convert embassy timestamp to hardware counter value (low 32 bits)
-        let hw_timestamp = timestamp.saturating_mul(ticks_per_tick);
-        let cmp_val = hw_timestamp as u32;
+        let hw_now = self.now_hardware_ticks();
+        let hw_timestamp = timestamp.saturating_add(1).saturating_mul(ticks_per_tick);
+        if hw_timestamp <= hw_now {
+            r.irqen().modify(|w| w.set_chcmp1en(CH, false));
+            alarm.timestamp.set(u64::MAX);
+            return false;
+        }
 
-        // Set CMP1 for alarm
-        r.channel(CH).cmp(1).write_value(cmp_val.saturating_sub(1));
+        if (hw_timestamp >> COUNTER_PERIOD_BITS) == (hw_now >> COUNTER_PERIOD_BITS) {
+            let cmp_val = encode_timer_value(hw_timestamp as u32);
+            r.channel(CH).cmp(1).write_value(cmp_val);
+            r.sr().write_value(pac::tmr::regs::Sr(CMP1_FLAG));
+            r.irqen().modify(|w| w.set_chcmp1en(CH, true));
+        } else {
+            // The reload interrupt will re-evaluate the queue when the target
+            // moves into the current 32-bit hardware window.
+            r.irqen().modify(|w| w.set_chcmp1en(CH, false));
+        }
 
-        // Enable alarm if it's coming soon (within ~3/4 of period in embassy ticks)
-        let diff = timestamp - t;
-        let threshold = 0xC000_0000u64 / ticks_per_tick;
-        r.irqen().modify(|w| w.set_chcmp1en(CH, diff < threshold));
-
-        // Re-check to handle race
         let t = self.now();
         if timestamp <= t {
             r.irqen().modify(|w| w.set_chcmp1en(CH, false));
@@ -259,24 +234,10 @@ impl GptmrDriver {
     }
 }
 
-impl GptmrDriver {
-    /// Get current time in hardware ticks
-    fn now_hw(&self) -> u64 {
-        let r = GPTMR;
-
-        let period = self.period.load(Ordering::Relaxed);
-        compiler_fence(Ordering::Acquire);
-        let counter = r.channel(CH).cnt().read();
-
-        calc_now_hw(period, counter)
-    }
-}
-
 impl Driver for GptmrDriver {
     fn now(&self) -> u64 {
         let ticks_per_tick = self.ticks_per_tick.load(Ordering::Relaxed) as u64;
-        // Convert hardware ticks to embassy ticks
-        self.now_hw() / ticks_per_tick
+        self.now_hardware_ticks() / ticks_per_tick
     }
 
     fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
@@ -290,6 +251,43 @@ impl Driver for GptmrDriver {
                 }
             }
         });
+    }
+}
+
+impl GptmrDriver {
+    fn now_hardware_ticks(&self) -> u64 {
+        loop {
+            let epoch_before = self.epoch.load(Ordering::Acquire);
+            let cnt_before_reload = GPTMR.channel(CH).cnt().read();
+            let sr = GPTMR.sr().read();
+            // If reload happened between the counter and status reads, the
+            // first counter belongs to the previous epoch. Sample it again
+            // after observing the pending reload flag.
+            let cnt = if sr.chrldf(CH) {
+                GPTMR.channel(CH).cnt().read()
+            } else {
+                cnt_before_reload
+            };
+            let epoch_after = self.epoch.load(Ordering::Acquire);
+
+            if epoch_before == epoch_after {
+                let mut epoch = epoch_after as u64;
+                if sr.chrldf(CH) {
+                    epoch = epoch.wrapping_add(1);
+                }
+
+                return (epoch << COUNTER_PERIOD_BITS) | cnt as u64;
+            }
+        }
+    }
+}
+
+#[inline(always)]
+fn encode_timer_value(value: u32) -> u32 {
+    if value > 0 && value != u32::MAX {
+        value - 1
+    } else {
+        value
     }
 }
 

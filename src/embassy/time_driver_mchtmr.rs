@@ -1,6 +1,7 @@
 //! Embassy time driver using machine timer(mchtmr)
 
 use core::cell::{Cell, RefCell};
+use core::ptr::{read_volatile, write_volatile};
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use critical_section::CriticalSection;
@@ -60,8 +61,9 @@ impl MachineTimerDriver {
 
         self.period.store(cnt_per_tick as u32, Ordering::Relaxed);
 
-        // Ensure MCHTMR will not be clock gated on WFI
-        // Note: WAIT mode can also be used for low-power operation
+        keep_mchtmr_running_in_wfi();
+
+        // Keep CPU and MCHTMR clocks running while the Embassy thread executor is in WFI.
         SYSCTL.cpu(0).lp().modify(|w| w.set_mode(vals::LpMode::RUN));
 
         // Enable wake up from all interrupts (128 bits = 4 * 32)
@@ -77,7 +79,7 @@ impl MachineTimerDriver {
             SYSCTL.cpu(0).wakeup_enable(7).write(|w| w.set_enable(0xFFFFFFFF));
         }
 
-        MCHTMR.mtimecmp().write_value(u64::MAX - 1);
+        mchtmr_write_mtimecmp(u64::MAX - 1);
 
         // Enable global machine mode interrupts
         unsafe {
@@ -101,6 +103,14 @@ impl MachineTimerDriver {
         let alarm = self.alarm.borrow(cs);
         alarm.timestamp.set(timestamp);
 
+        if timestamp == u64::MAX {
+            alarm.timestamp.set(u64::MAX);
+            unsafe {
+                riscv::register::mie::clear_mtimer();
+            }
+            return true;
+        }
+
         let now = self.now();
         if timestamp <= now {
             alarm.timestamp.set(u64::MAX);
@@ -109,13 +119,9 @@ impl MachineTimerDriver {
 
         // Convert embassy timestamp to hardware timestamp
         let period = self.period.load(Ordering::Relaxed) as u64;
-        let hardware_timestamp = timestamp
-            .saturating_add(1) // Ensure alarm doesn't trigger immediately
-            .overflowing_mul(period) // Handle multiplication overflow
-            .0;
+        let hardware_timestamp = timestamp.saturating_add(1).saturating_mul(period);
 
-        // Set MCHTMR comparison register
-        MCHTMR.mtimecmp().write_value(hardware_timestamp);
+        mchtmr_write_mtimecmp(hardware_timestamp);
 
         // Enable machine timer interrupt
         unsafe {
@@ -140,8 +146,7 @@ impl MachineTimerDriver {
 
 impl embassy_time_driver::Driver for MachineTimerDriver {
     fn now(&self) -> u64 {
-        // Read 64-bit MCHTMR counter directly, no overflow handling needed
-        MCHTMR.mtime().read() / self.period.load(Ordering::Relaxed) as u64
+        mchtmr_read_mtime() / self.period.load(Ordering::Relaxed) as u64
     }
 
     fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
@@ -172,4 +177,42 @@ extern "C" fn MachineTimer() {
 
 pub(crate) fn init() {
     DRIVER.init();
+}
+
+fn keep_mchtmr_running_in_wfi() {
+    SYSCTL.resource(pac::resources::CLK_TOP_MCT0).modify(|w| w.set_mode(1));
+    SYSCTL.resource(pac::resources::MCT0).modify(|w| w.set_mode(1));
+}
+
+#[inline(always)]
+fn mchtmr_regs() -> *mut u32 {
+    MCHTMR.as_ptr() as *mut u32
+}
+
+#[inline(always)]
+fn mchtmr_read_mtime() -> u64 {
+    let regs = mchtmr_regs() as *const u32;
+
+    loop {
+        let hi_before = unsafe { read_volatile(regs.add(1)) };
+        let lo = unsafe { read_volatile(regs.add(0)) };
+        let hi_after = unsafe { read_volatile(regs.add(1)) };
+
+        if hi_before == hi_after {
+            return ((hi_after as u64) << 32) | lo as u64;
+        }
+    }
+}
+
+#[inline(always)]
+fn mchtmr_write_mtimecmp(value: u64) {
+    let regs = mchtmr_regs();
+    let lo = value as u32;
+    let hi = (value >> 32) as u32;
+
+    unsafe {
+        write_volatile(regs.add(3), u32::MAX);
+        write_volatile(regs.add(2), lo);
+        write_volatile(regs.add(3), hi);
+    }
 }
