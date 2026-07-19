@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use bus::Bus;
 use control_pipe::ControlPipe;
@@ -11,7 +11,7 @@ use endpoint::{Endpoint, EpConfig};
 use hpm_metapac::usb::regs::Usbsts;
 use riscv::delay::McycleDelay;
 use types::{Qhd, Qtd};
-#[cfg(any(hpm53, hpm68, hpm6e))]
+#[cfg(any(hpm53, hpm68, hpm6e, hpm5e))]
 use types_v53 as types;
 #[cfg(any(hpm67, hpm63, hpm62))]
 use types_v62 as types;
@@ -32,12 +32,19 @@ pub struct Config {
     /// When `true`, the USB controller will be forced to Full-Speed mode
     /// by setting PORTSC1.PFSC bit.
     pub force_full_speed: bool,
+
+    /// Use the PHY internal VBUS/session-valid override.
+    ///
+    /// Enable this for boards where the USB VBUS signal is not wired to the
+    /// controller's VBUS sense input.
+    pub use_internal_vbus: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             force_full_speed: false,
+            use_internal_vbus: false,
         }
     }
 }
@@ -52,7 +59,7 @@ impl Default for Config {
 #[cfg(not(hpm67))]
 pub(crate) fn local_to_sys_address(addr: u32) -> u32 {
     // Single-core chips: identity function
-    // HPM5300, HPM6200, HPM6300, HPM6800, HPM6E00
+    // HPM5300, HPM6200, HPM6300, HPM6800, HPM6E00, HPM5E00
     addr
 }
 
@@ -97,7 +104,7 @@ mod bus;
 mod control_pipe;
 mod endpoint;
 mod state;
-#[cfg(any(hpm53, hpm68, hpm6e))]
+#[cfg(any(hpm53, hpm68, hpm6e, hpm5e))]
 mod types_v53;
 #[cfg(any(hpm67, hpm63, hpm62))]
 mod types_v62;
@@ -108,26 +115,13 @@ static IRQ_RESET: AtomicBool = AtomicBool::new(false);
 static IRQ_SUSPEND: AtomicBool = AtomicBool::new(false);
 static IRQ_VBUS_CHANGE: AtomicBool = AtomicBool::new(false);
 
-/// Global pointer to the active EndpointState.
-/// Set by UsbDriver::new(), accessed by Endpoint transfer operations.
-/// Safety: Protected by EndpointState's runtime singleton check.
-static ACTIVE_EP_STATE: AtomicPtr<()> = AtomicPtr::new(core::ptr::null_mut());
-
-/// Get the active EndpointState for transfer operations.
-///
-/// # Safety
-/// Caller must ensure that a USB driver has been created and the EndpointState is valid.
-/// This is guaranteed by the driver lifecycle management.
-#[inline]
-pub(crate) unsafe fn get_active_ep_state() -> &'static EndpointState {
-    let ptr = ACTIVE_EP_STATE.load(Ordering::Acquire);
-    debug_assert!(!ptr.is_null(), "No active EndpointState");
-    &*(ptr as *const EndpointState)
-}
-
 const AW_NEW: AtomicWaker = AtomicWaker::new();
 static EP_IN_WAKERS: [AtomicWaker; ENDPOINT_COUNT] = [AW_NEW; ENDPOINT_COUNT];
 static EP_OUT_WAKERS: [AtomicWaker; ENDPOINT_COUNT] = [AW_NEW; ENDPOINT_COUNT];
+static EP_IN_COMPLETE: AtomicU32 = AtomicU32::new(0);
+static EP_OUT_COMPLETE: AtomicU32 = AtomicU32::new(0);
+static EP_IN_GENERATION: [AtomicU32; ENDPOINT_COUNT] = [const { AtomicU32::new(0) }; ENDPOINT_COUNT];
+static EP_OUT_GENERATION: [AtomicU32; ENDPOINT_COUNT] = [const { AtomicU32::new(0) }; ENDPOINT_COUNT];
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 
 #[cfg(usb_v67)]
@@ -141,7 +135,7 @@ pub(crate) const QHD_ITEM_SIZE: usize = 64;
 pub(crate) const QTD_ITEM_SIZE: usize = 32;
 
 impl Qhd {
-    pub(crate) fn reset(&mut self) {
+    pub(crate) fn reset(self) {
         self.cap().write(|w| w.0 = 0);
         self.cur_dtd().write(|w| w.0 = 0);
         self.next_dtd().write(|w| w.0 = 0);
@@ -175,13 +169,13 @@ pub(crate) unsafe fn reset_dcd_data(ep_state: &EndpointState, ep0_max_packet_siz
     }
 
     // Set qhd for EP0(qhd0&1)
-    qhd_list.qhd(0).cap().modify(|w| {
+    qhd_list.qhd(0).cap().write(|w| {
         w.set_max_packet_size(ep0_max_packet_size);
         w.set_zero_length_termination(true);
         // IOS is set for control OUT endpoint
         w.set_ios(true);
     });
-    qhd_list.qhd(1).cap().modify(|w| {
+    qhd_list.qhd(1).cap().write(|w| {
         w.set_max_packet_size(ep0_max_packet_size);
         w.set_zero_length_termination(true);
     });
@@ -189,6 +183,8 @@ pub(crate) unsafe fn reset_dcd_data(ep_state: &EndpointState, ep0_max_packet_siz
     // Set the next pointer INVALID(T=1)
     qhd_list.qhd(0).next_dtd().write(|w| w.set_t(true));
     qhd_list.qhd(1).next_dtd().write(|w| w.set_t(true));
+
+    core::arch::asm!("fence iorw, iorw", options(nostack, preserves_flags));
 }
 
 pub(crate) unsafe fn init_qhd(ep_state: &EndpointState, ep_config: &EpConfig) {
@@ -200,7 +196,7 @@ pub(crate) unsafe fn init_qhd(ep_state: &EndpointState, ep_config: &EpConfig) {
     // Prepare queue head
     qhd_list.qhd(ep_idx).reset();
 
-    qhd_list.qhd(ep_idx).cap().modify(|w| {
+    qhd_list.qhd(ep_idx).cap().write(|w| {
         w.set_max_packet_size(ep_config.max_packet_size & 0x7FF);
         w.set_zero_length_termination(true);
         if ep_config.transfer == EndpointType::Isochronous as u8 {
@@ -211,11 +207,11 @@ pub(crate) unsafe fn init_qhd(ep_state: &EndpointState, ep_config: &EpConfig) {
         }
     });
 
-    qhd_list.qhd(ep_idx).next_dtd().modify(|w| w.set_t(true));
+    qhd_list.qhd(ep_idx).next_dtd().write(|w| w.set_t(true));
 }
 
 impl Qtd {
-    pub(crate) fn reset(&mut self) {
+    pub(crate) fn reset(self) {
         self.current_offset().write(|w| w.0 = 0);
         self.next_dtd().write(|w| w.0 = 0);
         self.qtd_token().write(|w| w.0 = 0);
@@ -225,17 +221,19 @@ impl Qtd {
         self.expected_bytes().write(|w| w.0 = 0);
     }
 
-    pub(crate) fn reinit_with(&mut self, data: &[u8], transfer_bytes: usize) {
-        // Initialize qtd
-        self.reset();
-
-        self.qtd_token().modify(|w| {
+    pub(crate) fn reinit_with(self, data: &[u8], transfer_bytes: usize, int_on_complete: bool) {
+        // AXI SRAM's non-cacheable PMA is buffered. Build each hardware word
+        // with one full volatile write so descriptor initialization never
+        // depends on read-after-write visibility through that buffer.
+        self.next_dtd().write(|w| w.set_t(true));
+        self.qtd_token().write(|w| {
             w.set_total_bytes(transfer_bytes as u16);
             w.set_active(true);
+            w.set_ioc(int_on_complete);
         });
 
         self.expected_bytes()
-            .modify(|w| w.set_expected_bytes(transfer_bytes as u16));
+            .write(|w| w.set_expected_bytes(transfer_bytes as u16));
 
         // According to the UM, buffer[0] is the start address of the transfer data.
         // Buffer[0] has two parts: buffer[0] & 0xFFFFF000 is the address, and buffer[0] & 0x00000FFF is the offset.
@@ -250,29 +248,23 @@ impl Qtd {
             "Buffer must be 4K aligned for transfers >4K"
         );
 
-        if transfer_bytes < 0x4000 {
-            self.next_dtd().modify(|w| w.set_t(true));
-        }
-
         if transfer_bytes == 0 {
-            self.buffer(0).modify(|w| w.0 = 0);
-            self.current_offset().modify(|w| w.0 = 0);
+            for i in 0..QHD_BUFFER_COUNT {
+                self.buffer(i).write(|w| w.0 = 0);
+            }
             return;
         }
 
         // Convert buffer address to system address for DMA access
         // Reference: HPMicro C SDK uses core_local_mem_to_sys_address() for buffer
         let sys_addr = local_to_sys_address(data.as_ptr() as u32);
-
-        // Fill data into qtd
-        self.buffer(0).modify(|w| w.set_buffer((sys_addr & 0xFFFFF000) >> 12));
-        self.current_offset()
-            .modify(|w| w.set_current_offset((sys_addr & 0x00000FFF) as u16));
-
+        // Word 2 contains both the first page pointer and current offset. The
+        // C SDK assigns the complete pointer in one store; mirror that exactly.
+        self.buffer(0).write(|w| w.0 = sys_addr);
+        let first_page = sys_addr & 0xFFFFF000;
         for i in 1..QHD_BUFFER_COUNT {
-            // Fill address of next 4K bytes, note the addr is already shifted, so we just +1
-            let addr = self.buffer(i - 1).read().buffer();
-            self.buffer(i).modify(|w| w.set_buffer(addr + 1));
+            self.buffer(i)
+                .write(|w| w.0 = first_page.wrapping_add((i as u32) * 0x1000));
         }
     }
 }
@@ -343,14 +335,28 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
             "EndpointState is already in use by another USB driver"
         );
 
-        // Store the active ep_state pointer for Endpoint access
-        ACTIVE_EP_STATE.store(ep_state as *const _ as *mut (), Ordering::Release);
-
+        T::Interrupt::set_priority(crate::interrupt::Priority::P1);
         unsafe { T::Interrupt::enable() };
 
         T::add_resource_group(0);
 
         let r = T::info().regs;
+
+        // A CPU reset does not guarantee that the USB controller and host see
+        // a detach. Stop the previous device session before the startup delay
+        // so the host observes a complete disconnect/reconnect cycle.
+        r.usbintr().write(|w| w.0 = 0);
+        r.usbcmd().modify(|w| w.set_rs(false));
+        r.usbcmd().modify(|w| w.set_rst(true));
+        while r.usbcmd().read().rst() {}
+        r.phy_ctrl1().modify(|w| {
+            w.set_utmi_cfg_rst_n(false);
+            w.set_utmi_otg_suspendm(false);
+        });
+        r.otg_ctrl0().modify(|w| {
+            w.set_otg_utmi_reset_sw(true);
+            w.set_otg_utmi_suspendm_sw(false);
+        });
 
         // Disable dp/dm pulldown
         r.phy_ctrl0().modify(|w| w.0 |= 0x001000E0);
@@ -367,11 +373,20 @@ impl<'d, T: Instance> UsbDriver<'d, T> {
         // Set power control polarity, aka vbus high level enable
         r.otg_ctrl0().modify(|w| w.set_otg_power_mask(true));
 
-        // Wait for 100ms
+        // Keep the device detached for longer than the USB disconnect debounce
+        // interval before the bus is initialized and connected again.
         let mut delay = McycleDelay::new(sysctl::clocks().cpu0.0);
         delay.delay_ms(100);
 
-        // Enable internal vbus when reuse pins
+        if config.use_internal_vbus {
+            r.phy_ctrl0().modify(|w| {
+                w.set_vbus_valid_override(true);
+                w.set_sess_valid_override(true);
+                w.set_vbus_valid_override_en(true);
+                w.set_sess_valid_override_en(true);
+            });
+        }
+
         #[cfg(feature = "usb-pin-reuse-hpm5300")]
         r.phy_ctrl0().modify(|w| {
             w.set_vbus_valid_override(true);
@@ -462,6 +477,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         Ok(Endpoint {
             _phantom: PhantomData,
             info: ep,
+            ep_state: self.ep_state,
         })
     }
 
@@ -506,6 +522,7 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
         Ok(Endpoint {
             _phantom: PhantomData,
             info: ep,
+            ep_state: self.ep_state,
         })
     }
 
@@ -552,6 +569,8 @@ impl<'a, T: Instance> Driver<'a> for UsbDriver<'a, T> {
             _phantom: PhantomData,
             endpoints_in,
             endpoints_out,
+            endpoints_enabled_in: [false; ENDPOINT_COUNT],
+            endpoints_enabled_out: [false; ENDPOINT_COUNT],
             delay: McycleDelay::new(sysctl::clocks().cpu0.0),
             inited: false,
             config: self.config,
@@ -625,92 +644,84 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Interru
 /// USB interrupt handler
 pub unsafe fn on_interrupt<T: Instance>() {
     let r = T::info().regs;
-
-    // Get triggered interrupts
     let status = r.usbsts().read();
     let enabled_interrupts = r.usbintr().read();
 
-    // Clear triggered interrupts status bits
-    let triggered_interrupts = status.0 & enabled_interrupts.0;
+    // USBSTS is W1C. Acknowledge every enabled cause at ISR entry, matching
+    // the HPM SDK and CherryUSB controller ports.
+    let status = Usbsts(status.0 & enabled_interrupts.0);
+    r.usbsts().write_value(status);
+    let _ = r.usbsts().read();
 
-    let status = Usbsts(triggered_interrupts);
-    r.usbsts().modify(|w| w.0 = w.0);
-
-    // Disabled interrupt sources
     if status.0 == 0 {
         return;
     }
 
-    // Reset event
     if status.uri() {
-        // Set IRQ_RESET signal
-        IRQ_RESET.store(true, Ordering::Relaxed);
+        IRQ_RESET.store(true, Ordering::Release);
+        EP_IN_COMPLETE.store(0, Ordering::Release);
+        EP_OUT_COMPLETE.store(0, Ordering::Release);
 
-        // Disable USB reset interrupt while processing RESET event
+        // The bus future rebuilds EP0, then restores the full interrupt mask.
         r.usbintr().modify(|w| w.set_ure(false));
-
-        // Wake USB bus. Then the reset event will be processed in Bus::poll()
         BUS_WAKER.wake();
+
+        // A bus reset invalidates every endpoint generation. Match the HPM
+        // SDK ISR and let Bus::poll rebuild EP0 before consuming any transfer
+        // state from this interrupt snapshot.
+        return;
     }
 
-    // Suspend event
     if status.sli() {
-        // Set IRQ_SUSPEND signal
-        IRQ_SUSPEND.store(true, Ordering::Relaxed);
-
-        // Wake USB bus. Then the suspend event will be processed in Bus::poll()
+        IRQ_SUSPEND.store(true, Ordering::Release);
         BUS_WAKER.wake();
     }
 
-    // Port change event
     if status.pci() {
         if r.portsc1().read().ccs() {
-            // Connected
             r.usbintr().modify(|w| w.set_pce(false));
-            // Wake USB bus. Then the event will be processed in Bus::poll()
             BUS_WAKER.wake();
-        } else {
-            // Disconnected
         }
     }
 
-    // Transfer complete event
     if status.ui() {
-        // Disable USB transfer interrupt
-        r.usbintr().modify(|w| w.set_ue(false));
-
-        // If it's a setup packet, wake the EP OUT 0
         if r.endptsetupstat().read().endptsetupstat() > 0 {
+            // Keep UE enabled: a new SETUP can arrive while the control pipe
+            // is waiting on either EP0 direction, and unrelated bulk endpoint
+            // completions must remain observable during that interval.
             EP_OUT_WAKERS[0].wake();
         }
 
-        // Transfer completed
-        if r.endptcomplete().read().0 > 0 {
+        // ENDPTCOMPLETE is W1C. The ISR owns the hardware completion register;
+        // endpoint futures consume the corresponding software completion bits.
+        let complete = r.endptcomplete().read();
+        if complete.0 != 0 {
+            r.endptcomplete().write_value(complete);
+            let _ = r.endptcomplete().read();
+
+            let out_complete = complete.erce() as u32;
+            let in_complete = complete.etce() as u32;
+            EP_OUT_COMPLETE.fetch_or(out_complete, Ordering::Release);
+            EP_IN_COMPLETE.fetch_or(in_complete, Ordering::Release);
+
             for i in 0..ENDPOINT_COUNT {
-                if r.endptcomplete().read().erce() & (1 << i) > 0 {
-                    // Wake OUT endpoint
+                if out_complete & (1 << i) != 0 {
                     EP_OUT_WAKERS[i].wake();
                 }
-                if r.endptcomplete().read().etce() & (1 << i) > 0 {
-                    // Wake IN endpoint
+                if in_complete & (1 << i) != 0 {
                     EP_IN_WAKERS[i].wake();
                 }
             }
         }
-        // Re-enable USB transfer interrupt
-        r.usbintr().modify(|w| w.set_ue(true));
     }
 
-    // VBUS change detection (OTGSC register, independent of USBSTS)
+    // OTGSC carries VBUS/session changes independently from USBSTS.
     let otgsc = r.otgsc().read();
     if otgsc.asvis() {
-        // Clear A Session Valid Interrupt Status (write 1 to clear)
         r.otgsc().modify(|w| w.set_asvis(true));
-        // Signal VBUS change
-        IRQ_VBUS_CHANGE.store(true, Ordering::Relaxed);
+        IRQ_VBUS_CHANGE.store(true, Ordering::Release);
         BUS_WAKER.wake();
     }
 }
-
 pin_trait!(DmPin, Instance);
 pin_trait!(DpPin, Instance);

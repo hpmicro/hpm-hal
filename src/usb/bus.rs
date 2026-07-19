@@ -8,7 +8,10 @@ use embedded_hal::delay::DelayNs;
 use hpm_metapac::usb::regs::*;
 use riscv::delay::McycleDelay;
 
-use super::{ENDPOINT_COUNT, EP_IN_WAKERS, EP_OUT_WAKERS, EndpointState, Instance, init_qhd, local_to_sys_address};
+use super::{
+    ENDPOINT_COUNT, EP_IN_COMPLETE, EP_IN_GENERATION, EP_IN_WAKERS, EP_OUT_COMPLETE, EP_OUT_GENERATION, EP_OUT_WAKERS,
+    EndpointState, Instance, init_qhd, local_to_sys_address,
+};
 use crate::usb::{BUS_WAKER, Config, EpConfig, IRQ_RESET, IRQ_SUSPEND, IRQ_VBUS_CHANGE, reset_dcd_data};
 
 /// USB bus
@@ -16,6 +19,8 @@ pub struct Bus<'d, T: Instance> {
     pub(crate) _phantom: PhantomData<&'d T>,
     pub(crate) endpoints_out: [EndpointInfo; ENDPOINT_COUNT],
     pub(crate) endpoints_in: [EndpointInfo; ENDPOINT_COUNT],
+    pub(crate) endpoints_enabled_out: [bool; ENDPOINT_COUNT],
+    pub(crate) endpoints_enabled_in: [bool; ENDPOINT_COUNT],
     pub(crate) delay: McycleDelay,
     pub(crate) inited: bool,
     pub(crate) config: Config,
@@ -37,7 +42,7 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<'_, T> {
             r.endptlistaddr().modify(|w| w.0 = qhd_addr);
 
             // Clear status
-            r.usbsts().modify(|w| w.0 = w.0);
+            r.usbsts().write_value(r.usbsts().read());
 
             // Enable interrupt mask
             r.usbintr().write(|w| {
@@ -45,6 +50,7 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<'_, T> {
                 w.set_uee(true);
                 w.set_pce(true);
                 w.set_ure(true);
+                w.set_sle(true);
             });
 
             // Enable VBUS change interrupt (A Session Valid Interrupt Enable)
@@ -53,7 +59,6 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<'_, T> {
                 w.set_asvie(true); // Enable interrupt
             });
         }
-
         // Start to run usb device
         self.device_connect();
     }
@@ -75,6 +80,9 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<'_, T> {
             // Initial VBUS detection
             if !self.inited {
                 self.inited = true;
+                if self.config.use_internal_vbus {
+                    return Poll::Ready(Event::PowerDetected);
+                }
                 // Check current VBUS state via OTGSC.ASV (A Session Valid)
                 if r.otgsc().read().asv() {
                     return Poll::Ready(Event::PowerDetected);
@@ -86,6 +94,9 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<'_, T> {
             // VBUS change event
             if IRQ_VBUS_CHANGE.load(Ordering::Acquire) {
                 IRQ_VBUS_CHANGE.store(false, Ordering::Relaxed);
+                if self.config.use_internal_vbus {
+                    return Poll::Ready(Event::PowerDetected);
+                }
                 // Check current VBUS state
                 if r.otgsc().read().asv() {
                     return Poll::Ready(Event::PowerDetected);
@@ -97,16 +108,18 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<'_, T> {
             // RESET event
             if IRQ_RESET.load(Ordering::Acquire) {
                 IRQ_RESET.store(false, Ordering::Relaxed);
-
-                // Disable all endpoints except ep0
-                for i in 1..ENDPOINT_COUNT {
-                    self.endpoint_close(EndpointAddress::from_parts(i, Direction::In));
-                    self.endpoint_close(EndpointAddress::from_parts(i, Direction::Out));
+                let intr = r.usbintr().read().0 & !0x40;
+                r.usbintr().write(|w| w.0 = intr);
+                // Reset bus and DCD data before reopening EP0.
+                self.endpoints_enabled_in.fill(false);
+                self.endpoints_enabled_out.fill(false);
+                for generation in &EP_IN_GENERATION {
+                    generation.fetch_add(1, Ordering::AcqRel);
                 }
-
-                // Set device addr to 0
-                self.device_set_address(0);
-
+                for generation in &EP_OUT_GENERATION {
+                    generation.fetch_add(1, Ordering::AcqRel);
+                }
+                self.device_bus_reset(64);
                 // Set ep0 IN/OUT
                 self.endpoint_open(EpConfig {
                     transfer: EndpointType::Control as u8,
@@ -118,20 +131,20 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<'_, T> {
                     ep_addr: EndpointAddress::from_parts(0, Direction::Out),
                     max_packet_size: 64,
                 });
-
+                // Restore the device interrupt set after EP0 has been rebuilt.
+                r.usbintr().write(|w| {
+                    w.set_ue(true);
+                    w.set_uee(true);
+                    w.set_pce(true);
+                    w.set_ure(true);
+                    w.set_sle(true);
+                });
                 for w in &EP_IN_WAKERS {
                     w.wake()
                 }
                 for w in &EP_OUT_WAKERS {
                     w.wake()
                 }
-
-                // Reset bus
-                self.device_bus_reset(64);
-
-                // Enable usb transfer interrupt
-                r.usbintr().modify(|w| w.set_ue(true));
-                r.usbintr().modify(|w| w.set_ure(false));
 
                 return Poll::Ready(Event::Reset);
             }
@@ -153,7 +166,25 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<'_, T> {
 
     /// Enable or disable an endpoint.
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+        let was_enabled = if ep_addr.is_in() {
+            self.endpoints_enabled_in[ep_addr.index()]
+        } else {
+            self.endpoints_enabled_out[ep_addr.index()]
+        };
+
+        let generation = if ep_addr.is_in() {
+            &EP_IN_GENERATION[ep_addr.index()]
+        } else {
+            &EP_OUT_GENERATION[ep_addr.index()]
+        };
+        generation.fetch_add(1, Ordering::AcqRel);
+
         if enabled {
+            // Re-selecting a configuration or alternate setting resets the
+            // endpoint data toggle and cancels its previous transfer.
+            if was_enabled {
+                self.endpoint_close(ep_addr);
+            }
             let endpoint_list = if ep_addr.direction() == Direction::In {
                 self.endpoints_in
             } else {
@@ -166,8 +197,16 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<'_, T> {
                 ep_addr,
                 max_packet_size: ep_data.max_packet_size,
             });
-        } else {
+        } else if was_enabled {
             self.endpoint_close(ep_addr);
+        }
+
+        if ep_addr.is_in() {
+            self.endpoints_enabled_in[ep_addr.index()] = enabled;
+            EP_IN_WAKERS[ep_addr.index()].wake();
+        } else {
+            self.endpoints_enabled_out[ep_addr.index()] = enabled;
+            EP_OUT_WAKERS[ep_addr.index()].wake();
         }
     }
 
@@ -178,7 +217,39 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<'_, T> {
         if stalled {
             self.endpoint_stall(ep_addr);
         } else {
-            self.endpoint_clean_stall(ep_addr);
+            let enabled = if ep_addr.is_in() {
+                self.endpoints_enabled_in[ep_addr.index()]
+            } else {
+                self.endpoints_enabled_out[ep_addr.index()]
+            };
+            let generation = if ep_addr.is_in() {
+                &EP_IN_GENERATION[ep_addr.index()]
+            } else {
+                &EP_OUT_GENERATION[ep_addr.index()]
+            };
+            generation.fetch_add(1, Ordering::AcqRel);
+
+            if enabled {
+                self.endpoint_close(ep_addr);
+                let ep_data = if ep_addr.is_in() {
+                    self.endpoints_in[ep_addr.index()]
+                } else {
+                    self.endpoints_out[ep_addr.index()]
+                };
+                self.endpoint_open(EpConfig {
+                    transfer: ep_data.ep_type as u8,
+                    ep_addr,
+                    max_packet_size: ep_data.max_packet_size,
+                });
+            } else {
+                self.endpoint_clean_stall(ep_addr);
+            }
+
+            if ep_addr.is_in() {
+                EP_IN_WAKERS[ep_addr.index()].wake();
+            } else {
+                EP_OUT_WAKERS[ep_addr.index()].wake();
+            }
         }
     }
 
@@ -215,7 +286,6 @@ impl<T: Instance> Bus<'_, T> {
     /// Initialize USB phy
     fn phy_init(&mut self) {
         let r = T::info().regs;
-
         // Enable dp/dm pulldown
         // In hpm_sdk, this operation is done by `ptr->PHY_CTRL0 &= ~0x001000E0u`.
         // But there's corresponding bits in register, so we write the register directly here.
@@ -252,10 +322,14 @@ impl<T: Instance> Bus<'_, T> {
         r.phy_status().modify(|w| w.set_utmi_clk_valid(true));
         while !r.phy_status().read().utmi_clk_valid() {}
 
+        r.phy_ctrl0().modify(|w| {
+            w.0 |= 0x800;
+        });
+
         // Reset and set suspend
         r.phy_ctrl1().modify(|w| {
             w.set_utmi_cfg_rst_n(true);
-            w.set_utmi_otg_suspendm(true);
+            w.set_utmi_otg_suspendm(false);
         });
     }
 
@@ -285,7 +359,6 @@ impl<T: Instance> Bus<'_, T> {
     /// Reset USB bus
     fn device_bus_reset(&mut self, ep0_max_packet_size: u16) {
         let r = T::info().regs;
-
         // For each endpoint, first set the transfer type to ANY type other than control.
         // This is because the default transfer type is control, according to hpm_sdk,
         // leaving an un-configured endpoint control will cause undefined behavior
@@ -296,17 +369,17 @@ impl<T: Instance> Bus<'_, T> {
                 w.set_rxt(EndpointType::Bulk as u8);
             });
         }
-
         // Clear all registers(by writing 1 to any non-zero bits)
-        r.endptnak().modify(|w| w.0 = w.0);
-        r.endptnaken().modify(|w| w.0 = 0);
-        r.usbsts().modify(|w| w.0 = w.0);
-        r.endptsetupstat().modify(|w| w.0 = w.0);
-        r.endptcomplete().modify(|w| w.0 = w.0);
-
+        r.endptnak().write_value(r.endptnak().read());
+        r.endptnaken().write(|w| w.0 = 0);
+        r.usbsts().write_value(r.usbsts().read());
+        r.endptsetupstat().write_value(r.endptsetupstat().read());
+        r.endptcomplete().write_value(r.endptcomplete().read());
+        EP_IN_COMPLETE.store(0, Ordering::Release);
+        EP_OUT_COMPLETE.store(0, Ordering::Release);
         while r.endptprime().read().0 != 0 {}
 
-        r.endptflush().modify(|w| w.0 = 0xFFFFFFFF);
+        r.endptflush().write(|w| w.0 = 0xFFFF_FFFF);
 
         while r.endptflush().read().0 != 0 {}
 
@@ -314,6 +387,7 @@ impl<T: Instance> Bus<'_, T> {
         unsafe {
             reset_dcd_data(self.ep_state, ep0_max_packet_size);
         }
+        core::sync::atomic::compiler_fence(Ordering::SeqCst);
     }
 
     /// Initialize USB device controller driver
@@ -336,7 +410,7 @@ impl<T: Instance> Bus<'_, T> {
             // Set little endian
             w.set_es(false);
             // Disable setup lockout, please refer to "Control Endpoint Operation" section in RM
-            w.set_slom(false);
+            w.set_slom(true);
         });
 
         r.portsc1().modify(|w| {
@@ -391,7 +465,6 @@ impl<T: Instance> Bus<'_, T> {
     /// Connect by enabling internal pull-up resistor on D+/D-
     fn device_connect(&mut self) {
         let r = T::info().regs;
-
         r.usbcmd().modify(|w| {
             w.set_rs(true);
         });
@@ -438,7 +511,7 @@ impl<T: Instance> Bus<'_, T> {
         if ep_addr.is_in() {
             loop {
                 r.endptflush().modify(|w| w.set_fetb(ep_bit));
-                while (r.endptflush().read().fetb() & ep_bit) == 1 {}
+                while (r.endptflush().read().fetb() & ep_bit) != 0 {}
                 if r.endptstat().read().etbr() & ep_bit == 0 {
                     break;
                 }
@@ -446,7 +519,7 @@ impl<T: Instance> Bus<'_, T> {
         } else {
             loop {
                 r.endptflush().modify(|w| w.set_ferb(ep_bit));
-                while (r.endptflush().read().ferb() & ep_bit) == 1 {}
+                while (r.endptflush().read().ferb() & ep_bit) != 0 {}
                 if r.endptstat().read().erbr() & ep_bit == 0 {
                     break;
                 }
@@ -454,7 +527,7 @@ impl<T: Instance> Bus<'_, T> {
         }
 
         // Disable endpoint
-        r.endptctrl(ep_addr.index() as usize).write(|w| {
+        r.endptctrl(ep_addr.index() as usize).modify(|w| {
             if ep_addr.is_in() {
                 w.set_txt(0);
                 w.set_txe(false);
@@ -467,7 +540,7 @@ impl<T: Instance> Bus<'_, T> {
         });
 
         // Set transfer type back to ANY type other than control
-        r.endptctrl(ep_addr.index() as usize).write(|w| {
+        r.endptctrl(ep_addr.index() as usize).modify(|w| {
             if ep_addr.is_in() {
                 w.set_txt(EndpointType::Bulk as u8);
             } else {
