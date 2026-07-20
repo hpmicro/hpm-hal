@@ -234,6 +234,7 @@ impl<'d> I2c<'d, Async> {
                 send_start: true,
                 send_stop: true,
                 send_addr: true,
+                wait_bus_free: false,
             },
         )
         .await
@@ -254,6 +255,7 @@ impl<'d> I2c<'d, Async> {
                 send_start: true,
                 send_stop: true,
                 send_addr: true,
+                wait_bus_free: false,
             },
         )
         .await
@@ -280,6 +282,7 @@ impl<'d> I2c<'d, Async> {
                 send_start: true,
                 send_stop: false,
                 send_addr: true,
+                wait_bus_free: false,
             },
         )
         .await?;
@@ -290,6 +293,7 @@ impl<'d> I2c<'d, Async> {
                 send_start: true,
                 send_stop: true,
                 send_addr: true,
+                wait_bus_free: false,
             },
         )
         .await?;
@@ -351,6 +355,9 @@ impl<'d> I2c<'d, Async> {
         if size > I2C_SOC_TRANSFER_COUNT_MAX {
             return Err(Error::InvalidArgument);
         }
+        if size == 0 {
+            return Err(Error::ZeroLengthTransfer);
+        }
 
         // W1C, clear CMPL bit to avoid blocking the transmission
         r.status().write(|w| w.set_cmpl(true));
@@ -391,41 +398,56 @@ impl<'d> I2c<'d, Async> {
         r.setup().modify(|w| w.set_dmaen(true));
         r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
 
-        // Wait for address hit before DMA proceeds (blocking poll, same as C SDK).
-        // addrhit arrives within a few SCL cycles (~microseconds), so brief spin is fine.
-        loop {
-            if r.status().read().addrhit() {
-                break;
+        if frame.send_addr {
+            // ADDRHIT has no interrupt source. Yield while polling so a missing device does not
+            // monopolize the executor until the timeout expires.
+            loop {
+                let status = r.status().read();
+                if status.addrhit() {
+                    break;
+                }
+                if status.arblose() {
+                    drop(on_drop);
+                    return Err(Error::Arbitration);
+                }
+                if timeout.check().is_err() {
+                    // Address miss: send STOP to release the bus.
+                    r.status().write(|w| w.set_cmpl(true));
+                    r.ctrl().write(|w| w.set_phase_stop(true));
+                    r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
+                    drop(on_drop);
+                    return Err(Error::NoAddrHit);
+                }
+                embassy_futures::yield_now().await;
             }
-            if timeout.check().is_err() {
-                // Address miss: send STOP to release the bus.
-                r.status().write(|w| w.set_cmpl(true));
-                r.ctrl().write(|w| w.set_phase_stop(true));
-                r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
-                r.setup().modify(|w| w.set_dmaen(false));
-                drop(on_drop);
-                return Err(Error::NoAddrHit);
-            }
+            r.status().write(|w| w.set_addrhit(true));
         }
-        r.status().write(|w| w.set_addrhit(true));
-
-        transfer.await;
 
         let s = self.state;
+        let transfer_and_complete = async move {
+            transfer.await;
 
-        let complete_or_error = poll_fn(move |cx| {
-            s.waker.register(cx.waker());
+            poll_fn(move |cx| {
+                s.waker.register(cx.waker());
 
-            if r.status().read().cmpl() {
-                return Poll::Ready(Ok(()));
-            } else if r.status().read().arblose() {
-                return Poll::Ready(Err(Error::Arbitration));
-            }
+                if r.status().read().cmpl() {
+                    Poll::Ready(Ok(()))
+                } else if r.status().read().arblose() {
+                    Poll::Ready(Err(Error::Arbitration))
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await
+        };
 
-            Poll::Pending
-        });
+        let ret = timeout.with(transfer_and_complete).await;
 
-        let ret = complete_or_error.await;
+        if matches!(ret, Err(Error::Timeout)) {
+            r.status().write(|w| w.set_cmpl(true));
+            r.ctrl().write(|w| w.set_phase_stop(true));
+            r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
+        }
 
         drop(on_drop);
 
@@ -541,8 +563,10 @@ impl<'d, M: Mode> I2c<'d, M> {
             return Err(Error::InvalidArgument);
         }
 
-        while r.status().read().busbusy() {
-            timeout.check()?;
+        if frame.wait_bus_free {
+            while r.status().read().busbusy() {
+                timeout.check()?;
+            }
         }
 
         // W1C, clear CMPL bit to avoid blocking the transmission
@@ -565,23 +589,28 @@ impl<'d, M: Mode> I2c<'d, M> {
         });
         r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
 
-        // Wait for address hit to ensure the slave address exists on the bus.
-        loop {
-            if r.status().read().addrhit() {
-                break;
+        if frame.send_addr {
+            // Wait for address hit to ensure the slave address exists on the bus.
+            loop {
+                if r.status().read().addrhit() {
+                    break;
+                }
+                if timeout.check().is_err() {
+                    // Address miss: send STOP to prevent the bus from staying busy.
+                    r.status().write(|w| w.set_cmpl(true));
+                    r.ctrl().write(|w| w.set_phase_stop(true));
+                    r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
+                    return Err(Error::NoAddrHit);
+                }
             }
-            if timeout.check().is_err() {
-                // Address miss: send STOP to prevent the bus from staying busy.
-                r.status().write(|w| w.set_cmpl(true));
-                r.ctrl().write(|w| w.set_phase_stop(true));
-                r.cmd().write(|w| w.set_cmd(vals::Cmd::DATA_TRANSACTION));
-                return Err(Error::NoAddrHit);
-            }
+            r.status().write(|w| w.set_addrhit(true));
         }
-        r.status().write(|w| w.set_addrhit(true));
 
-        // when size is zero, it's probe slave device, so directly return success
+        // An address-only transfer is used to probe a slave device.
         if size == 0 {
+            while !r.status().read().cmpl() {
+                timeout.check()?;
+            }
             return Ok(());
         }
 
@@ -644,6 +673,7 @@ impl<'d, M: Mode> I2c<'d, M> {
                 send_start: true,
                 send_stop: true,
                 send_addr: true,
+                wait_bus_free: true,
             },
         )
     }
@@ -663,6 +693,7 @@ impl<'d, M: Mode> I2c<'d, M> {
                 send_start: true,
                 send_stop,
                 send_addr: true,
+                wait_bus_free: true,
             },
         )
     }
@@ -856,6 +887,7 @@ struct FrameOptions {
     send_start: bool,
     send_stop: bool,
     send_addr: bool,
+    wait_bus_free: bool,
 }
 
 #[allow(dead_code)]
@@ -869,6 +901,7 @@ fn operation_frames<'a, 'b: 'a>(
     let mut operations = operations.iter_mut().peekable();
 
     let mut next_first_frame = true;
+    let mut first_operation = true;
 
     Ok(iter::from_fn(move || {
         let Some(op) = operations.next() else {
@@ -892,14 +925,19 @@ fn operation_frames<'a, 'b: 'a>(
         // because the resulting frame options are identical for write operations.
         #[rustfmt::skip]
         let frame = match (first_frame, next_op) {
-            (true, None) => FrameOptions { send_start: true, send_stop: true, send_addr: true },
-            (true, Some(Read(_))) => FrameOptions { send_start: true, send_stop: false, send_addr: true },
-            (true, Some(Write(_))) => FrameOptions { send_start: true, send_stop: false, send_addr: true },
+            (true, None) => FrameOptions { send_start: true, send_stop: true, send_addr: true, wait_bus_free: false },
+            (true, Some(Read(_))) => FrameOptions { send_start: true, send_stop: false, send_addr: true, wait_bus_free: false },
+            (true, Some(Write(_))) => FrameOptions { send_start: true, send_stop: false, send_addr: true, wait_bus_free: false },
             //
-            (false, None) => FrameOptions { send_start: false, send_stop: true, send_addr: false},
-            (false, Some(Read(_))) => FrameOptions { send_start: false, send_stop: false, send_addr: false },
-            (false, Some(Write(_))) => FrameOptions { send_start: false, send_stop: false, send_addr: false },
+            (false, None) => FrameOptions { send_start: false, send_stop: true, send_addr: false, wait_bus_free: false },
+            (false, Some(Read(_))) => FrameOptions { send_start: false, send_stop: false, send_addr: false, wait_bus_free: false },
+            (false, Some(Write(_))) => FrameOptions { send_start: false, send_stop: false, send_addr: false, wait_bus_free: false },
         };
+        let frame = FrameOptions {
+            wait_bus_free: first_operation && frame.send_start,
+            ..frame
+        };
+        first_operation = false;
 
         // Pre-calculate if `next_op` is the first operation of its type. We do this here and not at
         // the beginning of the loop because we hand out `op` as iterator value and cannot access it
