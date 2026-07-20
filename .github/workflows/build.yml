@@ -21,6 +21,7 @@ jobs:
       matrix:
         board:
           - hpm5300evk
+          - hpm5e00evk
           - hpm6200evk
           - hpm6300evk
           - hpm6750evkmini
