@@ -109,7 +109,7 @@ impl ChannelState {
 pub(crate) unsafe fn init(cs: critical_section::CriticalSection) {
     use crate::interrupt;
 
-    // Note: HDMA/XDMA clock resources are already added to group 0 in sysctl::init_clock()
+    // Note: HDMA/XDMA clock resources must be added to group 0 in sysctl::init_clock()
 
     pac::HDMA.dmactrl().modify(|w| w.set_reset(true));
 
@@ -154,7 +154,13 @@ unsafe fn dma_on_irq(r: pac::dma::Dma, mux_num_base: u32) {
     // - bit width alignment error
     // DMA error: this is normally a hardware error(memory alignment or access), but we can't do anything about it
     if err != 0 {
-        panic!("DMA: error on DMA@{:08x}, errsts=0b{:08b}", r.as_ptr() as u32, err);
+        panic!(
+            "DMA: error on DMA@{:08x}, errsts=0b{:08b}, tc=0b{:08b}, abort=0b{:08b}",
+            r.as_ptr() as u32,
+            err,
+            tc,
+            abort
+        );
     }
 
     if tc != 0 {
@@ -227,7 +233,6 @@ impl AnyChannel {
 
         let r = info.dma.regs();
         let ch = info.num; // channel number in current dma controller
-        let mux_ch = info.mux_num; // channel number in dma mux, (XDMA_CH0 = HDMA_CH7+1 = 8)
 
         // follow the impl of dma_setup_channel
 
@@ -278,10 +283,13 @@ impl AnyChannel {
             w.set_srcaddrctrl(src_addr_ctrl);
             w.set_dstaddrctrl(dst_addr_ctrl);
 
+            // srcreqsel/dstreqsel use the channel number within the DMA controller (0-7),
+            // NOT the DMAMUX output number. For HDMA they happen to be the same,
+            // but for XDMA ch=0 while mux_num=8. HPM SDK uses ch_num here.
             if dir == Dir::MemoryToPeripheralType {
-                w.set_dstreqsel(mux_ch as u8);
+                w.set_dstreqsel(ch as u8);
             } else {
-                w.set_srcreqsel(mux_ch as u8);
+                w.set_srcreqsel(ch as u8);
             }
             // unmask interrupts
             w.set_inttcmask(!options.complete_transfer_irq);
@@ -698,56 +706,12 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         // Configure DMAMUX
         super::dmamux::configure_dmamux(mux_ch, request);
 
-        // Build ctrl register value for circular RX
-        let ctrl = {
-            let mut val = 0u32;
-            // Source: peripheral, fixed address, handshake mode
-            val |= (vals::Mode::HANDSHAKE.to_bits() as u32) << 24; // srcmode
-            val |= (AddrCtrl::FIXED.to_bits() as u32) << 14; // srcaddrctrl
-            val |= (data_size.width() as u32) << 8; // srcwidth
-
-            // Destination: memory, increment address, normal mode
-            val |= (vals::Mode::NORMAL.to_bits() as u32) << 26; // dstmode
-            val |= (AddrCtrl::INCREMENT.to_bits() as u32) << 16; // dstaddrctrl
-            val |= (data_size.width() as u32) << 11; // dstwidth
-
-            // Request select
-            val |= (mux_ch as u32) << 20; // srcreqsel
-
-            // Burst size (default 1)
-            val |= 0 << 4; // srcburstsize
-
-            // Enable interrupts for ring buffer tracking
-            // TC interrupt enabled (mask = 0)
-
-            // Enable bit will be set when starting
-            val |= 1; // enable
-
-            val
-        };
-
-        // Setup linked descriptor pointing to itself for circular operation
-        let desc_addr = descriptor as *mut _ as u32;
-
-        #[cfg(hpm67)]
-        let desc_addr = core_local_mem_to_sys_address(0, desc_addr);
-
-        descriptor.ctrl = ctrl;
-        descriptor.trans_size = len as u32;
-        descriptor.src_addr = src_addr;
-        descriptor.src_addr_high = 0;
-        descriptor.dst_addr = dst_addr;
-        descriptor.dst_addr_high = 0;
-        descriptor.linked_ptr = desc_addr; // Point to self for circular
-        descriptor.linked_ptr_high = 0;
-
         // Configure channel registers
         let ch_cr = r.chctrl(ch);
 
         ch_cr.src_addr().write_value(src_addr);
         ch_cr.dst_addr().write_value(dst_addr);
         ch_cr.tran_size().modify(|w| w.0 = len as u32);
-        ch_cr.llpointer().modify(|w| w.0 = desc_addr); // Link to descriptor
 
         // Clear interrupts
         r.int_status().write(|w| {
@@ -768,12 +732,36 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             w.set_dstmode(vals::Mode::NORMAL);
             w.set_srcaddrctrl(AddrCtrl::FIXED);
             w.set_dstaddrctrl(AddrCtrl::INCREMENT);
-            w.set_srcreqsel(mux_ch as u8);
+            // Use channel number within DMA controller (not DMAMUX number)
+            // HPM SDK: SRCREQSEL_SET(ch_num), where ch_num is 0-7 per controller
+            w.set_srcreqsel(ch as u8);
             w.set_inttcmask(false); // Enable TC interrupt
             w.set_interrmask(false);
             w.set_intabtmask(true);
             w.set_enable(false);
         });
+
+        // Read back the channel configuration, then enable descriptor reload.
+        let mut ctrl = ch_cr.ctrl().read();
+        ctrl.set_enable(true);
+
+        // Setup linked descriptor pointing to itself for circular operation
+        let desc_addr = descriptor as *mut _ as u32;
+
+        #[cfg(hpm67)]
+        let desc_addr = core_local_mem_to_sys_address(0, desc_addr);
+
+        descriptor.ctrl = ctrl.0;
+        descriptor.trans_size = len as u32;
+        descriptor.src_addr = src_addr;
+        descriptor.src_addr_high = 0;
+        descriptor.dst_addr = dst_addr;
+        descriptor.dst_addr_high = 0;
+        descriptor.linked_ptr = desc_addr; // Point to self for circular
+        descriptor.linked_ptr_high = 0;
+
+        // Set linked list pointer in channel register
+        ch_cr.llpointer().modify(|w| w.0 = desc_addr);
 
         Self {
             channel,
