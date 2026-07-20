@@ -74,7 +74,7 @@ impl SSD1306 {
             SETMULTIPLEX,
         ];
         self.send_commands(INIT1);
-        self.send_command(SETLOWCOLUMN | ((HEIGHT as u8) - 1));
+        self.send_command((HEIGHT as u8) - 1);
 
         const INIT2: &[u8] = &[
             SETDISPLAYOFFSET,
@@ -259,7 +259,7 @@ fn main() -> ! {
     defmt::info!("CPU0: {}Hz", hal::sysctl::clocks().cpu0.0);
 
     let mut i2c_config = hal::i2c::Config::default();
-    i2c_config.mode = hal::i2c::I2cMode::FastPlus;
+    i2c_config.mode = hal::i2c::I2cMode::Fast;
 
     let i2c = hal::i2c::I2c::new_blocking(p.I2C0, p.PB11, p.PB10, i2c_config);
 

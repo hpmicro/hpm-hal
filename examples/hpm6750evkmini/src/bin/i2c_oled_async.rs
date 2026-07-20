@@ -10,7 +10,6 @@
 
 #![no_main]
 #![no_std]
-#![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
 #![feature(abi_riscv_interrupt)]
 
@@ -80,7 +79,7 @@ impl SSD1306 {
         ] {
             self.cmd(c).await;
         }
-        self.cmd(SETLOWCOLUMN | ((HEIGHT as u8) - 1)).await;
+        self.cmd((HEIGHT as u8) - 1).await;
 
         for &c in &[SETDISPLAYOFFSET, 0x0, SETSTARTLINE | 0x0, CHARGEPUMP] {
             self.cmd(c).await;
@@ -248,7 +247,7 @@ async fn main(_spawner: embassy_executor::Spawner) -> ! {
     info!("I2C OLED Async Example - HPM6750EVKMINI");
 
     let mut i2c_config = hal::i2c::Config::default();
-    i2c_config.mode = hal::i2c::I2cMode::FastPlus;
+    i2c_config.mode = hal::i2c::I2cMode::Fast;
 
     let i2c = I2c::new(p.I2C0, p.PB11, p.PB10, Irqs, p.HDMA_CH0, i2c_config);
 
