@@ -14,7 +14,7 @@ license = "MIT/Apache-2.0"
 
 [dependencies]
 hpm-metapac = { git = "https://github.com/hpmicro-rs/hpm-metapac.git", rev = "98d8fa3f7c2d539f779d14a457828d9bac62eb6d" }
-hpm-riscv-rt = { git = "https://github.com/hpmicro-rs/hpm-riscv-rt.git", rev = "58422edf9d7c10fe93734ff2b373fce0675f0efd", optional = true }
+hpm-riscv-rt = { version = "0.3.5", optional = true }
 andes-riscv = { version = "0.3" }
 
 riscv = { version = "0.16.0", features = ["critical-section-single-hart"] }
