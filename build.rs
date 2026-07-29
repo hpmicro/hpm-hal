@@ -789,6 +789,7 @@ fn main() {
             };
 
             g.extend(quote! {
+                #[cfg(feature = "rt")]
                 #[hpm_riscv_rt::external_interrupt(hpm_metapac::interrupt::#irq_ident)]
                 fn #irq_ident() {
                     use crate::interrupt::InterruptExt;
