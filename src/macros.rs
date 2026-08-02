@@ -104,6 +104,26 @@ macro_rules! spi_cs_pin_trait_impl {
     };
 }
 
+// PDM data pin trait impl - needs line index
+macro_rules! impl_pdm_data_pin {
+    ($peri:ident, $pin:ident, $alt:expr, $line:expr) => {
+        impl crate::pdm::DPin<crate::peripherals::$peri> for crate::peripherals::$pin {
+            fn alt_num(&self) -> u8 {
+                $alt
+            }
+            fn line(&self) -> crate::pdm::DataLine {
+                match $line {
+                    0 => crate::pdm::DataLine::Line0,
+                    1 => crate::pdm::DataLine::Line1,
+                    2 => crate::pdm::DataLine::Line2,
+                    3 => crate::pdm::DataLine::Line3,
+                    _ => crate::pdm::DataLine::Line0, // Default fallback
+                }
+            }
+        }
+    };
+}
+
 // ==========
 // DMA
 
@@ -145,4 +165,76 @@ macro_rules! new_dma {
             request,
         })
     }};
+}
+
+// ==========
+// I2S
+
+macro_rules! impl_i2s_txd_pin {
+    ($instance:ident, $pin:ident, $alt:expr, $line:expr) => {
+        impl crate::i2s::TxdPin<crate::peripherals::$instance> for crate::peripherals::$pin {
+            fn alt_num(&self) -> u8 {
+                $alt
+            }
+            fn line(&self) -> crate::i2s::DataLine {
+                match $line {
+                    0 => crate::i2s::DataLine::Line0,
+                    1 => crate::i2s::DataLine::Line1,
+                    2 => crate::i2s::DataLine::Line2,
+                    3 => crate::i2s::DataLine::Line3,
+                    _ => crate::i2s::DataLine::Line0,
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_i2s_rxd_pin {
+    ($instance:ident, $pin:ident, $alt:expr, $line:expr) => {
+        impl crate::i2s::RxdPin<crate::peripherals::$instance> for crate::peripherals::$pin {
+            fn alt_num(&self) -> u8 {
+                $alt
+            }
+            fn line(&self) -> crate::i2s::DataLine {
+                match $line {
+                    0 => crate::i2s::DataLine::Line0,
+                    1 => crate::i2s::DataLine::Line1,
+                    2 => crate::i2s::DataLine::Line2,
+                    3 => crate::i2s::DataLine::Line3,
+                    _ => crate::i2s::DataLine::Line0,
+                }
+            }
+        }
+    };
+}
+
+// ==========
+// ACMP
+
+// ACMP positive input pin trait impl - needs channel and input index
+macro_rules! impl_acmp_inp_pin {
+    ($peri:ident, $pin:ident, $ch:expr, $input:expr) => {
+        impl crate::acmp::PositivePin<crate::peripherals::$peri> for crate::peripherals::$pin {
+            fn channel(&self) -> u8 {
+                $ch
+            }
+            fn input(&self) -> u8 {
+                $input
+            }
+        }
+    };
+}
+
+// ACMP negative input pin trait impl - needs channel and input index
+macro_rules! impl_acmp_inn_pin {
+    ($peri:ident, $pin:ident, $ch:expr, $input:expr) => {
+        impl crate::acmp::NegativePin<crate::peripherals::$peri> for crate::peripherals::$pin {
+            fn channel(&self) -> u8 {
+                $ch
+            }
+            fn input(&self) -> u8 {
+                $input
+            }
+        }
+    };
 }

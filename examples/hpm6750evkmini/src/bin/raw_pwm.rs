@@ -31,7 +31,7 @@ fn main() -> ! {
     );
     info!(
         "  MTMR:\t{}Hz",
-        hal::sysctl::clocks().get_clock_freq(pac::clocks::MCHTMR0).0
+        hal::sysctl::clocks().get_clock_freq(pac::clocks::MCT0).0
     );
 
     info!("PWM LED example");

@@ -170,3 +170,119 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         unsafe { core::ptr::read_volatile(self.dma_buf.as_ptr().add(self.read_index.as_index(self.cap(), offset))) }
     }
 }
+
+/// Writable DMA ring buffer (memory to peripheral)
+pub struct WritableDmaRingBuffer<'a, W: Word> {
+    dma_buf: &'a mut [W],
+    write_index: DmaIndex,
+    read_index: DmaIndex,
+}
+
+impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
+    /// Create a new writable ring buffer
+    pub fn new(dma_buf: &'a mut [W]) -> Self {
+        Self {
+            dma_buf,
+            write_index: Default::default(),
+            read_index: Default::default(),
+        }
+    }
+
+    /// Reset the ring buffer to initial state
+    pub fn reset(&mut self, dma: &mut impl DmaCtrl) {
+        dma.reset_complete_count();
+        self.read_index.reset();
+        self.read_index.dma_sync(self.cap(), dma);
+        self.write_index = self.read_index;
+    }
+
+    /// Sync only read_index without modifying write_index
+    ///
+    /// This is useful when user has pre-filled data before starting DMA.
+    /// The write_index is preserved so pre-filled data isn't lost.
+    pub fn sync_read_index_only(&mut self) {
+        // Before DMA starts, position is 0
+        self.read_index.reset();
+    }
+
+    /// Get the buffer capacity
+    pub const fn cap(&self) -> usize {
+        self.dma_buf.len()
+    }
+
+    /// Get the number of writable slots available
+    pub fn len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
+        self.read_index.dma_sync(self.cap(), dma);
+        DmaIndex::normalize(&mut self.write_index, &mut self.read_index);
+
+        // diff = write_index - read_index = how much data is in buffer (not yet sent by DMA)
+        let diff = self.write_index.diff(self.cap(), &self.read_index);
+
+        if diff < 0 {
+            // DMA has consumed more than CPU has written.
+            // This happens when DMA runs faster than CPU writes.
+            // For TX, this means the buffer is effectively empty.
+            // Resync: set write_index = read_index (buffer empty, all space available)
+            self.write_index = self.read_index;
+            Ok(self.cap())
+        } else if diff > self.cap() as isize {
+            Err(Error::Overrun)
+        } else {
+            // Available space = capacity - data_in_buffer
+            Ok(self.cap() - diff as usize)
+        }
+    }
+
+    /// Write elements to the ring buffer
+    ///
+    /// Returns (bytes_written, bytes_remaining_to_write)
+    pub fn write(&mut self, dma: &mut impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), Error> {
+        self.write_raw(dma, buf).inspect_err(|_| {
+            self.reset(dma);
+        })
+    }
+
+    /// Write elements to the ring buffer (async)
+    ///
+    /// Waits until all elements are written.
+    pub async fn write_exact(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<usize, Error> {
+        let mut written_data = 0;
+        let buffer_len = buffer.len();
+
+        poll_fn(|cx| {
+            dma.set_waker(cx.waker());
+
+            match self.write(dma, &buffer[written_data..buffer_len]) {
+                Ok((len, remaining)) => {
+                    written_data += len;
+                    if written_data == buffer_len {
+                        Poll::Ready(Ok(remaining))
+                    } else {
+                        Poll::Pending
+                    }
+                }
+                Err(e) => Poll::Ready(Err(e)),
+            }
+        })
+        .await
+    }
+
+    fn write_raw(&mut self, dma: &mut impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), Error> {
+        let writable = self.len(dma)?.min(buf.len());
+        for i in 0..writable {
+            self.write_buf(i, buf[i]);
+        }
+        // Advance write_index BEFORE calling len() again
+        self.write_index.advance(self.cap(), writable);
+        Ok((writable, buf.len() - writable))
+    }
+
+    fn write_buf(&mut self, offset: usize, value: W) {
+        unsafe {
+            core::ptr::write_volatile(
+                self.dma_buf.as_mut_ptr().add(self.write_index.as_index(self.cap(), offset)),
+                value,
+            )
+        }
+    }
+}

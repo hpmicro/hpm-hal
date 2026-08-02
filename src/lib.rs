@@ -43,6 +43,7 @@ pub mod mode {
 
 // required peripherals
 pub mod dma;
+#[cfg(xpi)]
 pub mod flash;
 pub mod sysctl;
 
@@ -58,23 +59,33 @@ pub mod usb;
 
 #[cfg(femc)]
 pub mod femc;
-//#[cfg(i2s)]
-//pub mod i2s;
+#[cfg(ffa)]
+pub mod ffa;
+#[cfg(i2s)]
+pub mod i2s;
+#[cfg(dao)]
+pub mod dao;
+#[cfg(pdm)]
+pub mod pdm;
 #[cfg(rtc)]
 pub mod rtc;
 
 // analog peripherals
+#[cfg(acmp)]
+pub mod acmp;
 #[cfg(adc16)]
 pub mod adc;
 #[cfg(dac)]
 pub mod dac;
+#[cfg(tsns)]
+pub mod tsns;
 
 // timer peripherals
 #[cfg(tmr)]
 pub mod timer;
 
 // motor control peripherals
-#[cfg(pwm)]
+#[cfg(any(pwm, pwmv2))]
 pub mod pwm;
 #[cfg(qei)]
 pub mod qei;
@@ -86,6 +97,22 @@ pub mod trgm;
 // EWDG (Enhanced Watchdog) - v53/v68 only, v67 uses simple WDG
 #[cfg(ewdg)]
 pub mod ewdg;
+
+// WDG (Simple Watchdog) - v67 for HPM6200/6300/6700 series
+#[cfg(wdg)]
+pub mod wdg;
+
+// CRC (Cyclic Redundancy Check)
+#[cfg(crc)]
+pub mod crc;
+
+// SDXC (SD/MMC Card Interface)
+#[cfg(sdxc)]
+pub mod sdxc;
+
+// ENET (Ethernet MAC)
+#[cfg(enet)]
+pub mod enet;
 
 #[cfg(feature = "rt")]
 pub use hpm_riscv_rt::{entry, external_interrupt, fast, pre_init};

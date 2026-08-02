@@ -121,9 +121,8 @@ impl ChannelState {
 
 pub(crate) unsafe fn init(cs: critical_section::CriticalSection) {
     use crate::interrupt;
-    use crate::sysctl::SealedClockPeripheral;
 
-    crate::peripherals::HDMA::add_resource_group(0);
+    // Note: HDMA clock resource is already added to group 0 in sysctl::init_clock()
 
     pac::HDMA.dmactrl().modify(|w| w.set_reset(true));
 
@@ -132,6 +131,15 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection) {
 
     interrupt::typelevel::HDMA::set_priority_with_cs(cs, interrupt::Priority::P1);
     interrupt::typelevel::HDMA::enable();
+
+    #[cfg(hpm5e)]
+    {
+        pac::XDMA.dmactrl().modify(|w| w.set_reset(true));
+        while pac::XDMA.dmactrl().read().reset() {}
+
+        interrupt::typelevel::XDMA::set_priority_with_cs(cs, interrupt::Priority::P1);
+        interrupt::typelevel::XDMA::enable();
+    }
 }
 
 impl super::ControllerInterrupt for crate::peripherals::HDMA {
@@ -142,7 +150,7 @@ impl super::ControllerInterrupt for crate::peripherals::HDMA {
     }
 }
 
-#[cfg(hpm6e)]
+#[cfg(any(hpm6e, hpm5e))]
 impl super::ControllerInterrupt for crate::peripherals::XDMA {
     unsafe fn on_irq() {
         dma_on_irq(pac::XDMA, 32);
@@ -594,7 +602,7 @@ impl<'a> Future for Transfer<'a> {
 
 use core::task::Waker;
 
-use super::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer};
+use super::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 
 struct DmaCtrlImpl<'a>(Peri<'a, AnyChannel>);
 
@@ -719,6 +727,129 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 }
 
 impl<W: Word> Drop for ReadableRingBuffer<'_, W> {
+    fn drop(&mut self) {
+        self.request_pause();
+        while self.is_running() {}
+        fence(Ordering::SeqCst);
+    }
+}
+
+/// Ring buffer for transmitting data using DMA circular mode (memory to peripheral)
+pub struct WritableRingBuffer<'a, W: Word> {
+    channel: Peri<'a, AnyChannel>,
+    ringbuf: WritableDmaRingBuffer<'a, W>,
+}
+
+impl<'a, W: Word> WritableRingBuffer<'a, W> {
+    /// Create a new writable ring buffer
+    ///
+    /// # Safety
+    /// The caller must ensure the buffer and peripheral address remain valid
+    pub unsafe fn new(
+        channel: Peri<'a, impl Channel>,
+        request: Request,
+        buffer: &'a mut [W],
+        peri_addr: *mut W,
+        options: TransferOptions,
+    ) -> Self {
+        let channel: Peri<'a, AnyChannel> = channel.into();
+
+        let buffer_ptr = buffer.as_mut_ptr();
+        let len = buffer.len();
+        let data_size = W::size();
+
+        // Force circular mode and interrupts for ring buffer operation
+        let mut opts = options;
+        opts.circular = true;
+        opts.half_transfer_irq = true;
+        opts.complete_transfer_irq = true;
+
+        channel.configure(
+            request,
+            Dir::MemoryToPeripheralType,
+            buffer_ptr as *const u32,
+            data_size,
+            AddrCtrl::INCREMENT,
+            peri_addr as *mut u32,
+            data_size,
+            AddrCtrl::FIXED,
+            len,
+            HandshakeMode::Destination,
+            opts,
+        );
+
+        Self {
+            channel,
+            ringbuf: WritableDmaRingBuffer::new(buffer),
+        }
+    }
+
+    /// Start the ring buffer operation
+    ///
+    /// Note: For TX ring buffers, call `write()` to fill the buffer BEFORE calling `start()`.
+    /// This ensures the DMA has valid data to transmit from the beginning.
+    pub fn start(&mut self) {
+        // Reset complete count but keep write_index intact (user may have pre-filled data)
+        let state = &STATE[self.channel.id as usize];
+        state.complete_count.store(0, Ordering::Release);
+
+        // Sync read_index to DMA position (which is 0 before start)
+        self.ringbuf.sync_read_index_only();
+
+        self.channel.start();
+    }
+
+    /// Clear/reset the ring buffer state
+    pub fn clear(&mut self) {
+        self.ringbuf.reset(&mut DmaCtrlImpl(self.channel.reborrow()));
+    }
+
+    /// Write elements to the ring buffer
+    ///
+    /// Returns (bytes_written, bytes_remaining_to_write)
+    pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
+        self.ringbuf.write(&mut DmaCtrlImpl(self.channel.reborrow()), buf)
+    }
+
+    /// Write all elements to the ring buffer (async)
+    pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, Error> {
+        self.ringbuf
+            .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
+            .await
+    }
+
+    /// Get the current writable length (available space)
+    pub fn len(&mut self) -> Result<usize, Error> {
+        self.ringbuf.len(&mut DmaCtrlImpl(self.channel.reborrow()))
+    }
+
+    /// Get the buffer capacity
+    pub const fn capacity(&self) -> usize {
+        self.ringbuf.cap()
+    }
+
+    /// Set a waker for async notifications
+    pub fn set_waker(&mut self, waker: &Waker) {
+        DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
+    }
+
+    /// Request pause (keeps configuration)
+    pub fn request_pause(&mut self) {
+        self.channel.abort();
+    }
+
+    /// Check if DMA is still running
+    pub fn is_running(&self) -> bool {
+        self.channel.is_running()
+    }
+
+    /// Get remaining DMA transfers (for debugging)
+    pub fn get_remaining_transfers(&self) -> u32 {
+        self.channel.get_remaining_transfers()
+    }
+}
+
+impl<W: Word> Drop for WritableRingBuffer<'_, W> {
     fn drop(&mut self) {
         self.request_pause();
         while self.is_running() {}

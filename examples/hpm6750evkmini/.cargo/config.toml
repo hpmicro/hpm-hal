@@ -36,4 +36,4 @@ rustflags = [
 build-std = ["core"]
 
 [env]
-DEFMT_LOG = "trace"
+DEFMT_LOG = "info"

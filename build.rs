@@ -54,6 +54,37 @@ fn get_ip_features(chip_family: &str) -> &[&str] {
             "I2C_TRANSFER_COUNT_MAX_4096",
             "ADC_BUSMODE_ENABLE_CTRL_SUPPORT",
         ],
+        "hpm5e" => &[
+            "GPTMR_MONITOR",
+            "GPTMR_OP_MODE",
+            "GPTMR_CNT_MODE",
+            "UART_RX_IDLE_DETECT",
+            "UART_FCRR",
+            "UART_RX_EN",
+            "UART_E00018_FIX",
+            "UART_9BIT_MODE",
+            "UART_ADDR_MATCH",
+            "UART_TRIG_MODE",
+            "UART_FINE_FIFO_THRLD",
+            "UART_IIR2",
+            "I2C_SUPPORT_RESET",
+            "SPI_NEW_TRANS_COUNT",
+            "SPI_CS_SELECT",
+            "SPI_SUPPORT_DIRECTIO",
+            "DMAV2_BURST_IN_FIXED_TRANS",
+            "DMAV2_BYTE_ORDER_SWAP",
+            "ADC16_HAS_MOT_EN",
+            "QEIV2_ONESHOT_MODE",
+            "QEIV2_SW_RESTART_TRG",
+            "QEIV2_TIMESTAMP",
+            "QEIV2_ADC_THRESHOLD",
+            "ENET_HAS_MII_MODE",
+            // custom
+            "DMA_V2",
+            "DMA_V2_SWAP_TABLE",
+            "I2C_TRANSFER_COUNT_MAX_4096",
+            "ADC_BUSMODE_ENABLE_CTRL_SUPPORT",
+        ],
         "hpm68" => &[
             "UART_RX_IDLE_DETECT",
             "UART_FCRR",
@@ -358,7 +389,7 @@ fn main() {
         (("femc", "DQ31"), quote!(crate::femc::DQ31Pin)),
         (("femc", "RAS"), quote!(crate::femc::RASPin)),
         (("femc", "WE"), quote!(crate::femc::WEPin)),
-        // PWM - 8 output channels + fault inputs
+        // PWM - 8 output channels + fault inputs (classic PWM)
         (("pwm", "P0"), quote!(crate::pwm::Ch0Pin)),
         (("pwm", "P1"), quote!(crate::pwm::Ch1Pin)),
         (("pwm", "P2"), quote!(crate::pwm::Ch2Pin)),
@@ -369,8 +400,64 @@ fn main() {
         (("pwm", "P7"), quote!(crate::pwm::Ch7Pin)),
         (("pwm", "FAULT0"), quote!(crate::pwm::Fault0Pin)),
         (("pwm", "FAULT1"), quote!(crate::pwm::Fault1Pin)),
+        // PWMV2 - 8 output channels + fault inputs (HPM6E00 series)
+        (("pwmv2", "P0"), quote!(crate::pwm::Ch0Pin)),
+        (("pwmv2", "P1"), quote!(crate::pwm::Ch1Pin)),
+        (("pwmv2", "P2"), quote!(crate::pwm::Ch2Pin)),
+        (("pwmv2", "P3"), quote!(crate::pwm::Ch3Pin)),
+        (("pwmv2", "P4"), quote!(crate::pwm::Ch4Pin)),
+        (("pwmv2", "P5"), quote!(crate::pwm::Ch5Pin)),
+        (("pwmv2", "P6"), quote!(crate::pwm::Ch6Pin)),
+        (("pwmv2", "P7"), quote!(crate::pwm::Ch7Pin)),
+        (("pwmv2", "FAULT0"), quote!(crate::pwm::Fault0Pin)),
+        (("pwmv2", "FAULT1"), quote!(crate::pwm::Fault1Pin)),
+        // I2S
+        (("i2s", "MCLK"), quote!(crate::i2s::MclkPin)),
+        (("i2s", "BCLK"), quote!(crate::i2s::BclkPin)),
+        (("i2s", "FCLK"), quote!(crate::i2s::FclkPin)),
+        // PDM
+        (("pdm", "CLK"), quote!(crate::pdm::ClkPin)),
+        // SDXC
+        (("sdxc", "CLK"), quote!(crate::sdxc::ClkPin)),
+        (("sdxc", "CMD"), quote!(crate::sdxc::CmdPin)),
+        (("sdxc", "DATA0"), quote!(crate::sdxc::D0Pin)),
+        (("sdxc", "DATA1"), quote!(crate::sdxc::D1Pin)),
+        (("sdxc", "DATA2"), quote!(crate::sdxc::D2Pin)),
+        (("sdxc", "DATA3"), quote!(crate::sdxc::D3Pin)),
+        (("sdxc", "DATA4"), quote!(crate::sdxc::D4Pin)),
+        (("sdxc", "DATA5"), quote!(crate::sdxc::D5Pin)),
+        (("sdxc", "DATA6"), quote!(crate::sdxc::D6Pin)),
+        (("sdxc", "DATA7"), quote!(crate::sdxc::D7Pin)),
+        // ENET (Ethernet) - RMII signals
+        (("enet", "TXEN"), quote!(crate::enet::TxEnPin)),
+        (("enet", "TXD0"), quote!(crate::enet::Txd0Pin)),
+        (("enet", "TXD1"), quote!(crate::enet::Txd1Pin)),
+        (("enet", "RXDV"), quote!(crate::enet::CrsDvPin)),
+        (("enet", "RXD0"), quote!(crate::enet::Rxd0Pin)),
+        (("enet", "RXD1"), quote!(crate::enet::Rxd1Pin)),
+        (("enet", "REFCLK"), quote!(crate::enet::RefClkPin)),
+        (("enet", "MDIO"), quote!(crate::enet::MdioPin)),
+        (("enet", "MDC"), quote!(crate::enet::MdcPin)),
+        // ENET - RGMII additional signals
+        (("enet", "RXCK"), quote!(crate::enet::RxClkPin)),
+        (("enet", "TXCK"), quote!(crate::enet::TxClkPin)),
+        (("enet", "TXD2"), quote!(crate::enet::Txd2Pin)),
+        (("enet", "TXD3"), quote!(crate::enet::Txd3Pin)),
+        (("enet", "RXD2"), quote!(crate::enet::Rxd2Pin)),
+        (("enet", "RXD3"), quote!(crate::enet::Rxd3Pin)),
+        // DAO (Digital Audio Output)
+        (("dao", "RP"), quote!(crate::dao::RpPin)),
+        (("dao", "RN"), quote!(crate::dao::RnPin)),
+        (("dao", "LP"), quote!(crate::dao::LpPin)),
+        (("dao", "LN"), quote!(crate::dao::LnPin)),
     ]
     .into();
+
+    // Track already generated PDM data pins to avoid duplicates
+    let mut pdm_data_pins_generated: HashSet<String> = HashSet::new();
+    // Track already generated ACMP pins to avoid duplicates (same pin can be used by multiple channels)
+    let mut acmp_inp_pins_generated: HashSet<String> = HashSet::new();
+    let mut acmp_inn_pins_generated: HashSet<String> = HashSet::new();
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
@@ -386,6 +473,26 @@ fn main() {
                     g.extend(quote! {
                         pin_trait_impl!(#tr, #peri, #pin_name, #alt);
                     })
+                }
+
+                // PDM data pins are special - they have line index (D0, D1, D2, D3)
+                // Use deduplication to avoid duplicate impls for same pin
+                if regs.kind == "pdm" && pin.signal.starts_with("D") {
+                    // Key is just the pin name since all PDM peripherals have the same name
+                    let pdm_key = pin.pin.to_string();
+                    if !pdm_data_pins_generated.contains(&pdm_key) {
+                        pdm_data_pins_generated.insert(pdm_key);
+                        let peri = format_ident!("{}", p.name);
+                        let pin_name = format_ident!("{}", pin.pin);
+                        let alt = pin.alt.unwrap_or(0);
+                        // Parse line index from signal name (D0->0, D1->1, D2->2, D3->3)
+                        let line: u8 = pin.signal.strip_prefix("D")
+                            .and_then(|s| s.parse().ok())
+                            .unwrap_or(0);
+                        g.extend(quote! {
+                            impl_pdm_data_pin!(#peri, #pin_name, #alt, #line);
+                        });
+                    }
                 }
 
                 // SPI is special, CS pins are numbered
@@ -430,6 +537,76 @@ fn main() {
                     }
                 }
 
+                // I2S TXD/RXD pins are special - they have line indices
+                // Note: pinmux.rs normalizes TXD[0] -> TXD0, RXD[0] -> RXD0
+                if regs.kind == "i2s" {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    let alt = pin.alt.unwrap_or(0);
+
+                    // Parse TXDn or RXDn signal (normalized from TXD[n] or RXD[n])
+                    if pin.signal.starts_with("TXD") && pin.signal.len() == 4 {
+                        let line: u8 = pin.signal[3..].parse().unwrap_or(0);
+                        g.extend(quote! {
+                            impl_i2s_txd_pin!(#peri, #pin_name, #alt, #line);
+                        });
+                    } else if pin.signal.starts_with("RXD") && pin.signal.len() == 4 {
+                        let line: u8 = pin.signal[3..].parse().unwrap_or(0);
+                        g.extend(quote! {
+                            impl_i2s_rxd_pin!(#peri, #pin_name, #alt, #line);
+                        });
+                    }
+                }
+
+                // PDM D0-D3 data pins are handled above with deduplication
+
+                // ENET RXDV signal also implements RgmiiRxCtlPin for RGMII mode
+                // (CrsDvPin is already generated via the signals HashMap above)
+                if regs.kind == "enet" && pin.signal == "RXDV" {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    let alt = pin.alt.unwrap_or(0);
+                    g.extend(quote! {
+                        pin_trait_impl!(crate::enet::RgmiiRxCtlPin, #peri, #pin_name, #alt);
+                    });
+                }
+
+                // ACMP INP/INN pins are special - they have channel and input index
+                // Signal format: CMP{ch}_INP{input} or CMP{ch}_INN{input}
+                // Same pin may be used for multiple channels, so deduplicate by pin name
+                if regs.kind == "acmp" {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+
+                    // Parse CMP{ch}_INP{input} or CMP{ch}_INN{input}
+                    if let Some(rest) = pin.signal.strip_prefix("CMP") {
+                        if let Some((ch_str, rest)) = rest.split_once('_') {
+                            let ch: u8 = ch_str.parse().unwrap_or(0);
+                            if let Some(input_str) = rest.strip_prefix("INP") {
+                                let input: u8 = input_str.parse().unwrap_or(0);
+                                // Deduplicate by pin name (first channel wins)
+                                let key = pin.pin.to_string();
+                                if !acmp_inp_pins_generated.contains(&key) {
+                                    acmp_inp_pins_generated.insert(key);
+                                    g.extend(quote! {
+                                        impl_acmp_inp_pin!(#peri, #pin_name, #ch, #input);
+                                    });
+                                }
+                            } else if let Some(input_str) = rest.strip_prefix("INN") {
+                                let input: u8 = input_str.parse().unwrap_or(0);
+                                // Deduplicate by pin name (first channel wins)
+                                let key = pin.pin.to_string();
+                                if !acmp_inn_pins_generated.contains(&key) {
+                                    acmp_inn_pins_generated.insert(key);
+                                    g.extend(quote! {
+                                        impl_acmp_inn_pin!(#peri, #pin_name, #ch, #input);
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // if regs.kind == "dac"
             }
 
@@ -453,6 +630,8 @@ fn main() {
         (("i2c", "GLOBAL"), quote!(crate::i2c::I2cDma)),
         (("spi", "RX"), quote!(crate::spi::RxDma)),
         (("spi", "TX"), quote!(crate::spi::TxDma)),
+        (("i2s", "RX"), quote!(crate::i2s::RxDma)),
+        (("i2s", "TX"), quote!(crate::i2s::TxDma)),
     ]
     .into();
 
@@ -610,6 +789,7 @@ fn main() {
             };
 
             g.extend(quote! {
+                #[cfg(feature = "rt")]
                 #[hpm_riscv_rt::external_interrupt(hpm_metapac::interrupt::#irq_ident)]
                 fn #irq_ident() {
                     use crate::interrupt::InterruptExt;

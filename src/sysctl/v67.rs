@@ -1,6 +1,7 @@
 use super::clock_add_to_group;
 use crate::pac;
 pub use crate::pac::sysctl::vals::ClockMux;
+pub use crate::pac::sysctl::vals::I2sClkMux;
 use crate::pac::{PLLCTL, SYSCTL};
 use crate::time::Hertz;
 
@@ -23,6 +24,11 @@ const CLK_CPU0: Hertz = Hertz(324_000_000); // PLL0CLK0 / 2
 const CLK_CPU1: Hertz = Hertz(324_000_000); // PLL0CLK0 / 2
 const CLK_AHB: Hertz = Hertz(200_000_000 / 2); // PLL1CLK1 / 2
 
+// Default audio clocks: PLL3CLK0 / 25 = 24.576MHz (for 8k*n sample rates)
+const CLK_AUD0: Hertz = Hertz(24_576_000);
+const CLK_AUD1: Hertz = Hertz(24_576_000);
+const CLK_AUD2: Hertz = Hertz(24_576_000);
+
 // const F_REF: Hertz = CLK_24M;
 
 /// The default system clock configuration
@@ -37,6 +43,9 @@ pub(crate) static mut CLOCKS: Clocks = Clocks {
     pll2clk1: PLL2CLK1,
     pll3clk0: PLL3CLK0,
     pll4clk0: PLL4CLK0,
+    aud0: CLK_AUD0,
+    aud1: CLK_AUD1,
+    aud2: CLK_AUD2,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -52,6 +61,12 @@ pub struct Clocks {
     pub pll2clk1: Hertz,
     pub pll3clk0: Hertz,
     pub pll4clk0: Hertz,
+    /// Audio clock 0 (default: 24.576MHz for 8k*n sample rates)
+    pub aud0: Hertz,
+    /// Audio clock 1 (default: 24.576MHz for 8k*n sample rates)
+    pub aud1: Hertz,
+    /// Audio clock 2 (default: 24.576MHz for 8k*n sample rates)
+    pub aud2: Hertz,
 }
 
 impl Clocks {
@@ -87,6 +102,12 @@ pub struct Config {
     pub cpu1: ClockConfig,
     pub axi: ClockConfig,
     pub ahb: ClockConfig,
+    /// Audio clock 0 configuration (for I2S0/PDM). Default: PLL3CLK0 / 25 = 24.576MHz
+    pub aud0: Option<ClockConfig>,
+    /// Audio clock 1 configuration (for I2S1). Default: PLL3CLK0 / 25 = 24.576MHz
+    pub aud1: Option<ClockConfig>,
+    /// Audio clock 2 configuration (for I2S2/I2S3). Default: PLL3CLK0 / 25 = 24.576MHz
+    pub aud2: Option<ClockConfig>,
 }
 
 impl Default for Config {
@@ -96,6 +117,10 @@ impl Default for Config {
             cpu1: ClockConfig::new(ClockMux::PLL0CLK0, 2),
             axi: ClockConfig::new(ClockMux::PLL1CLK1, 2),
             ahb: ClockConfig::new(ClockMux::PLL1CLK1, 2),
+            // Default audio clocks: PLL3CLK0 / 25 = 24.576MHz
+            aud0: Some(ClockConfig::new(ClockMux::PLL3CLK0, 25)),
+            aud1: Some(ClockConfig::new(ClockMux::PLL3CLK0, 25)),
+            aud2: Some(ClockConfig::new(ClockMux::PLL3CLK0, 25)),
         }
     }
 }
@@ -117,6 +142,59 @@ impl ClockConfig {
     }
 }
 
+// - MARK: Audio clock helpers
+
+/// Set the clock source for an I2S peripheral
+///
+/// # Arguments
+/// - `i2s_idx`: I2S peripheral index (0-3)
+/// - `src`: Clock source selection
+///   - `I2sClkMux::AHB`: AHB clock
+///   - `I2sClkMux::I2S0`: AUD0 clock (default for audio)
+///   - `I2sClkMux::I2S1`: AUD1 clock
+///   - `I2sClkMux::I2S2`: AUD2 clock
+pub fn set_i2s_clock_source(i2s_idx: usize, src: I2sClkMux) {
+    SYSCTL.i2sclk(i2s_idx).modify(|w| w.set_mux(src));
+    while SYSCTL.i2sclk(i2s_idx).read().loc_busy() {}
+}
+
+/// Configure audio clock (AUD0/AUD1/AUD2)
+///
+/// # Arguments
+/// - `aud_idx`: Audio clock index (0-2)
+/// - `cfg`: Clock configuration (source and divider)
+pub fn configure_audio_clock(aud_idx: usize, cfg: &ClockConfig) {
+    let clock_idx = pac::clocks::AUD0 + aud_idx;
+    SYSCTL.clock(clock_idx).modify(|w| {
+        w.set_mux(cfg.src);
+        w.set_div(cfg.raw_div);
+    });
+    while SYSCTL.clock(clock_idx).read().loc_busy() {}
+
+    // Update global clock state
+    let freq = unsafe { CLOCKS.get_freq(cfg) };
+    unsafe {
+        match aud_idx {
+            0 => CLOCKS.aud0 = freq,
+            1 => CLOCKS.aud1 = freq,
+            2 => CLOCKS.aud2 = freq,
+            _ => {}
+        }
+    }
+}
+
+/// Get the current frequency of an audio clock
+pub fn get_audio_clock_freq(aud_idx: usize) -> Hertz {
+    unsafe {
+        match aud_idx {
+            0 => CLOCKS.aud0,
+            1 => CLOCKS.aud1,
+            2 => CLOCKS.aud2,
+            _ => Hertz(0),
+        }
+    }
+}
+
 pub(crate) unsafe fn init(config: Config) {
     const PLLCTL_SOC_PLL_REFCLK_FREQ: u32 = 24 * 1_000_000;
 
@@ -132,17 +210,21 @@ pub(crate) unsafe fn init(config: Config) {
     clock_add_to_group(pac::resources::CPU0_CORE, 0);
     clock_add_to_group(pac::resources::AHBAPB_BUS, 0);
     clock_add_to_group(pac::resources::AXI_BUS, 0);
+    clock_add_to_group(pac::resources::CONN_BUS, 0); // Required for CONCTL access
     clock_add_to_group(pac::resources::AXI_SRAM0, 0);
     clock_add_to_group(pac::resources::AXI_SRAM1, 0);
 
-    clock_add_to_group(pac::resources::ROM, 0);
+    clock_add_to_group(pac::resources::ROM0, 0);
     clock_add_to_group(pac::resources::XPI0, 0);
     clock_add_to_group(pac::resources::XPI1, 0);
     clock_add_to_group(pac::resources::FEMC, 0);
 
-    clock_add_to_group(pac::resources::MCHTMR0, 0);
+    clock_add_to_group(pac::resources::MCT0, 0);
     clock_add_to_group(pac::resources::LMM0, 0);
     clock_add_to_group(pac::resources::LMM1, 0);
+
+    clock_add_to_group(pac::resources::DMA0, 0); // HDMA
+    clock_add_to_group(pac::resources::DMA1, 0); // XDMA
 
     clock_add_to_group(pac::resources::GPIO, 0);
 
@@ -151,7 +233,7 @@ pub(crate) unsafe fn init(config: Config) {
     // Connect Group0 to CPU0
     SYSCTL.affiliate(0).set().write(|w| w.set_link(1 << 0));
 
-    clock_add_to_group(pac::resources::MCHTMR1, 1);
+    clock_add_to_group(pac::resources::MCT1, 1);
     clock_add_to_group(pac::resources::MBX1, 1);
 
     SYSCTL.affiliate(1).set().write(|w| w.set_link(1 << 1));
@@ -191,6 +273,17 @@ pub(crate) unsafe fn init(config: Config) {
     let ahb = CLOCKS.get_freq(&config.ahb);
     unsafe {
         CLOCKS.ahb = ahb;
+    }
+
+    // Configure audio clocks (AUD0/AUD1/AUD2)
+    if let Some(ref aud0) = config.aud0 {
+        configure_audio_clock(0, aud0);
+    }
+    if let Some(ref aud1) = config.aud1 {
+        configure_audio_clock(1, aud1);
+    }
+    if let Some(ref aud2) = config.aud2 {
+        configure_audio_clock(2, aud2);
     }
 
     while SYSCTL.clock(pac::clocks::CPU0).read().glb_busy() {}

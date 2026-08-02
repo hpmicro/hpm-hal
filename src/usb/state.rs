@@ -51,8 +51,9 @@ impl QtdListData {
 /// # Runtime Singleton Check
 ///
 /// The state includes an atomic flag to prevent multiple drivers from using
-/// the same state simultaneously. Attempting to create a second driver with
-/// the same state will panic.
+/// the same state simultaneously. Each state instance is intended for one
+/// USB driver initialization and remains owned for that driver's lifetime.
+/// Attempting to initialize another driver with the same state will panic.
 ///
 /// # Example
 ///
@@ -95,13 +96,6 @@ impl EndpointState {
         const STATE_IN_USE: u32 = 1 << 31;
         let prev = self.alloc_mask.fetch_or(STATE_IN_USE, Ordering::SeqCst);
         (prev & STATE_IN_USE) == 0
-    }
-
-    /// Release the state (for potential future reuse after driver is dropped).
-    #[allow(dead_code)]
-    pub(crate) fn release(&self) {
-        const STATE_IN_USE: u32 = 1 << 31;
-        self.alloc_mask.fetch_and(!STATE_IN_USE, Ordering::SeqCst);
     }
 
     /// Get QHD list as typed wrapper.

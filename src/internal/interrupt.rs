@@ -229,7 +229,7 @@ pub unsafe trait InterruptExt: InterruptNumber + Copy {
     fn complete(self) {
         PLIC.targetconfig(0)
             .claim()
-            .modify(|w| w.set_interrupt_id(self.number() as u16));
+            .write(|w| w.set_interrupt_id(self.number() as u16));
     }
 }
 
@@ -261,7 +261,7 @@ pub trait PlicExt {
 
     #[inline]
     fn complete(&self, id: u16) {
-        PLIC.targetconfig(0).claim().modify(|w| w.set_interrupt_id(id));
+        PLIC.targetconfig(0).claim().write(|w| w.set_interrupt_id(id));
     }
 }
 
@@ -307,9 +307,9 @@ unsafe impl riscv_pac::PriorityNumber for Priority {
         self as usize
     }
 
-    fn from_number(value: usize) -> riscv::result::Result<Self> {
+    fn from_number(value: usize) -> riscv_pac::result::Result<Self> {
         if value > 7 {
-            Err(riscv::result::Error::InvalidVariant(value))
+            Err(riscv_pac::result::Error::InvalidVariant(value))
         } else {
             Ok(unsafe { mem::transmute(value as u8) })
         }

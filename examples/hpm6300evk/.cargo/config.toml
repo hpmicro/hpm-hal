@@ -18,7 +18,11 @@ runner = [
 
 rustflags = [
     "-C",
-    "target-feature=+d,+zfh,+zba,+zbb,+zbc,+zbs",
+    # HPM6360 RISC-V extension status (verified by testing):
+    # - ZBB: mmsc_cfg2[5]=1 reports support, BUT actually causes illegal instruction!
+    # - ZBA/ZBC/ZBS: NOT supported (mmsc_cfg2 bits 4,6,7 = 0)
+    # DO NOT enable +zbb, +zba, +zbc, +zbs for HPM6360!
+    "target-feature=+d,+zfh",
     # Linker scripts:
     "-C",
     "link-arg=-Tmemory.x",

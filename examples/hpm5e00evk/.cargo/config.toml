@@ -1,0 +1,30 @@
+[build]
+target = "riscv32imafc-unknown-none-elf"
+
+[target.riscv32imafc-unknown-none-elf]
+rustflags = [
+    "-Z",
+    "tune-cpu=andes-45-series",
+    "-C",
+    "target-feature=+zba,+zbb,+zbc,+zbs",
+    "-C",
+    "llvm-args=-align-all-functions=2",
+    "-C",
+    "link-arg=-Tmemory.x",
+    "-C",
+    "link-arg=-Tdevice.x",
+    "-C",
+    "link-arg=-Tboot-header.x",
+    "-C",
+    "link-arg=-Thpm-link.x",
+    "-C",
+    "link-arg=-Tdefmt.x",
+    "-C",
+    "link-arg=-nmagic",
+]
+
+[unstable]
+build-std = ["core"]
+
+[env]
+DEFMT_LOG = "trace"

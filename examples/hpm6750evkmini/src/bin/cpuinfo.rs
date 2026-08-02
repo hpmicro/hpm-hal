@@ -29,7 +29,7 @@ fn main() -> ! {
         }
     }
 
-    let r = register::mmsc_cfg().read();
+    let r = register::mmsc_cfg::read();
     info!("mmsc_cfg: {:08x}", r.0);
     info!("  ECC: {}", r.ecc());
     info!("  CodeDense: {}", r.ecd());
@@ -62,7 +62,7 @@ fn main() -> ! {
 
     info!("  MSC_EXT: {}", r.msc_ext());
 
-    let r = register::mmsc_cfg2().read();
+    let r = register::mmsc_cfg2::read();
     info!("mmsc_cfg2: {:08x}", r.0);
     info!("  BF16CVT: {}", r.bf16cvt());
     info!("  ZFH: {}", r.zfh());
@@ -71,7 +71,7 @@ fn main() -> ! {
     if r.rvarch() {
         info!("  RVARCH: {}", r.rvarch());
 
-        let r = register::mrvarch_cfg().read();
+        let r = register::mrvarch_cfg::read();
         info!("mrvarch_cfg: {:08x}", r.0);
     }
 

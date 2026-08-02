@@ -1,8 +1,11 @@
 **/target
 trash/
+.trash/
 Cargo.lock
 *.bak
 
 .vscode/
+.DS_Store
 
 _*.rs
+*.log

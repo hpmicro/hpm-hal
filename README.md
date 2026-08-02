@@ -9,14 +9,14 @@ This crate is a working-in-progress and not ready for production use.
 
 ### MCU Family Support
 
-| MCU Family | PAC | Demo | Embassy | SYSCTL | GPIO | UART | I2C | SPI | DMA | TMR | PWM | ADC | WDG | USB | CAN |
-| ---------- | --- | ---- | ------- | ------ | ---- | ---- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| HPM6700    | Y   | Y    | Y       | Y      | Y+   | Y+   | Y+  | Y+  | Y+  | ?   | Y   |     |     |     |     |
-| HPM6300    | Y   | Y    | Y       | Y      | Y+   | ?    | ?   | ?   | ?   | ?   | ?   |     |     |     |     |
-| HPM6200    | Y   | Y    | Y       | Y      | Y+   |      |     |     |     | ?   | ?   |     |     |     |     |
-| HPM5300    | Y   | Y    | Y       | Y      | Y+   | Y+   | Y+  | Y+  | Y+  | Y   | ?   | Y   | Y   | Y   | Y   |
-| HPM6800    | Y   |      |         |        |      |      |     |     |     | ?   | ?   |     |     |     |     |
-| HPM6E00    | Y   | Y    | Y       | Y      | Y+   | Y+   | Y+  | Y+  | Y+  | ?   | !   |     | Y   | Y   | Y   |
+| MCU Family | PAC | Demo | Embassy | SYSCTL | GPIO | UART | I2C | SPI | DMA | TMR | PWM | ADC | WDG | USB | CAN | ENET |
+| ---------- | --- | ---- | ------- | ------ | ---- | ---- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---- |
+| HPM6700    | Y   | Y    | Y       | Y      | Y+   | Y+   | Y+  | Y+  | Y+  | ?   | Y   |     | Y   |     |     | Y+   |
+| HPM6300    | Y   | Y    | Y       | Y      | Y+   | ?    | ?   | ?   | ?   | ?   | ?   |     | Y   |     |     | Y+   |
+| HPM6200    | Y   | Y    | Y       | Y      | Y+   |      |     |     |     | ?   | ?   |     | Y   |     |     |      |
+| HPM5300    | Y   | Y    | Y       | Y      | Y+   | Y+   | Y+  | Y+  | Y+  | Y   | ?   | Y   | Y   | Y   | Y   |      |
+| HPM6800    | Y   |      |         |        |      |      |     |     |     | ?   | ?   |     | Y   |     |     |      |
+| HPM6E00    | Y   | Y    | Y       | Y      | Y+   | Y+   | Y+  | Y+  | Y+  | ?   | ?   |     | Y   | Y   | Y   | Y+   |
 
 - Y: Implemented
 - ?: Requires demo verification
@@ -57,7 +57,11 @@ This crate is a working-in-progress and not ready for production use.
   - [x] Multi-channel support
   - [ ] ComplementaryPwm with dead-time
   - [ ] InputCapture
-  - [ ] PWMV2 (v6e, HPM6E00/5E00)
+- [x] PWMV2 driver (v6e, HPM6E00 series)
+  - [x] SimplePwmV2 with API compatible to SimplePwm
+  - [x] Fractional duty cycle for 100ps resolution
+  - [x] 4 independent counters
+  - [ ] ComplementaryPwmV2
 - [x] ADC driver
   - [x] ADC16
     - blocking one-shot
@@ -85,7 +89,25 @@ This crate is a working-in-progress and not ready for production use.
   - [x] Device
   - [ ] Host
 - [x] XPI NOR flash driver using embedded-storage
+- [x] ENET (Ethernet)
+  - [x] RMII interface support
+  - [x] Generic PHY driver (RTL8201, etc.)
+  - [x] embassy-net integration
+  - [x] TCP/UDP via smoltcp
 - [x] RNG, in blocking mode
+- [x] CRC, with split pattern for multi-channel support
+- [x] ACMP (Analog Comparator)
+  - [x] Split pattern for async task distribution
+  - [x] Internal 8-bit DAC support
+  - [x] Configurable hysteresis and filtering
+  - [x] Edge detection (rising/falling)
+- [x] TSNS (Temperature Sensor)
+  - [x] Continuous mode measurement
+  - [x] Automatic min/max tracking
+- [x] WDG/EWDG (Watchdog)
+  - [x] EWDG for HPM5300/6800/6E00 (Enhanced Watchdog)
+  - [x] WDG for HPM6200/6300/6700 (Simple Watchdog)
+  - [x] Configurable timeout with Duration API
 - [ ] power domain handling
 
 ### Related Crates
@@ -99,7 +121,7 @@ This crate is a working-in-progress and not ready for production use.
 - [probe-rs]
   - [x] [HPM5300 series flash algorithm support](https://github.com/probe-rs/probe-rs/pull/2575)
     - Other series are available in the top level of this repo as `HPMicro.yaml`
-    - HPM6750 is not working(unknown bug), use OpenOCD instead
+    - HPM6750 uses a dedicated `HPM6700_Series.yaml` flash algorithm (in `examples/hpm6750evkmini/`)
   - [probe-rs HPM fork] (`hpmicro` branch), with DAP support and flash speed fix for HPM's RISC-V MCUs
     - [ ] Upstream Pull Request [#2578 JTag support for DAPLink](https://github.com/probe-rs/probe-rs/pull/2578)
 

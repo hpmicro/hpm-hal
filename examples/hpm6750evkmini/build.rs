@@ -1,4 +1,3 @@
 fn main() {
-    println!("rerun-if-changed=memory.x");
-    println!("cargo:rerun-if-changed=link-fixed.x");
+    println!("cargo:rerun-if-changed=memory-xpi.x");
 }

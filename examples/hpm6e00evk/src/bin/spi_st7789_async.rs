@@ -3,7 +3,6 @@
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
 #![feature(abi_riscv_interrupt)]
-#![feature(format_args_nl)]
 #![allow(static_mut_refs)]
 use core::fmt::Write as _;
 
@@ -137,7 +136,7 @@ macro_rules! println {
     ($($arg:tt)*) => {
         unsafe {
             if let Some(uart) = UART.as_mut() {
-                let _ = core::fmt::Write::write_fmt(uart, format_args_nl!($($arg)*));
+                let _ = core::fmt::Write::write_fmt(uart, format_args!("{}\n", format_args!($($arg)*)));
             }
         }
     };

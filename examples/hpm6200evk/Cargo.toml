@@ -28,8 +28,8 @@ embedded-hal = "1.0.0"
 embedded-hal-async = "1.0.0"
 embedded-io = "0.7.1"
 embedded-hal-bus = "0.2.0"
-riscv = { version = "0.15.0", features = ["critical-section-single-hart"] }
-andes-riscv = "0.1.1"
+riscv = { version = "0.16.0", features = ["critical-section-single-hart"] }
+andes-riscv = "0.3"
 
 [profile.release]
 strip = false   # symbols are not flashed to the microcontroller, so don't strip them.

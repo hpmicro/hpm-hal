@@ -95,7 +95,7 @@ async fn main(spawner: Spawner) -> ! {
     );
     info!(
         "  MTMR:\t{}Hz",
-        hal::sysctl::clocks().get_clock_freq(pac::clocks::MCHTMR0).0
+        hal::sysctl::clocks().get_clock_freq(pac::clocks::MCT0).0
     );
 
     spawner.spawn(blink(r.leds.r.into(), 500)).unwrap();

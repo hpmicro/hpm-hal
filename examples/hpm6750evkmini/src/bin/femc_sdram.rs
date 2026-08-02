@@ -1,189 +1,24 @@
+//! FEMC SDRAM Example for HPM6750EVKMINI
+//!
+//! This example demonstrates how to initialize and test external SDRAM
+//! using the FEMC (Flexible External Memory Controller) peripheral.
+//!
+//! The HPM6750EVKMINI board uses W9812G6JH-6 SDRAM (16MB, 16-bit).
+//!
+//! Two API options are available:
+//! 1. Type-safe API (recommended): Automatic pin configuration with compile-time checks
+//! 2. Legacy API (deprecated): Manual pin and timing configuration
+
 #![no_main]
 #![no_std]
 
 use defmt::info;
 use embassy_time::Delay;
 use embedded_hal::delay::DelayNs;
-use hal::pac;
 use hpm_hal as hal;
+use hpm_hal::femc::{chips::W9812g6jh6, Sdram};
 use hpm_hal::gpio::{Level, Output};
 use {defmt_rtt as _};
-
-fn init_femc_pins() {
-    use pac::iomux::*;
-    use pac::pins::*;
-    use pac::IOC;
-
-    IOC.pad(PD13)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PD13_FUNC_CTL_FEMC_DQ_14));
-    IOC.pad(PD12)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PD12_FUNC_CTL_FEMC_DQ_15));
-    IOC.pad(PD10)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PD10_FUNC_CTL_FEMC_DQ_12));
-    IOC.pad(PD09)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PD09_FUNC_CTL_FEMC_DQ_13));
-    IOC.pad(PD08)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PD08_FUNC_CTL_FEMC_DQ_00));
-    IOC.pad(PD07)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PD07_FUNC_CTL_FEMC_DQ_10));
-    IOC.pad(PD06)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PD06_FUNC_CTL_FEMC_DQ_11));
-    IOC.pad(PD05)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PD05_FUNC_CTL_FEMC_DQ_01));
-    IOC.pad(PD04)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PD04_FUNC_CTL_FEMC_DQ_08));
-    IOC.pad(PD03)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PD03_FUNC_CTL_FEMC_DQ_09));
-    IOC.pad(PD02)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PD02_FUNC_CTL_FEMC_DQ_04));
-    IOC.pad(PD01)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PD01_FUNC_CTL_FEMC_DQ_03));
-    IOC.pad(PD00)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PD00_FUNC_CTL_FEMC_DQ_02));
-    IOC.pad(PC29)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC29_FUNC_CTL_FEMC_DQ_07));
-    IOC.pad(PC28)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC28_FUNC_CTL_FEMC_DQ_06));
-    IOC.pad(PC27)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC27_FUNC_CTL_FEMC_DQ_05));
-
-    IOC.pad(PC21)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC21_FUNC_CTL_FEMC_A_11));
-    IOC.pad(PC17)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC17_FUNC_CTL_FEMC_A_09));
-    IOC.pad(PC15)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC15_FUNC_CTL_FEMC_A_10));
-    IOC.pad(PC12)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC12_FUNC_CTL_FEMC_A_08));
-    IOC.pad(PC11)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC11_FUNC_CTL_FEMC_A_07));
-    IOC.pad(PC10)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC10_FUNC_CTL_FEMC_A_06));
-    IOC.pad(PC09)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC09_FUNC_CTL_FEMC_A_01));
-    IOC.pad(PC08)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC08_FUNC_CTL_FEMC_A_00));
-    IOC.pad(PC07)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC07_FUNC_CTL_FEMC_A_05));
-    IOC.pad(PC06)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC06_FUNC_CTL_FEMC_A_04));
-    IOC.pad(PC05)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC05_FUNC_CTL_FEMC_A_03));
-    IOC.pad(PC04)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC04_FUNC_CTL_FEMC_A_02));
-
-    IOC.pad(PC14)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC14_FUNC_CTL_FEMC_BA1));
-    IOC.pad(PC13)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC13_FUNC_CTL_FEMC_BA0));
-    IOC.pad(PC16).func_ctl().write(|w| {
-        w.set_alt_select(IOC_PC16_FUNC_CTL_FEMC_DQS);
-        w.set_loop_back(true);
-    });
-    IOC.pad(PC26)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC26_FUNC_CTL_FEMC_CLK));
-    IOC.pad(PC25)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC25_FUNC_CTL_FEMC_CKE));
-    IOC.pad(PC19)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC19_FUNC_CTL_FEMC_CS_0));
-    IOC.pad(PC18)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC18_FUNC_CTL_FEMC_RAS));
-    IOC.pad(PC23)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC23_FUNC_CTL_FEMC_CAS));
-    IOC.pad(PC24)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC24_FUNC_CTL_FEMC_WE));
-    IOC.pad(PC30)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC30_FUNC_CTL_FEMC_DM_0));
-    IOC.pad(PC31)
-        .func_ctl()
-        .write(|w| w.set_alt_select(IOC_PC31_FUNC_CTL_FEMC_DM_1));
-}
-
-fn init_ext_ram() {
-    use hal::femc::*;
-
-    init_femc_pins();
-
-    let clk_in = hal::sysctl::clocks().get_clock_freq(pac::clocks::FEMC);
-
-    let femc_config = FemcConfig::default();
-    let mut femc = unsafe { Femc::new_raw(hal::peripherals::FEMC::steal()) };
-
-    femc.init(femc_config);
-
-    let mut sdram_config = FemcSdramConfig::default();
-
-    sdram_config.bank_num = Bank2Sel::BANK_NUM_4;
-    sdram_config.prescaler = 0x3;
-    sdram_config.burst_len = BurstLen::_8;
-    sdram_config.auto_refresh_count_in_one_burst = 1;
-    //  Column address: A0-A8
-    sdram_config.col_addr_bits = ColAddrBits::_9BIT;
-    sdram_config.cas_latency = CasLatency::_3;
-
-    // AC Characteristics and Operating Condition
-    sdram_config.refresh_to_refresh_in_ns = 60; /* Trc */
-    sdram_config.refresh_recover_in_ns = 60; /* Trc */
-    sdram_config.act_to_precharge_in_ns = 42; /* Tras */
-    sdram_config.act_to_rw_in_ns = 18; /* Trcd */
-    sdram_config.precharge_to_act_in_ns = 18; /* Trp */
-    sdram_config.act_to_act_in_ns = 12; /* Trrd */
-    sdram_config.write_recover_in_ns = 12; /* Twr/Tdpl */
-    sdram_config.self_refresh_recover_in_ns = 72; /* Txsr */
-
-    sdram_config.cs = 0; // BOARD_SDRAM_CS; = FEMC_SDRAM_CS0 = 0
-    sdram_config.base_address = 0x40000000; // BOARD_SDRAM_ADDRESS;
-    sdram_config.size = MemorySize::_16MB;
-    sdram_config.port_size = SdramPortSize::_16BIT;
-    sdram_config.refresh_count = 4096; // BOARD_SDRAM_REFRESH_COUNT;
-    sdram_config.refresh_in_ms = 64; // Tref, BOARD_SDRAM_REFRESH_IN_MS;
-
-    sdram_config.delay_cell_disable = true;
-    sdram_config.delay_cell_value = 0;
-
-    info!("Configuring SDRAM...");
-
-    let _ = femc.configure_sdram(clk_in.0, sdram_config).unwrap();
-}
-
-const SDRAM: *mut u32 = 0x4000_0000 as *mut u32;
 
 #[hpm_hal::entry]
 fn main() -> ! {
@@ -193,36 +28,130 @@ fn main() -> ! {
 
     let mut red_led = Output::new(p.PB19, Level::Low, Default::default());
 
-    init_ext_ram();
+    // ========================================================================
+    // Type-safe SDRAM initialization (Recommended)
+    // ========================================================================
+    // Using Sdram::new_16bit_cs0() with W9812g6jh6 chip definition.
+    // This approach:
+    // - Automatically configures all pins
+    // - Uses pre-defined timing from chip datasheet
+    // - Provides compile-time pin verification
+    // - Handles DQS loop_back automatically
 
-    info!("SDRAM init done");
+    info!("Initializing SDRAM with type-safe API...");
 
-    for i in (0..(1024 * 1024 * 4)).step_by(4) {
-        let ptr = unsafe { SDRAM.add(i) }; // add word address
-        unsafe { core::ptr::write_volatile(ptr, 0xCAFEBABE) };
+    let sdram = Sdram::new_16bit_cs0(
+        p.FEMC,
+        // Address pins A0-A11
+        p.PC08, p.PC09, p.PC04, p.PC05, p.PC06, p.PC07, p.PC10, p.PC11, p.PC12, p.PC17, p.PC15,
+        p.PC21, // Bank address BA0-BA1
+        p.PC13, p.PC14, // Data pins DQ0-DQ15
+        p.PD08, p.PD05, p.PD00, p.PD01, p.PD02, p.PC27, p.PC28, p.PC29, p.PD04, p.PD03, p.PD07,
+        p.PD06, p.PD10, p.PD09, p.PD13, p.PD12, // Data mask DM0-DM1
+        p.PC30, p.PC31, // Control: DQS, CLK, CKE, RAS, CAS, WE, CS0
+        p.PC16, p.PC26, p.PC25, p.PC18, p.PC23, p.PC24, p.PC19, // Chip configuration
+        W9812g6jh6,
+    );
 
-        if i % 102400 == 0 {
-            info!("sdram: {:x} = {:08x}", ptr as u32, unsafe {
-                core::ptr::read_volatile(ptr)
-            });
-        }
+    let mut delay = Delay;
+    let sdram_ptr = sdram.init(&mut delay);
+
+    info!(
+        "SDRAM init done: base=0x{:08x}, size={}MB",
+        sdram.base_address(),
+        sdram.size() / 1024 / 1024
+    );
+
+    // Memory test
+    let word_count = sdram.size() / 4;
+    let mut total_errors = 0u32;
+    let mut passed = 0u8;
+    let mut failed = 0u8;
+
+    // Test 1: Address as data (detects address line issues)
+    info!("[1/3] Address pattern test ({} words)...", word_count);
+    for i in 0..word_count {
+        unsafe { sdram_ptr.add(i).write_volatile(i as u32) };
     }
-
-    info!("SDRAM write done");
-
-    let mut errors = 0;
-    // read out
-    for i in (0..(1024 * 1024 * 4)).step_by(4) {
-        let ptr = unsafe { SDRAM.add(i) }; // add word address
-        let val = unsafe { core::ptr::read_volatile(ptr) };
-
-        if val != 0xCAFEBABE {
-            info!("ERROR: sdram: {:x} = {:08x}", ptr as u32, val);
+    let mut errors = 0u32;
+    for i in 0..word_count {
+        let val = unsafe { sdram_ptr.add(i).read_volatile() };
+        if val != i as u32 {
+            if errors < 3 {
+                info!("  ERR @{:08x}: got {:08x}, exp {:08x}", sdram_ptr as u32 + (i * 4) as u32, val, i);
+            }
             errors += 1;
         }
     }
+    if errors == 0 {
+        info!("[1/3] PASS");
+        passed += 1;
+    } else {
+        info!("[1/3] FAIL - {} errors", errors);
+        failed += 1;
+    }
+    total_errors += errors;
 
-    info!("SDRAM read done, errors = {}", errors);
+    // Test 2: Inverted address (detects stuck bits)
+    info!("[2/3] Inverted pattern test...");
+    for i in 0..word_count {
+        unsafe { sdram_ptr.add(i).write_volatile(!(i as u32)) };
+    }
+    errors = 0;
+    for i in 0..word_count {
+        let val = unsafe { sdram_ptr.add(i).read_volatile() };
+        let expected = !(i as u32);
+        if val != expected {
+            if errors < 3 {
+                info!("  ERR @{:08x}: got {:08x}, exp {:08x}", sdram_ptr as u32 + (i * 4) as u32, val, expected);
+            }
+            errors += 1;
+        }
+    }
+    if errors == 0 {
+        info!("[2/3] PASS");
+        passed += 1;
+    } else {
+        info!("[2/3] FAIL - {} errors", errors);
+        failed += 1;
+    }
+    total_errors += errors;
+
+    // Test 3: Checkerboard (detects data line coupling)
+    info!("[3/3] Checkerboard pattern test...");
+    for i in 0..word_count {
+        let pattern = if i % 2 == 0 { 0x55555555 } else { 0xAAAAAAAA };
+        unsafe { sdram_ptr.add(i).write_volatile(pattern) };
+    }
+    errors = 0;
+    for i in 0..word_count {
+        let expected = if i % 2 == 0 { 0x55555555 } else { 0xAAAAAAAA };
+        let val = unsafe { sdram_ptr.add(i).read_volatile() };
+        if val != expected {
+            if errors < 3 {
+                info!("  ERR @{:08x}: got {:08x}, exp {:08x}", sdram_ptr as u32 + (i * 4) as u32, val, expected);
+            }
+            errors += 1;
+        }
+    }
+    if errors == 0 {
+        info!("[3/3] PASS");
+        passed += 1;
+    } else {
+        info!("[3/3] FAIL - {} errors", errors);
+        failed += 1;
+    }
+    total_errors += errors;
+
+    // Final summary
+    info!("========================================");
+    info!("  SDRAM Test Summary: {}/{} passed", passed, passed + failed);
+    if total_errors == 0 {
+        info!("  Result: ALL TESTS PASSED");
+    } else {
+        info!("  Result: FAILED ({} total errors)", total_errors);
+    }
+    info!("========================================");
 
     loop {
         Delay.delay_ms(1000);
